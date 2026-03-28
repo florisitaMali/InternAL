@@ -1,0 +1,5 @@
+{
+  "name": "InternAL - Internship Management Platform",
+  "description": "A platform connecting Universities, Students, and Companies for managing internship opportunities with approval workflows and role-based access control.",
+  "requestFramePermissions": []
+}

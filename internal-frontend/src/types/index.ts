@@ -67,7 +67,10 @@ export interface Opportunity {
   requiredExperience: string;
   deadline: string;
   targetUniversityIds: string[];
-  type?: string;
+  type?: 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH';
+  location?: string;
+  isPaid?: boolean;
+  workMode?: 'Remote' | 'On-site' | 'Hybrid';
 }
 
 export type ApplicationType = 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH';

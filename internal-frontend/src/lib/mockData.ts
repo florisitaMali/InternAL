@@ -90,7 +90,10 @@ export const mockOpportunities: Opportunity[] = [
     requiredExperience: 'Basic knowledge of web development',
     deadline: '2026-05-01',
     targetUniversityIds: ['u1', 'u2'],
-    type: 'Internship'
+    type: 'PROFESSIONAL_PRACTICE',
+    location: 'New York',
+    isPaid: true,
+    workMode: 'Hybrid',
   },
   {
     id: 'o2',
@@ -102,7 +105,10 @@ export const mockOpportunities: Opportunity[] = [
     requiredExperience: 'Knowledge of statistics',
     deadline: '2026-06-15',
     targetUniversityIds: ['u1'],
-    type: 'Training'
+    type: 'INDIVIDUAL_GROWTH',
+    location: 'San Francisco',
+    isPaid: false,
+    workMode: 'Remote',
   }
 ];
 

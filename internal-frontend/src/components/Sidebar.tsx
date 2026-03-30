@@ -92,7 +92,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
           </div>
           <p className="text-[10px] text-slate-500 font-medium">Active Workspace</p>
         </div>
-        <button 
+        <button
+          type="button"
           onClick={onLogout}
           suppressHydrationWarning
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all duration-300 text-sm font-bold"

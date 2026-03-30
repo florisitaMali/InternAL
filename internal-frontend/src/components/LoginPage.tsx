@@ -3,8 +3,10 @@
 import React, { useState } from 'react';
 import Logo from './Logo';
 import { Role } from '@/src/types';
-import { Mail, Lock, ArrowRight, Github, Chrome } from 'lucide-react';
+import { Mail, Lock, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
+import { fetchUserAccountByEmail } from '@/src/lib/auth/userAccount';
 
 interface LoginPageProps {
   onLogin: (role: Role) => void;
@@ -15,35 +17,95 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
 
-    // Mock login logic
-    setTimeout(() => {
-      const lowerEmail = email.toLowerCase();
-      let role: Role = 'STUDENT';
+    const next: { email?: string; password?: string } = {};
+    if (!email.trim()) next.email = 'Email is required.';
+    if (!password) next.password = 'Password is required.';
+    if (Object.keys(next).length > 0) {
+      setFieldErrors(next);
+      return;
+    }
+    setFieldErrors({});
 
-      if (lowerEmail.includes('admin')) {
-        role = 'UNIVERSITY_ADMIN';
-      } else if (lowerEmail.includes('ppa')) {
-        role = 'PPA';
-      } else if (lowerEmail.includes('company')) {
-        role = 'COMPANY';
-      } else if (lowerEmail.includes('student')) {
-        role = 'STUDENT';
+    void (async () => {
+      setIsLoading(true);
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+
+        if (signInError) {
+          // Keep UI message per acceptance criteria, but log the real Supabase reason in devtools.
+          // This helps us distinguish "wrong password" vs "email not confirmed" vs "misconfigured keys".
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[InternAL login] signInWithPassword failed:', {
+              message: signInError.message,
+              status: (signInError as any).status,
+              name: (signInError as any).name,
+            });
+          }
+          toast.error('Invalid username/email or password.');
+          return;
+        }
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const emailForProfile = session?.user?.email?.trim() ?? email.trim();
+
+        const { data: acct, errorMessage, errorCode } = await fetchUserAccountByEmail(
+          supabase,
+          emailForProfile
+        );
+
+        if (errorMessage) {
+          await supabase.auth.signOut();
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[InternAL login] useraccount lookup failed:', {
+              emailForProfile,
+              errorMessage,
+              errorCode,
+            });
+          }
+          toast.error(
+            'Could not load your account profile. Check the useraccount table, RLS (run supabase-setup.sql), and that the table name matches your database.',
+            { duration: 8000 }
+          );
+          return;
+        }
+
+        if (!acct) {
+          await supabase.auth.signOut();
+          toast.error(
+            'No UserAccount row for this email. In Supabase, add a useraccount row whose email matches your Auth user (same address as Authentication → Users).',
+            { duration: 10000 }
+          );
+          return;
+        }
+
+        onLogin(acct.role);
+        toast.success(`Welcome back! Logged in as ${acct.role.replace('_', ' ')}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Something went wrong.';
+        if (message.includes('NEXT_PUBLIC_SUPABASE')) {
+          toast.error('Server configuration is incomplete. Add Supabase keys to .env.local.');
+        } else {
+          toast.error(message);
+        }
+      } finally {
+        setIsLoading(false);
       }
-
-      onLogin(role);
-      toast.success(`Welcome back! Logged in as ${role.replace('_', ' ')}`);
-      setIsLoading(false);
-    }, 1000);
+    })();
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-6 relative overflow-hidden">
-      {/* Background Orbs */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
         <div className="absolute -top-24 -right-24 w-96 h-96 bg-indigo-50 rounded-full blur-3xl opacity-50"></div>
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-blue-50 rounded-full blur-3xl opacity-30"></div>
@@ -59,19 +121,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Email</label>
               <div className="relative">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
-                  type="text"
-                  placeholder="student@example.com"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="you@university.edu"
                   suppressHydrationWarning
                   className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none transition-all"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  required
                 />
               </div>
+              {fieldErrors.email ? <p className="text-xs text-red-600 ml-1">{fieldErrors.email}</p> : null}
             </div>
 
             <div className="space-y-2">
@@ -90,14 +153,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
                   type="password"
+                  autoComplete="current-password"
                   placeholder="••••••••"
                   suppressHydrationWarning
                   className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none transition-all"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  required
                 />
               </div>
+              {fieldErrors.password ? <p className="text-xs text-red-600 ml-1">{fieldErrors.password}</p> : null}
             </div>
 
             <button
@@ -116,35 +180,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
               )}
             </button>
           </form>
-
-          <div className="mt-10">
-            <div className="relative flex items-center justify-center mb-8">
-              <div className="absolute w-full h-px bg-slate-100"></div>
-              <span className="relative px-4 bg-white text-[10px] font-bold text-slate-400 uppercase tracking-widest">Or continue with</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                suppressHydrationWarning
-                className="flex items-center justify-center gap-2 py-3 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all text-sm font-bold text-slate-700"
-              >
-                <Chrome size={18} className="text-red-500" />
-                Google
-              </button>
-              <button 
-                suppressHydrationWarning
-                className="flex items-center justify-center gap-2 py-3 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all text-sm font-bold text-slate-700"
-              >
-                <Github size={18} />
-                GitHub
-              </button>
-            </div>
-          </div>
         </div>
-
-        <p className="text-center mt-8 text-sm text-slate-500">
-          Don&apos;t have an account? <button suppressHydrationWarning className="text-[#002B5B] font-bold hover:underline">Request Access</button>
-        </p>
       </div>
     </div>
   );

@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Dashboard from './Dashboard';
 import ProfileEditor from './ProfileEditor';
 import UnderDevelopment from './UnderDevelopment';
-import { mockStudents, mockOpportunities, mockApplications } from '@/src/lib/mockData';
+import { mockStudents, mockApplications } from '@/src/lib/mockData';
+import { applyOpportunity, fetchOpportunities } from '@/src/lib/opportunitiesApi';
 import { 
   Briefcase, 
   FileText, 
@@ -23,7 +24,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
-import { Student } from '../types';
+import { Opportunity, Student } from '../types';
 
 interface StudentDashboardProps {
   activeTab: string;
@@ -33,9 +34,87 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ activeTab }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [student, setStudent] = useState<Student>(mockStudents[0]); // Mock current student
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [opportunitiesLoading, setOpportunitiesLoading] = useState(false);
+  const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [selectedApplicationType, setSelectedApplicationType] = useState<'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH'>('PROFESSIONAL_PRACTICE');
+  const [accuracyConfirmed, setAccuracyConfirmed] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleApply = (opportunityTitle: string) => {
-    toast.success(`Application submitted for ${opportunityTitle}!`);
+  useEffect(() => {
+    (async () => {
+      try {
+        setOpportunitiesLoading(true);
+        const data = await fetchOpportunities();
+        setOpportunities(data);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to load opportunities';
+        toast.error(message);
+      } finally {
+        setOpportunitiesLoading(false);
+      }
+    })();
+  }, []);
+
+  const filteredOpportunities = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return opportunities;
+    return opportunities.filter(
+      (opp) =>
+        opp.title.toLowerCase().includes(q) ||
+        opp.companyName.toLowerCase().includes(q) ||
+        (opp.description ?? '').toLowerCase().includes(q)
+    );
+  }, [opportunities, searchTerm]);
+
+  const toNumber = (value: string): number | null => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const extractStudentNumericId = (): number | null => {
+    const raw = student.id ?? '';
+    const digits = raw.match(/\d+/)?.[0];
+    if (!digits) return null;
+    const n = Number(digits);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const handleSubmitApplication = async () => {
+    if (!selectedOpportunity) return;
+    const studentId = extractStudentNumericId();
+    const opportunityId = toNumber(selectedOpportunity.id);
+    const companyId = toNumber(selectedOpportunity.companyId);
+
+    if (!studentId || !opportunityId || !companyId) {
+      toast.error('Cannot submit. student/company/opportunity ID must be numeric.');
+      return;
+    }
+
+    if (!accuracyConfirmed) {
+      toast.error('Please confirm the information is accurate.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await applyOpportunity({
+        studentId,
+        companyId,
+        opportunityId,
+        applicationType: selectedApplicationType,
+        accuracyConfirmed,
+      });
+      toast.success(`Application submitted for ${selectedOpportunity.title}.`);
+      setShowApplyModal(false);
+      setAccuracyConfirmed(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to submit application';
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const renderStats = () => (
@@ -82,7 +161,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ activeTab }) => {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {mockOpportunities.map((opp) => (
+        {opportunitiesLoading && <div className="text-sm text-slate-500">Loading opportunities...</div>}
+        {!opportunitiesLoading && filteredOpportunities.map((opp) => (
           <div key={opp.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 group">
             <div className="flex justify-between items-start mb-4">
               <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-all">
@@ -107,13 +187,20 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ activeTab }) => {
             </div>
             <div className="flex gap-2">
               <button 
-                onClick={() => handleApply(opp.title)}
+                onClick={() => {
+                  setSelectedOpportunity(opp);
+                  setShowApplyModal(true);
+                }}
                 suppressHydrationWarning
                 className="flex-1 py-2.5 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all shadow-lg shadow-indigo-500/20"
               >
                 Apply Now
               </button>
-              <button suppressHydrationWarning className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all">
+              <button
+                onClick={() => setSelectedOpportunity(opp)}
+                suppressHydrationWarning
+                className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all"
+              >
                 Details
               </button>
             </div>
@@ -303,9 +390,109 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ activeTab }) => {
   };
 
   return (
-    <Dashboard title={`Hello, ${student.fullName}`}>
-      {renderContent()}
-    </Dashboard>
+    <>
+      <Dashboard title={`Hello, ${student.fullName}`}>
+        {renderContent()}
+      </Dashboard>
+
+      {selectedOpportunity && !showApplyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-3xl bg-white rounded-2xl border border-slate-200 shadow-2xl p-6 relative grid grid-cols-1 md:grid-cols-2 gap-6">
+            <button onClick={() => setSelectedOpportunity(null)} className="absolute right-4 top-4 text-slate-500 hover:text-slate-700">✕</button>
+            <div>
+              <h3 className="text-xl font-bold">{selectedOpportunity.title}</h3>
+              <p className="text-sm text-slate-500 mt-1">{selectedOpportunity.companyName}</p>
+              <p className="text-sm text-slate-500">{selectedOpportunity.companyLocation ?? 'Location not specified'} / {selectedOpportunity.type ?? 'Work type not specified'}</p>
+              <div className="mt-5">
+                <h4 className="font-semibold mb-2">Overview</h4>
+                <p className="text-sm text-slate-700">{selectedOpportunity.description || 'No overview provided.'}</p>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div><span className="font-semibold">Deadline:</span> {selectedOpportunity.deadline || 'N/A'}</div>
+                <div><span className="font-semibold">Industry:</span> {selectedOpportunity.companyIndustry || 'N/A'}</div>
+                <div><span className="font-semibold">Experience:</span> {selectedOpportunity.requiredExperience || 'N/A'}</div>
+                <div><span className="font-semibold">Type:</span> {selectedOpportunity.type || 'N/A'}</div>
+              </div>
+              <button
+                onClick={() => setShowApplyModal(true)}
+                className="mt-6 px-8 py-2 bg-[#002B5B] text-white rounded-lg font-bold hover:bg-[#001F42]"
+              >
+                APPLY
+              </button>
+            </div>
+            <div>
+              <div>
+                <h4 className="font-semibold mb-2">Key Responsibilities</h4>
+                <p className="text-sm text-slate-700">{selectedOpportunity.description || 'No responsibilities provided.'}</p>
+              </div>
+              <div className="mt-5">
+                <h4 className="font-semibold mb-2">Qualifications</h4>
+                <div className="flex flex-wrap gap-2">
+                  {selectedOpportunity.requiredSkills.length > 0 ? selectedOpportunity.requiredSkills.map((skill) => (
+                    <span key={skill} className="px-3 py-1 bg-slate-100 rounded-full text-xs font-semibold">{skill}</span>
+                  )) : <span className="text-sm text-slate-500">No skills listed.</span>}
+                </div>
+              </div>
+              <div className="mt-5">
+                <h4 className="font-semibold mb-2">Benefits</h4>
+                <p className="text-sm text-slate-700">{selectedOpportunity.type ? `${selectedOpportunity.type} opportunity` : 'Not specified in database.'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedOpportunity && showApplyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-3xl bg-white rounded-2xl border border-slate-200 shadow-2xl p-6 relative">
+            <button onClick={() => setShowApplyModal(false)} className="absolute right-4 top-4 text-slate-500 hover:text-slate-700">✕</button>
+            <h3 className="text-2xl font-bold mb-4">Submit Application</h3>
+            <div className="border rounded-lg p-4 mb-4 grid grid-cols-2 gap-4 text-sm">
+              <div><span className="font-semibold">Role:</span> {selectedOpportunity.title}</div>
+              <div><span className="font-semibold">Company:</span> {selectedOpportunity.companyName}</div>
+              <div><span className="font-semibold">Student:</span> {student.fullName}</div>
+              <div><span className="font-semibold">Email:</span> {student.email}</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4 text-sm">
+              <div className="border rounded-lg p-4">
+                <h4 className="font-semibold mb-3">Academic Standing</h4>
+                <div>Study Field: {student.studyFieldId ?? 'N/A'}</div>
+                <div>Current Study Year: {student.studyYear}</div>
+                <div>CGPA: {student.cgpa}</div>
+              </div>
+              <div className="border rounded-lg p-4">
+                <h4 className="font-semibold mb-3">CV Management</h4>
+                <div>Current CV: {student.extendedProfile?.cvUrl ? 'Uploaded' : 'Not uploaded'}</div>
+              </div>
+            </div>
+            <div className="mb-4 text-sm">
+              <label className="flex items-center gap-2 mb-2">
+                <input type="radio" checked={selectedApplicationType === 'PROFESSIONAL_PRACTICE'} onChange={() => setSelectedApplicationType('PROFESSIONAL_PRACTICE')} />
+                Professional Practice
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={selectedApplicationType === 'INDIVIDUAL_GROWTH'} onChange={() => setSelectedApplicationType('INDIVIDUAL_GROWTH')} />
+                Individual Growth
+              </label>
+            </div>
+            <div className="mb-6 text-sm border rounded-lg p-4">
+              <h4 className="font-semibold mb-2">Review and Consent</h4>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={accuracyConfirmed} onChange={(e) => setAccuracyConfirmed(e.target.checked)} />
+                I have read all pre-filled information and confirm it is accurate.
+              </label>
+            </div>
+            <button
+              onClick={handleSubmitApplication}
+              disabled={isSubmitting}
+              className="px-6 py-2 bg-[#002B5B] text-white rounded-lg font-bold disabled:opacity-60"
+            >
+              {isSubmitting ? 'Submitting...' : 'Submit Application'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

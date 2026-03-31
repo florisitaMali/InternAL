@@ -68,6 +68,8 @@ export interface Opportunity {
   deadline: string;
   targetUniversityIds: string[];
   type?: string;
+  companyLocation?: string;
+  companyIndustry?: string;
 }
 
 export type ApplicationType = 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH';

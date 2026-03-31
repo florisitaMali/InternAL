@@ -8,9 +8,11 @@ interface DashboardProps {
   title: string;
   children: React.ReactNode;
   actions?: React.ReactNode;
+  userName: string;
+  userRole: string;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ title, children, actions }) => {
+const Dashboard: React.FC<DashboardProps> = ({ title, children, actions, userName, userRole }) => {
   return (
     <div className="flex-1 ml-72 min-h-screen flex flex-col bg-[#F9FAFB]">
       <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 px-8 flex items-center justify-between">
@@ -40,8 +42,8 @@ const Dashboard: React.FC<DashboardProps> = ({ title, children, actions }) => {
           <div className="h-8 w-px bg-slate-200 mx-2"></div>
           <div className="flex items-center gap-3 pl-2">
             <div className="text-right hidden sm:block">
-              <div className="text-sm font-bold text-slate-900">John Doe</div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Administrator</div>
+              <div className="text-sm font-bold text-slate-900">{userName}</div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{userRole}</div>
             </div>
             <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 border border-slate-200">
               <User size={20} />

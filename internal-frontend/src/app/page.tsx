@@ -17,11 +17,13 @@ import { fetchUserAccountByEmail } from '@/src/lib/auth/userAccount';
 
 export default function Home() {
   const [role, setRole] = useState<Role>('STUDENT');
+  const [currentUserName, setCurrentUserName] = useState('User');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const isSigningOutRef = useRef(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +45,7 @@ export default function Home() {
 
       if (!session?.user?.email) {
         setIsLoggedIn(false);
+        setCurrentUserName('User');
         return;
       }
 
@@ -50,9 +53,21 @@ export default function Home() {
       if (!acct || errorMessage) {
         await supabase!.auth.signOut();
         setIsLoggedIn(false);
+        setCurrentUserName('User');
         return;
       }
 
+      const metadataName =
+        (session.user.user_metadata?.full_name as string | undefined) ||
+        (session.user.user_metadata?.name as string | undefined);
+      const emailName = session.user.email.split('@')[0] || 'User';
+      const normalizedEmailName = emailName
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+
+      setCurrentUserName(metadataName || normalizedEmailName || 'User');
       setRole(acct.role);
       setIsLoggedIn(true);
       setActiveTab('dashboard');
@@ -76,59 +91,87 @@ export default function Home() {
     };
   }, []);
 
-  const handleLogin = (selectedRole: Role) => {
+  const handleLogin = (selectedRole: Role, name: string) => {
     setRole(selectedRole);
+    setCurrentUserName(name);
     setIsLoggedIn(true);
     setActiveTab('dashboard');
   };
 
   const handleLogout = () => {
     void (async () => {
+      if (isSigningOutRef.current) return;
       isSigningOutRef.current = true;
+      setIsLoggingOut(true);
+
+      // Immediately reflect logged-out UI, even if remote sign-out call fails.
+      setActiveTab('dashboard');
+      setShowForgotPassword(false);
+      setIsLoggedIn(false);
+      setCurrentUserName('User');
+
       try {
         const supabase = getSupabaseBrowserClient();
-        // Avoid global revocation: it can cause noisy "Invalid Refresh Token" logs.
-        // Local sign-out + localStorage cleanup is enough for correct UI logout.
+        // Local cleanup first prevents stale tokens from repopulating state.
         clearSupabaseAuthStorage();
         const { error } = await supabase.auth.signOut({ scope: 'local' });
-        if (error) {
-          toast.error(error.message);
-          return;
-        }
+        if (error) toast.error(`Sign-out warning: ${error.message}`);
 
-        // Verify session is cleared (RLS doesn't affect auth session).
+        // Last-resort cleanup if session still appears in memory.
         const { data: sessionAfter } = await supabase.auth.getSession();
         if (sessionAfter.session) {
-          // Last resort: wipe storage again and sign out again.
           clearSupabaseAuthStorage();
           await supabase.auth.signOut({ scope: 'local' });
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Sign out failed';
-        toast.error(msg);
-        return;
+        toast.error(`Sign-out warning: ${msg}`);
       } finally {
+        clearSupabaseAuthStorage();
+        setIsLoggingOut(false);
         isSigningOutRef.current = false;
       }
-      setActiveTab('dashboard');
-      setShowForgotPassword(false);
-      setIsLoggedIn(false);
+
       toast.info('Logged out successfully');
-      // Ensure UI + auth state fully reset for all users.
-      window.location.reload();
     })();
   };
 
   const renderDashboard = () => {
+    const roleLabel = role.replace(/_/g, ' ');
+
     switch (role) {
       case 'UNIVERSITY_ADMIN':
-        return <UniversityAdminDashboard activeTab={activeTab} />;
+        return (
+          <UniversityAdminDashboard
+            activeTab={activeTab}
+            currentUserName={currentUserName}
+            currentUserRoleLabel={roleLabel}
+          />
+        );
       case 'PPA':
-        return <PPADashboard activeTab={activeTab} />;
+        return (
+          <PPADashboard
+            activeTab={activeTab}
+            currentUserName={currentUserName}
+            currentUserRoleLabel={roleLabel}
+          />
+        );
       case 'STUDENT':
-        return <StudentDashboard activeTab={activeTab} />;
+        return (
+          <StudentDashboard
+            activeTab={activeTab}
+            currentUserName={currentUserName}
+            currentUserRoleLabel={roleLabel}
+          />
+        );
       case 'COMPANY':
-        return <CompanyDashboard activeTab={activeTab} />;
+        return (
+          <CompanyDashboard
+            activeTab={activeTab}
+            currentUserName={currentUserName}
+            currentUserRoleLabel={roleLabel}
+          />
+        );
       default:
         return <div>Select a role to continue</div>;
     }
@@ -156,7 +199,12 @@ export default function Home() {
         <div className="absolute top-1/2 -left-24 w-72 h-72 bg-blue-50 rounded-full blur-3xl opacity-30"></div>
       </div>
 
-      <Sidebar role={role} activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
+      <Sidebar
+        role={role}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onLogout={isLoggingOut ? () => {} : handleLogout}
+      />
 
       <div className="flex-1 relative z-10">{renderDashboard()}</div>
     </div>

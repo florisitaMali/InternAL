@@ -9,7 +9,7 @@ import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import { fetchUserAccountByEmail } from '@/src/lib/auth/userAccount';
 
 interface LoginPageProps {
-  onLogin: (role: Role) => void;
+  onLogin: (role: Role, name: string) => void;
   onForgotPassword: () => void;
 }
 
@@ -35,14 +35,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
       setIsLoading(true);
       try {
         const supabase = getSupabaseBrowserClient();
+        const normalizedEmail = email.trim().toLowerCase();
         const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
+          email: normalizedEmail,
           password,
         });
 
         if (signInError) {
-          // Keep UI message per acceptance criteria, but log the real Supabase reason in devtools.
-          // This helps us distinguish "wrong password" vs "email not confirmed" vs "misconfigured keys".
           if (process.env.NODE_ENV === 'development') {
             console.error('[InternAL login] signInWithPassword failed:', {
               message: signInError.message,
@@ -50,14 +49,21 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
               name: (signInError as any).name,
             });
           }
-          toast.error('Invalid username/email or password.');
+          const reason = signInError.message.toLowerCase();
+          if (reason.includes('email not confirmed')) {
+            toast.error('Email not confirmed yet. Confirm from your inbox, then login again.');
+          } else if (reason.includes('invalid login credentials')) {
+            toast.error('Invalid email or password. Check credentials or reset your password.');
+          } else {
+            toast.error(signInError.message);
+          }
           return;
         }
 
         const {
           data: { session },
         } = await supabase.auth.getSession();
-        const emailForProfile = session?.user?.email?.trim() ?? email.trim();
+        const emailForProfile = session?.user?.email?.trim() ?? normalizedEmail;
 
         const { data: acct, errorMessage, errorCode } = await fetchUserAccountByEmail(
           supabase,
@@ -89,7 +95,14 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
           return;
         }
 
-        onLogin(acct.role);
+        const fallbackName = emailForProfile.split('@')[0] || 'User';
+        const normalizedName = fallbackName
+          .split(/[._-]+/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(' ');
+
+        onLogin(acct.role, normalizedName || 'User');
         toast.success(`Welcome back! Logged in as ${acct.role.replace('_', ' ')}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Something went wrong.';

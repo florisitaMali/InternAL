@@ -20,9 +20,15 @@ import { cn } from '@/src/lib/utils';
 
 interface PPADashboardProps {
   activeTab: string;
+  currentUserName: string;
+  currentUserRoleLabel: string;
 }
 
-const PPADashboard: React.FC<PPADashboardProps> = ({ activeTab }) => {
+const PPADashboard: React.FC<PPADashboardProps> = ({
+  activeTab,
+  currentUserName,
+  currentUserRoleLabel,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const ppa = mockPPAs[0]; // Mock current PPA
 
@@ -253,7 +259,11 @@ const PPADashboard: React.FC<PPADashboardProps> = ({ activeTab }) => {
   };
 
   return (
-    <Dashboard title={`Welcome, ${ppa.fullName}`}>
+    <Dashboard
+      title={`Hello, ${currentUserName}`}
+      userName={currentUserName}
+      userRole={currentUserRoleLabel}
+    >
       {renderContent()}
     </Dashboard>
   );

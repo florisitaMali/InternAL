@@ -31,9 +31,15 @@ import { cn } from '@/src/lib/utils';
 
 interface UniversityAdminDashboardProps {
   activeTab: string;
+  currentUserName: string;
+  currentUserRoleLabel: string;
 }
 
-const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({ activeTab }) => {
+const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
+  activeTab,
+  currentUserName,
+  currentUserRoleLabel,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingStudent, setIsAddingStudent] = useState(false);
   const [isImportingCSV, setIsImportingCSV] = useState(false);
@@ -390,7 +396,11 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({ act
   };
 
   return (
-    <Dashboard title="University Administration">
+    <Dashboard
+      title={`Hello, ${currentUserName}`}
+      userName={currentUserName}
+      userRole={currentUserRoleLabel}
+    >
       {renderContent()}
     </Dashboard>
   );

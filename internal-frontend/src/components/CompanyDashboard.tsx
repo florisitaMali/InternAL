@@ -24,9 +24,15 @@ import { toast } from 'sonner';
 
 interface CompanyDashboardProps {
   activeTab: string;
+  currentUserName: string;
+  currentUserRoleLabel: string;
 }
 
-const CompanyDashboard: React.FC<CompanyDashboardProps> = ({ activeTab }) => {
+const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
+  activeTab,
+  currentUserName,
+  currentUserRoleLabel,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingOpportunity, setIsAddingOpportunity] = useState(false);
   const [opportunities, setOpportunities] = useState(mockOpportunities);
@@ -239,7 +245,11 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({ activeTab }) => {
   };
 
   return (
-    <Dashboard title={`Welcome, ${company.name}`}>
+    <Dashboard
+      title={`Hello, ${currentUserName}`}
+      userName={currentUserName}
+      userRole={currentUserRoleLabel}
+    >
       {renderContent()}
     </Dashboard>
   );

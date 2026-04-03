@@ -27,9 +27,15 @@ import { Student } from '../types';
 
 interface StudentDashboardProps {
   activeTab: string;
+  currentUserName: string;
+  currentUserRoleLabel: string;
 }
 
-const StudentDashboard: React.FC<StudentDashboardProps> = ({ activeTab }) => {
+const StudentDashboard: React.FC<StudentDashboardProps> = ({
+  activeTab,
+  currentUserName,
+  currentUserRoleLabel,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [student, setStudent] = useState<Student>(mockStudents[0]); // Mock current student
@@ -303,7 +309,11 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ activeTab }) => {
   };
 
   return (
-    <Dashboard title={`Hello, ${student.fullName}`}>
+    <Dashboard
+      title={`Hello, ${currentUserName}`}
+      userName={currentUserName}
+      userRole={currentUserRoleLabel}
+    >
       {renderContent()}
     </Dashboard>
   );

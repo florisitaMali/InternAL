@@ -2,16 +2,18 @@
 
 import React, { useState } from 'react';
 import Logo from './Logo';
-import { Role } from '@/src/types';
+import { Role, Student } from '@/src/types';
 import { Mail, Lock, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
-import { fetchUserAccountByEmail } from '@/src/lib/auth/userAccount';
+import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
 
 interface LoginPageProps {
-  onLogin: (role: Role, name: string) => void;
+  onLogin: (role: Role, name: string, studentProfile: Student | null) => void;
   onForgotPassword: () => void;
 }
+
+const LOGIN_FLOW_TIMEOUT_MS = 20_000;
 
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
   const [email, setEmail] = useState('');
@@ -34,80 +36,89 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
     void (async () => {
       setIsLoading(true);
       try {
-        const supabase = getSupabaseBrowserClient();
-        const normalizedEmail = email.trim().toLowerCase();
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: normalizedEmail,
-          password,
-        });
-
-        if (signInError) {
-          if (process.env.NODE_ENV === 'development') {
-            console.error('[InternAL login] signInWithPassword failed:', {
-              message: signInError.message,
-              status: (signInError as any).status,
-              name: (signInError as any).name,
+        await Promise.race([
+          (async () => {
+            const supabase = getSupabaseBrowserClient();
+            const normalizedEmail = email.trim().toLowerCase();
+            const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+              email: normalizedEmail,
+              password,
             });
-          }
-          const reason = signInError.message.toLowerCase();
-          if (reason.includes('email not confirmed')) {
-            toast.error('Email not confirmed yet. Confirm from your inbox, then login again.');
-          } else if (reason.includes('invalid login credentials')) {
-            toast.error('Invalid email or password. Check credentials or reset your password.');
-          } else {
-            toast.error(signInError.message);
-          }
-          return;
-        }
 
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const emailForProfile = session?.user?.email?.trim() ?? normalizedEmail;
+            if (signInError) {
+              if (process.env.NODE_ENV === 'development') {
+                console.error('[InternAL login] signInWithPassword failed:', {
+                  message: signInError.message,
+                  status: (signInError as any).status,
+                  name: (signInError as any).name,
+                });
+              }
+              const reason = signInError.message.toLowerCase();
+              if (reason.includes('email not confirmed')) {
+                toast.error('Email not confirmed yet. Confirm from your inbox, then login again.');
+              } else if (reason.includes('invalid login credentials')) {
+                toast.error('Invalid email or password. Check credentials or reset your password.');
+              } else {
+                toast.error(signInError.message);
+              }
+              return;
+            }
 
-        const { data: acct, errorMessage, errorCode } = await fetchUserAccountByEmail(
-          supabase,
-          emailForProfile
-        );
+            const session =
+              signInData?.session ??
+              (
+                await supabase.auth.getSession()
+              ).data.session;
+            const emailForProfile = session?.user?.email?.trim() ?? normalizedEmail;
+            const metadataName =
+              (session?.user?.user_metadata?.full_name as string | undefined) ||
+              (session?.user?.user_metadata?.name as string | undefined);
 
-        if (errorMessage) {
-          await supabase.auth.signOut();
-          if (process.env.NODE_ENV === 'development') {
-            console.error('[InternAL login] useraccount lookup failed:', {
+            if (!session?.access_token) {
+              await supabase.auth.signOut();
+              toast.error('Could not restore your session token after login.');
+              return;
+            }
+
+            const { data: appUser, errorMessage } = await loadCurrentAppUser(
+              session.access_token,
               emailForProfile,
-              errorMessage,
-              errorCode,
-            });
-          }
-          toast.error(
-            'Could not load your account profile. Check the useraccount table, RLS (run supabase-setup.sql), and that the table name matches your database.',
-            { duration: 8000 }
-          );
-          return;
-        }
+              metadataName
+            );
 
-        if (!acct) {
-          await supabase.auth.signOut();
-          toast.error(
-            'No UserAccount row for this email. In Supabase, add a useraccount row whose email matches your Auth user (same address as Authentication → Users).',
-            { duration: 10000 }
-          );
-          return;
-        }
+            if (errorMessage) {
+              await supabase.auth.signOut();
+              if (process.env.NODE_ENV === 'development') {
+                console.error('[InternAL login] backend current-user lookup failed:', {
+                  emailForProfile,
+                  errorMessage,
+                });
+              }
+              toast.error(errorMessage, { duration: 8000 });
+              return;
+            }
 
-        const fallbackName = emailForProfile.split('@')[0] || 'User';
-        const normalizedName = fallbackName
-          .split(/[._-]+/)
-          .filter(Boolean)
-          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-          .join(' ');
-
-        onLogin(acct.role, normalizedName || 'User');
-        toast.success(`Welcome back! Logged in as ${acct.role.replace('_', ' ')}`);
+            if (!appUser) {
+              await supabase.auth.signOut();
+              toast.error('Could not load your account profile from the backend.', { duration: 10000 });
+              return;
+            }
+            onLogin(appUser.user.role, appUser.displayName || 'User', appUser.studentProfile);
+            toast.success(`Welcome back! Logged in as ${appUser.user.role.replace('_', ' ')}`);
+          })(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Login timed out')), LOGIN_FLOW_TIMEOUT_MS)
+          ),
+        ]);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Something went wrong.';
         if (message.includes('NEXT_PUBLIC_SUPABASE')) {
           toast.error('Server configuration is incomplete. Add Supabase keys to .env.local.');
+        } else if (message.includes('timed out')) {
+          toast.error(
+            'Login is taking too long. Check your network, or clear site data for this app and try again.',
+            { duration: 8000 }
+          );
         } else {
           toast.error(message);
         }

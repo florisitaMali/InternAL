@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3000 --hostname 0.0.0.0",
-    "build": "next build && rm -rf dist && mv out dist",
+    "build": "next build && shx rm -rf dist && shx mv out dist",
     "lint": "next lint && tsc --noEmit"
   },
   "dependencies": {
@@ -38,6 +38,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "^15.1.0",
     "postcss-import": "^16.1.1",
+    "shx": "^0.4.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"

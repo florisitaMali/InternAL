@@ -29,11 +29,27 @@ export interface StudyField {
   departmentId: string;
 }
 
+export interface StudentProfileFile {
+  certificationId?: number;
+  displayName: string;
+  storagePath?: string;
+  originalFilename: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  uploadedAt?: string;
+  downloadUrl?: string;
+}
+
 export interface Student extends User {
   university: string;
+  departmentName?: string;
+  studyFieldName?: string;
+  phone?: string;
   studyYear: number;
   cgpa: number;
   hasCompletedPP: boolean;
+  accessStartDate?: string;
+  accessEndDate?: string;
   extendedProfile?: {
     description: string;
     skills: string[];
@@ -42,6 +58,9 @@ export interface Student extends User {
     experience: string[];
     hobbies: string[];
     cvUrl?: string;
+    cvFilename?: string;
+    cvFile?: StudentProfileFile;
+    certificationFiles?: StudentProfileFile[];
   };
 }
 
@@ -86,4 +105,10 @@ export interface Application {
   isApprovedByCompany?: boolean;
   createdAt: string;
   status: ApplicationStatus;
+}
+
+export interface DashboardStats {
+  totalStudents: number;
+  totalDepartments: number;
+  totalStudyFields: number;
 }

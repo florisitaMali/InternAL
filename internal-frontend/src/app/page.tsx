@@ -3,27 +3,41 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Sidebar from '@/src/components/Sidebar';
-import { Role } from '@/src/types';
+import { Role, Student } from '@/src/types';
 import UniversityAdminDashboard from '@/src/components/UniversityAdminDashboard';
 import PPADashboard from '@/src/components/PPADashboard';
 import StudentDashboard from '@/src/components/StudentDashboard';
 import CompanyDashboard from '@/src/components/CompanyDashboard';
 import LoginPage from '@/src/components/LoginPage';
 import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
-
 import { toast } from 'sonner';
 import { clearSupabaseAuthStorage, getSupabaseBrowserClient } from '@/src/lib/supabase/client';
-import { fetchUserAccountByEmail } from '@/src/lib/auth/userAccount';
+import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
+
+const GET_SESSION_TIMEOUT_MS = 25_000;
+const ROLE_LABELS: Record<Role, string> = {
+  UNIVERSITY_ADMIN: 'University Admin',
+  PPA: 'PPA',
+  STUDENT: 'Student',
+  COMPANY: 'Company',
+};
 
 export default function Home() {
   const [role, setRole] = useState<Role>('STUDENT');
   const [currentUserName, setCurrentUserName] = useState('User');
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const isSigningOutRef = useRef(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const resetLocalUserState = () => {
+    setIsLoggedIn(false);
+    setCurrentUserName('User');
+    setCurrentStudent(null);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -38,51 +52,102 @@ export default function Home() {
 
     const sync = async (session: Session | null) => {
       if (cancelled) return;
+      if (isSigningOutRef.current && session?.user) return;
 
-      if (isSigningOutRef.current && session?.user) {
-        return;
-      }
-
-      if (!session?.user?.email) {
-        setIsLoggedIn(false);
-        setCurrentUserName('User');
-        return;
-      }
-
-      const { data: acct, errorMessage } = await fetchUserAccountByEmail(supabase!, session.user.email);
-      if (!acct || errorMessage) {
-        await supabase!.auth.signOut();
-        setIsLoggedIn(false);
-        setCurrentUserName('User');
+      if (!session?.access_token || !session?.user?.email) {
+        resetLocalUserState();
         return;
       }
 
       const metadataName =
         (session.user.user_metadata?.full_name as string | undefined) ||
         (session.user.user_metadata?.name as string | undefined);
-      const emailName = session.user.email.split('@')[0] || 'User';
-      const normalizedEmailName = emailName
-        .split(/[._-]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ');
+      const { data: appUser, errorMessage } = await loadCurrentAppUser(
+        session.access_token,
+        session.user.email,
+        metadataName
+      );
+      if (cancelled) return;
 
-      setCurrentUserName(metadataName || normalizedEmailName || 'User');
-      setRole(acct.role);
+      if (!appUser || errorMessage) {
+        clearSupabaseAuthStorage();
+        try {
+          await supabase!.auth.signOut({ scope: 'local' });
+        } catch {
+          /* ignore */
+        }
+        resetLocalUserState();
+        toast.error(errorMessage || 'Could not load your account profile.');
+        return;
+      }
+
+      setRole(appUser.user.role);
+      setCurrentUserName(appUser.displayName || 'User');
+      setCurrentStudent(appUser.studentProfile);
       setIsLoggedIn(true);
-      setActiveTab('dashboard');
     };
 
-    void supabase.auth.getSession().then(async ({ data: { session } }) => {
-      await sync(session);
-      if (!cancelled) setAuthChecked(true);
-    });
+    void (async () => {
+      try {
+        let session: Session | null = null;
+        try {
+          const { data } = await Promise.race([
+            supabase.auth.getSession(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('getSession timed out')), GET_SESSION_TIMEOUT_MS)
+            ),
+          ]);
+          session = data.session;
+        } catch (e) {
+          if (e instanceof Error && e.message.includes('getSession timed out')) {
+            if (!cancelled) {
+              clearSupabaseAuthStorage();
+              try {
+                await supabase.auth.signOut({ scope: 'local' });
+              } catch {
+                /* ignore */
+              }
+              resetLocalUserState();
+              toast.error(
+                'Could not read your session in time. Try again, or clear site data for this site if it keeps happening.',
+                { duration: 8000 }
+              );
+            }
+            return;
+          }
+          throw e;
+        }
+
+        if (!cancelled) await sync(session);
+      } catch (e) {
+        console.error('[auth] initial session failed', e);
+        if (!cancelled) {
+          resetLocalUserState();
+          toast.error('Could not restore your session. Please sign in again.');
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthChecked(true);
+        }
+      }
+    })();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') return;
-      await sync(session);
+      try {
+        if (!cancelled) await sync(session);
+      } catch (e) {
+        console.error('[auth] auth state sync failed', e);
+        if (!cancelled) {
+          resetLocalUserState();
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthChecked(true);
+        }
+      }
     });
 
     return () => {
@@ -91,9 +156,10 @@ export default function Home() {
     };
   }, []);
 
-  const handleLogin = (selectedRole: Role, name: string) => {
+  const handleLogin = (selectedRole: Role, name: string, studentProfile: Student | null) => {
     setRole(selectedRole);
     setCurrentUserName(name);
+    setCurrentStudent(studentProfile);
     setIsLoggedIn(true);
     setActiveTab('dashboard');
   };
@@ -104,20 +170,16 @@ export default function Home() {
       isSigningOutRef.current = true;
       setIsLoggingOut(true);
 
-      // Immediately reflect logged-out UI, even if remote sign-out call fails.
       setActiveTab('dashboard');
       setShowForgotPassword(false);
-      setIsLoggedIn(false);
-      setCurrentUserName('User');
+      resetLocalUserState();
 
       try {
         const supabase = getSupabaseBrowserClient();
-        // Local cleanup first prevents stale tokens from repopulating state.
         clearSupabaseAuthStorage();
         const { error } = await supabase.auth.signOut({ scope: 'local' });
         if (error) toast.error(`Sign-out warning: ${error.message}`);
 
-        // Last-resort cleanup if session still appears in memory.
         const { data: sessionAfter } = await supabase.auth.getSession();
         if (sessionAfter.session) {
           clearSupabaseAuthStorage();
@@ -135,6 +197,8 @@ export default function Home() {
       toast.info('Logged out successfully');
     })();
   };
+
+  const roleLabel = ROLE_LABELS[role];
 
   const renderDashboard = () => {
     const roleLabel = role.replace(/_/g, ' ');
@@ -162,6 +226,7 @@ export default function Home() {
             activeTab={activeTab}
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
+            currentStudent={currentStudent}
           />
         );
       case 'COMPANY':

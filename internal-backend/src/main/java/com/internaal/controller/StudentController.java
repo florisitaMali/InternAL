@@ -15,13 +15,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -62,9 +63,10 @@ public class StudentController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Missing bearer token"));
         }
+        Integer studentId = parseStudentId(user);
 
         Optional<StudentProfileResponse> profile = studentProfileRepository.findByStudentId(
-                user.getLinkedEntityId(),
+                studentId,
                 userJwt
         );
 
@@ -96,9 +98,10 @@ public class StudentController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Missing bearer token"));
         }
+        Integer studentId = parseStudentId(user);
 
         Optional<StudentProfileResponse> savedProfile = studentProfileRepository.saveByStudentId(
-                user.getLinkedEntityId(),
+                studentId,
                 userJwt,
                 updateRequest
         );
@@ -119,9 +122,10 @@ public class StudentController {
         if (guard != null) {
             return guard;
         }
+        Integer studentId = parseStudentId(user);
 
         try {
-            StudentProfileFileResponse savedFile = studentProfileFileService.uploadCv(user.getLinkedEntityId(), file);
+            StudentProfileFileResponse savedFile = studentProfileFileService.uploadCv(studentId, file);
             return ResponseEntity.ok(savedFile);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -139,9 +143,10 @@ public class StudentController {
         if (guard != null) {
             return guard;
         }
+        Integer studentId = parseStudentId(user);
 
         try {
-            Optional<StudentFileDownload> file = studentProfileFileService.downloadCv(user.getLinkedEntityId());
+            Optional<StudentFileDownload> file = studentProfileFileService.downloadCv(studentId);
             if (file.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "CV not found"));
             }
@@ -158,9 +163,10 @@ public class StudentController {
         if (guard != null) {
             return guard;
         }
+        Integer studentId = parseStudentId(user);
 
         try {
-            boolean deleted = studentProfileFileService.deleteCv(user.getLinkedEntityId());
+            boolean deleted = studentProfileFileService.deleteCv(studentId);
             if (!deleted) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "CV not found"));
             }
@@ -180,10 +186,11 @@ public class StudentController {
         if (guard != null) {
             return guard;
         }
+        Integer studentId = parseStudentId(user);
 
         try {
             StudentProfileFileResponse savedFile = studentProfileFileService.uploadCertification(
-                    user.getLinkedEntityId(),
+                    studentId,
                     file,
                     displayName
             );
@@ -205,7 +212,7 @@ public class StudentController {
             return guard;
         }
 
-        return ResponseEntity.ok(studentProfileRepository.listCertificationFiles(user.getLinkedEntityId()));
+        return ResponseEntity.ok(studentProfileRepository.listCertificationFiles(parseStudentId(user)));
     }
 
     @GetMapping("/profile/certifications/{id}")
@@ -216,10 +223,11 @@ public class StudentController {
         if (guard != null) {
             return guard;
         }
+        Integer studentId = parseStudentId(user);
 
         try {
             Optional<StudentFileDownload> file = studentProfileFileService.downloadCertification(
-                    user.getLinkedEntityId(),
+                    studentId,
                     certificationId
             );
             if (file.isEmpty()) {
@@ -241,9 +249,10 @@ public class StudentController {
         if (guard != null) {
             return guard;
         }
+        Integer studentId = parseStudentId(user);
 
         try {
-            boolean deleted = studentProfileFileService.deleteCertification(user.getLinkedEntityId(), certificationId);
+            boolean deleted = studentProfileFileService.deleteCertification(studentId, certificationId);
             if (!deleted) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("error", "Certification not found"));
@@ -276,6 +285,14 @@ public class StudentController {
         return null;
     }
 
+    private Integer parseStudentId(UserAccount user) {
+        try {
+            return Integer.valueOf(user.getLinkedEntityId());
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Account linked_entity_id must be a numeric student id");
+        }
+    }
+
     private ResponseEntity<byte[]> buildFileDownloadResponse(StudentFileDownload file) {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(
@@ -289,4 +306,5 @@ public class StudentController {
                 )
                 .body(file.getBytes());
     }
+
 }

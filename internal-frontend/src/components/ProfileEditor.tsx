@@ -30,7 +30,9 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
   const [newSkill, setNewSkill] = useState('');
   const [newLanguage, setNewLanguage] = useState('');
   const [newHobby, setNewHobby] = useState('');
-  const [experienceText, setExperienceText] = useState((student.extendedProfile?.experience || []).join(', '));
+  const [experienceText, setExperienceText] = useState(
+    (student.extendedProfile?.experience || []).join(', ')
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingCv, setIsUploadingCv] = useState(false);
   const [isUploadingCertification, setIsUploadingCertification] = useState(false);
@@ -55,6 +57,12 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
       accessEndDate: student.accessEndDate,
       extendedProfile: {
         ...prev.extendedProfile!,
+        description: student.extendedProfile?.description || '',
+        skills: student.extendedProfile?.skills || [],
+        certificates: student.extendedProfile?.certificates || [],
+        languages: student.extendedProfile?.languages || [],
+        experience: student.extendedProfile?.experience || [],
+        hobbies: student.extendedProfile?.hobbies || [],
         cvUrl: student.extendedProfile?.cvUrl,
         cvFilename: student.extendedProfile?.cvFilename,
         cvFile: student.extendedProfile?.cvFile,
@@ -72,71 +80,75 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    if (name.startsWith('extendedProfile.')) {
-      const field = name.split('.')[1];
-      if (field === 'experience') {
-        setExperienceText(value);
-        return;
-      }
-      const nextValue =
-        field === 'certificates'
-          ? parseCommaSeparatedList(value)
-          : value;
-      setFormData(prev => ({
+
+    if (name === 'extendedProfile.description') {
+      setFormData((prev) => ({
         ...prev,
         extendedProfile: {
           ...prev.extendedProfile!,
-          [field]: nextValue
-        }
+          description: value,
+        },
       }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
+      return;
     }
+
+    if (name === 'extendedProfile.experience') {
+      setExperienceText(value);
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleAddSkill = () => {
-    if (newSkill && !formData.extendedProfile?.skills.includes(newSkill)) {
-      setFormData(prev => ({
-        ...prev,
-        extendedProfile: {
-          ...prev.extendedProfile!,
-          skills: [...prev.extendedProfile!.skills, newSkill]
-        }
-      }));
-      setNewSkill('');
+    const skill = newSkill.trim();
+    if (!skill || formData.extendedProfile?.skills.includes(skill)) {
+      return;
     }
-  };
 
-  const handleRemoveSkill = (skill: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       extendedProfile: {
         ...prev.extendedProfile!,
-        skills: prev.extendedProfile!.skills.filter(s => s !== skill)
-      }
+        skills: [...(prev.extendedProfile?.skills || []), skill],
+      },
+    }));
+    setNewSkill('');
+  };
+
+  const handleRemoveSkill = (skill: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      extendedProfile: {
+        ...prev.extendedProfile!,
+        skills: (prev.extendedProfile?.skills || []).filter((item) => item !== skill),
+      },
     }));
   };
 
   const handleAddLanguage = () => {
-    if (newLanguage && !formData.extendedProfile?.languages.includes(newLanguage)) {
-      setFormData(prev => ({
-        ...prev,
-        extendedProfile: {
-          ...prev.extendedProfile!,
-          languages: [...prev.extendedProfile!.languages, newLanguage]
-        }
-      }));
-      setNewLanguage('');
+    const language = newLanguage.trim();
+    if (!language || formData.extendedProfile?.languages.includes(language)) {
+      return;
     }
-  };
 
-  const handleRemoveLanguage = (lang: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       extendedProfile: {
         ...prev.extendedProfile!,
-        languages: prev.extendedProfile!.languages.filter(l => l !== lang)
-      }
+        languages: [...(prev.extendedProfile?.languages || []), language],
+      },
+    }));
+    setNewLanguage('');
+  };
+
+  const handleRemoveLanguage = (lang: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      extendedProfile: {
+        ...prev.extendedProfile!,
+        languages: (prev.extendedProfile?.languages || []).filter((item) => item !== lang),
+      },
     }));
   };
 
@@ -168,6 +180,7 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
     void (async () => {
       setIsSaving(true);
       try {
@@ -222,10 +235,7 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
     })();
   };
 
-  const renderChipList = (
-    items: string[],
-    onRemove: (value: string) => void
-  ) => (
+  const renderChipList = (items: string[], onRemove: (value: string) => void) => (
     <div className="flex flex-wrap gap-2">
       {items.map((item) => (
         <span
@@ -314,10 +324,12 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
         </div>
 
         <label className="block">
-          <span className="mb-3 block text-xs font-extrabold uppercase tracking-[0.18em] text-slate-400">About Me</span>
-          <textarea 
-            name="extendedProfile.description" 
-            value={formData.extendedProfile?.description || ''} 
+          <span className="mb-3 block text-xs font-extrabold uppercase tracking-[0.18em] text-slate-400">
+            About Me
+          </span>
+          <textarea
+            name="extendedProfile.description"
+            value={formData.extendedProfile?.description || ''}
             onChange={handleChange}
             rows={4}
             placeholder="Let's introduce myself. I'm..."
@@ -329,15 +341,15 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
           <div className="space-y-4">
             <h3 className="text-xs font-extrabold uppercase tracking-[0.18em] text-slate-400">Skills</h3>
             <div className="flex gap-2">
-              <input 
-                type="text" 
-                value={newSkill} 
+              <input
+                type="text"
+                value={newSkill}
                 onChange={(e) => setNewSkill(e.target.value)}
                 placeholder="Add a skill..."
                 className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-[#163968]"
               />
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={handleAddSkill}
                 className="rounded-xl bg-[#20948B] px-6 py-3 text-sm font-bold text-white transition-all hover:bg-[#1A7A72]"
               >
@@ -350,15 +362,15 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
           <div className="space-y-4">
             <h3 className="text-xs font-extrabold uppercase tracking-[0.18em] text-slate-400">Languages</h3>
             <div className="flex gap-2">
-              <input 
-                type="text" 
-                value={newLanguage} 
+              <input
+                type="text"
+                value={newLanguage}
                 onChange={(e) => setNewLanguage(e.target.value)}
                 placeholder="Add a language..."
                 className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-[#163968]"
               />
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={handleAddLanguage}
                 className="rounded-xl bg-[#20948B] px-6 py-3 text-sm font-bold text-white transition-all hover:bg-[#1A7A72]"
               >
@@ -393,7 +405,9 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
 
           <div className="space-y-4">
             <label className="block">
-              <span className="mb-3 block text-xs font-extrabold uppercase tracking-[0.18em] text-slate-400">Experiences</span>
+              <span className="mb-3 block text-xs font-extrabold uppercase tracking-[0.18em] text-slate-400">
+                Experiences
+              </span>
               <textarea
                 name="extendedProfile.experience"
                 value={experienceText}
@@ -447,7 +461,9 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
                                 try {
                                   await onDeleteCertification(certificationId);
                                 } catch (error) {
-                                  toast.error(error instanceof Error ? error.message : 'Could not delete certification.');
+                                  toast.error(
+                                    error instanceof Error ? error.message : 'Could not delete certification.'
+                                  );
                                 } finally {
                                   setPendingDeleteKey(null);
                                 }
@@ -510,14 +526,14 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
         </div>
 
         <div className="flex justify-end gap-4 pt-2">
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={onCancel}
             className="rounded-xl border border-slate-300 bg-white px-8 py-3 text-base font-semibold text-slate-700 transition-all hover:bg-slate-50"
           >
             Cancel
           </button>
-          <button 
+          <button
             type="submit"
             disabled={isSaving}
             className="flex items-center gap-2 rounded-xl bg-[#0E2A59] px-8 py-3 text-base font-semibold text-white transition-all hover:bg-[#0A2248]"

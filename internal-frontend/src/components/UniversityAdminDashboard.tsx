@@ -1,19 +1,18 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Dashboard from './Dashboard';
 import AddStudentForm from './AddStudentForm';
 import ImportCSVForm from './ImportCSVForm';
 import UnderDevelopment from './UnderDevelopment';
 import { 
-  mockStudents, 
   mockPPAs, 
-  mockDepartments, 
-  mockStudyFields, 
   mockApplications, 
   mockOpportunities, 
   mockCompanies 
 } from '@/src/lib/mockData';
+import { api } from '@/src/lib/api';
+import type { DashboardStats, Department, Student, StudyField } from '@/src/types';
 import { 
   Users, 
   GraduationCap, 
@@ -43,15 +42,54 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingStudent, setIsAddingStudent] = useState(false);
   const [isImportingCSV, setIsImportingCSV] = useState(false);
-  const [students, setStudents] = useState(mockStudents);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [studyFields, setStudyFields] = useState<StudyField[]>([]);
+  const [stats, setStats] = useState<DashboardStats>({
+    totalStudents: 0,
+    totalDepartments: 0,
+    totalStudyFields: 0
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [studentsData, departmentsData, fieldsData, statsData] = await Promise.all([
+          api.getStudents(),
+          api.getDepartments(),
+          api.getStudyFields(),
+          api.getDashboardStats()
+        ]);
+        setStudents(studentsData);
+        setDepartments(departmentsData);
+        setStudyFields(fieldsData);
+        setStats(statsData);
+      } catch (error) {
+        console.error('Failed to load backend data', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  const filteredStudents = useMemo(
+    () =>
+      students.filter((student) =>
+        `${student.fullName} ${student.email}`.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [students, searchTerm]
+  );
 
   const renderStats = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
       {[
-        { label: 'Total Students', value: mockStudents.length, icon: Users, color: 'bg-blue-50 text-blue-600', trend: '+12%' },
+        { label: 'Total Students', value: stats.totalStudents, icon: Users, color: 'bg-blue-50 text-blue-600', trend: '+12%' },
         { label: 'PP Approvers', value: mockPPAs.length, icon: GraduationCap, color: 'bg-[#002B5B]/10 text-[#002B5B]', trend: '+5%' },
-        { label: 'Active Opportunities', value: mockOpportunities.length, icon: Briefcase, color: 'bg-emerald-50 text-emerald-600', trend: '+2' },
-        { label: 'Total Applications', value: mockApplications.length, icon: FileText, color: 'bg-amber-50 text-amber-600', trend: '-3%' },
+        { label: 'Departments', value: stats.totalDepartments, icon: Briefcase, color: 'bg-emerald-50 text-emerald-600', trend: '+2' },
+        { label: 'Study Fields', value: stats.totalStudyFields, icon: FileText, color: 'bg-amber-50 text-amber-600', trend: '-3%' },
       ].map((stat, i) => (
         <div key={i} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 group">
           <div className="flex items-center justify-between mb-4">
@@ -76,11 +114,15 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     if (isAddingStudent) {
       return (
         <AddStudentForm 
-          onSave={(newStudent) => {
-            setStudents(prev => [newStudent, ...prev]);
+          onSave={async (newStudent) => {
+            const created = await api.createStudent(newStudent);
+            setStudents(prev => [created, ...prev]);
+            setStats(prev => ({ ...prev, totalStudents: prev.totalStudents + 1 }));
             setIsAddingStudent(false);
           }} 
           onCancel={() => setIsAddingStudent(false)} 
+          departments={departments}
+          studyFields={studyFields}
         />
       );
     }
@@ -145,7 +187,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {students.map((student) => (
+              {filteredStudents.map((student) => (
                 <tr key={student.id} className="hover:bg-slate-50 transition-all group">
                   <td className="px-6 py-4 font-mono text-xs text-slate-500">{student.id}</td>
                   <td className="px-6 py-4">
@@ -194,7 +236,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           </button>
         </div>
         <div className="divide-y divide-slate-100">
-          {mockDepartments.map((dept) => (
+          {departments.map((dept) => (
             <div key={dept.id} className="p-6 flex justify-between items-center hover:bg-slate-50 transition-all">
               <div>
                 <div className="font-bold text-slate-900">{dept.name}</div>
@@ -213,7 +255,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           </button>
         </div>
         <div className="divide-y divide-slate-100">
-          {mockStudyFields.map((field) => (
+          {studyFields.map((field) => (
             <div key={field.id} className="p-6 flex justify-between items-center hover:bg-slate-50 transition-all">
               <div>
                 <div className="font-bold text-slate-900">{field.name}</div>

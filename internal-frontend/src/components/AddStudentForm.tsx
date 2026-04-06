@@ -2,17 +2,26 @@
 
 import React, { useState } from 'react';
 import { User, Mail, GraduationCap, BookOpen, Save, X, Plus } from 'lucide-react';
-import { mockDepartments, mockStudyFields } from '@/src/lib/mockData';
+import type { Department, StudyField } from '@/src/types';
 import { toast } from 'sonner';
 
 interface AddStudentFormProps {
-  onSave: (student: any) => void;
+  onSave: (student: {
+    fullName: string;
+    email: string;
+    university: string;
+    departmentId: string;
+    studyFieldId: string;
+    studyYear: number;
+    cgpa: number;
+  }) => Promise<void>;
   onCancel: () => void;
+  departments: Department[];
+  studyFields: StudyField[];
 }
 
-const AddStudentForm: React.FC<AddStudentFormProps> = ({ onSave, onCancel }) => {
+const AddStudentForm: React.FC<AddStudentFormProps> = ({ onSave, onCancel, departments, studyFields }) => {
   const [formData, setFormData] = useState({
-    id: `s${Math.floor(Math.random() * 1000)}`,
     fullName: '',
     email: '',
     university: 'Global Tech University',
@@ -20,22 +29,32 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onSave, onCancel }) => 
     studyFieldId: '',
     studyYear: 1,
     cgpa: 0,
-    role: 'STUDENT'
   });
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => ({
+      ...prev,
+      [name]: name === 'studyYear' || name === 'cgpa' ? Number(value) : value
+    }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.fullName || !formData.email || !formData.departmentId || !formData.studyFieldId) {
       toast.error('Please fill in all required fields.');
       return;
     }
-    onSave(formData);
-    toast.success('Student added successfully!');
+    setIsSaving(true);
+    try {
+      await onSave(formData);
+      toast.success('Student added successfully!');
+    } catch {
+      toast.error('Failed to add student. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -93,7 +112,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onSave, onCancel }) => 
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#002B5B] outline-none transition-all appearance-none"
                 >
                   <option value="">Select Department</option>
-                  {mockDepartments.map(dept => (
+                  {departments.map(dept => (
                     <option key={dept.id} value={dept.id}>{dept.name}</option>
                   ))}
                 </select>
@@ -110,7 +129,7 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onSave, onCancel }) => 
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#002B5B] outline-none transition-all appearance-none"
                 >
                   <option value="">Select Study Field</option>
-                  {mockStudyFields
+                  {studyFields
                     .filter(sf => !formData.departmentId || sf.departmentId === formData.departmentId)
                     .map(sf => (
                       <option key={sf.id} value={sf.id}>{sf.name}</option>
@@ -158,16 +177,18 @@ const AddStudentForm: React.FC<AddStudentFormProps> = ({ onSave, onCancel }) => 
           <button 
             type="button" 
             onClick={onCancel}
+            disabled={isSaving}
             className="px-8 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-all"
           >
             Cancel
           </button>
           <button 
             type="submit"
+            disabled={isSaving}
             className="px-8 py-3 bg-[#002B5B] text-white rounded-xl font-bold hover:bg-[#001F42] transition-all shadow-lg shadow-indigo-500/20 flex items-center gap-2"
           >
             <Save size={18} />
-            Save Student
+            {isSaving ? 'Saving...' : 'Save Student'}
           </button>
         </div>
       </form>

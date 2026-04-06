@@ -106,3 +106,9 @@ export interface Application {
   createdAt: string;
   status: ApplicationStatus;
 }
+
+export interface DashboardStats {
+  totalStudents: number;
+  totalDepartments: number;
+  totalStudyFields: number;
+}

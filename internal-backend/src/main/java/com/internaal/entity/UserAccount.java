@@ -6,7 +6,7 @@ public class UserAccount {
     private String email;
     private String password;
     private Role role;
-    private Integer linkedEntityId;
+    private String linkedEntityId;
 
     public UserAccount() {}
 
@@ -18,6 +18,6 @@ public class UserAccount {
     public void setPassword(String password) { this.password = password; }
     public Role getRole() { return role; }
     public void setRole(Role role) { this.role = role; }
-    public Integer getLinkedEntityId() { return linkedEntityId; }
-    public void setLinkedEntityId(Integer linkedEntityId) { this.linkedEntityId = linkedEntityId; }
+    public String getLinkedEntityId() { return linkedEntityId; }
+    public void setLinkedEntityId(String linkedEntityId) { this.linkedEntityId = linkedEntityId; }
 }

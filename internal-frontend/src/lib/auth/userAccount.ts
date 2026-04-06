@@ -4,7 +4,7 @@ export type CurrentUserResponse = {
   userId: number;
   email: string;
   role: Role;
-  linkedEntityId: number;
+  linkedEntityId: string | number;
 };
 
 export type StudentProfileResponse = {

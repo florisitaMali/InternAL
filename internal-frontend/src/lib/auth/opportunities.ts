@@ -26,8 +26,6 @@ export type StudentOpportunityFilters = {
   skills?: string[];
   type?: string;
   location?: string;
-  paid?: boolean;
-  workMode?: string;
 };
 
 function getApiBaseUrl(): string {
@@ -63,8 +61,6 @@ export async function fetchStudentOpportunities(
     if (filters.q?.trim()) params.set('q', filters.q.trim());
     if (filters.type?.trim()) params.set('type', filters.type.trim());
     if (filters.location?.trim()) params.set('location', filters.location.trim());
-    if (filters.workMode?.trim()) params.set('workMode', filters.workMode.trim());
-    if (typeof filters.paid === 'boolean') params.set('paid', String(filters.paid));
     (filters.skills || [])
       .map((skill) => skill.trim())
       .filter(Boolean)

@@ -26,12 +26,14 @@ interface CompanyDashboardProps {
   activeTab: string;
   currentUserName: string;
   currentUserRoleLabel: string;
+  onToggleSidebar?: () => void;
 }
 
 const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   activeTab,
   currentUserName,
   currentUserRoleLabel,
+  onToggleSidebar,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingOpportunity, setIsAddingOpportunity] = useState(false);
@@ -249,6 +251,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       title={`Hello, ${currentUserName}`}
       userName={currentUserName}
       userRole={currentUserRoleLabel}
+      onToggleSidebar={onToggleSidebar}
     >
       {renderContent()}
     </Dashboard>

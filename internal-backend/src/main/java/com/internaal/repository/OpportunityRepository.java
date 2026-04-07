@@ -55,7 +55,7 @@ public class OpportunityRepository {
         try {
             StringBuilder url = new StringBuilder(supabaseUrl);
             url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
-               .append("required_skills,required_experience,deadline,type,is_paid,work_mode,")
+               .append("required_skills,required_experience,deadline,type,")
                .append("company(name,location),")
                .append("opportunitytarget(university_id)");
 
@@ -132,11 +132,11 @@ public class OpportunityRepository {
             }
         }
 
-        if (query.paid() != null && !query.paid().equals(opp.isPaid())) {
+        if (query.paid() != null && opp.isPaid() != null && !query.paid().equals(opp.isPaid())) {
             return false;
         }
 
-        if (query.workMode() != null && !query.workMode().isBlank()) {
+        if (query.workMode() != null && !query.workMode().isBlank() && opp.workMode() != null) {
             Opportunity.WorkMode requestedWorkMode = Opportunity.WorkMode.fromDb(query.workMode());
             if (requestedWorkMode == null || opp.workMode() != requestedWorkMode) {
                 return false;
@@ -208,10 +208,8 @@ public class OpportunityRepository {
             } catch (IllegalArgumentException ignored) {}
         }
 
-        Boolean isPaid = node.has("is_paid") && !node.get("is_paid").isNull()
-                ? node.get("is_paid").asBoolean()
-                : null;
-        Opportunity.WorkMode workMode = Opportunity.WorkMode.fromDb(str(node, "work_mode"));
+        Boolean isPaid = null;     // column does not exist in live DB schema
+        Opportunity.WorkMode workMode = null; // column does not exist in live DB schema
 
         return new Opportunity(
                 id, companyId, companyName, title, description,

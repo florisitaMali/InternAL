@@ -32,12 +32,14 @@ interface UniversityAdminDashboardProps {
   activeTab: string;
   currentUserName: string;
   currentUserRoleLabel: string;
+  onToggleSidebar?: () => void;
 }
 
 const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   activeTab,
   currentUserName,
   currentUserRoleLabel,
+  onToggleSidebar,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingStudent, setIsAddingStudent] = useState(false);
@@ -442,6 +444,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       title={`Hello, ${currentUserName}`}
       userName={currentUserName}
       userRole={currentUserRoleLabel}
+      onToggleSidebar={onToggleSidebar}
     >
       {renderContent()}
     </Dashboard>

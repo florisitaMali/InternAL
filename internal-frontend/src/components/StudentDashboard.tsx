@@ -40,14 +40,13 @@ interface StudentDashboardProps {
   currentUserName: string;
   currentUserRoleLabel: string;
   currentStudent?: Student | null;
+  onToggleSidebar?: () => void;
 }
 
 type OpportunityFilterState = {
   q: string;
   type: string;
   location: string;
-  workMode: string;
-  paid: 'all' | 'paid' | 'unpaid';
   skills: string[];
 };
 
@@ -55,8 +54,6 @@ const EMPTY_FILTERS: OpportunityFilterState = {
   q: '',
   type: '',
   location: '',
-  workMode: '',
-  paid: 'all',
   skills: [],
 };
 
@@ -64,13 +61,6 @@ const typeOptions = [
   { value: '', label: 'All types' },
   { value: 'PROFESSIONAL_PRACTICE', label: 'Professional Practice' },
   { value: 'INDIVIDUAL_GROWTH', label: 'Individual Growth' },
-];
-
-const workModeOptions = [
-  { value: '', label: 'All work modes' },
-  { value: 'Remote', label: 'Remote' },
-  { value: 'Hybrid', label: 'Hybrid' },
-  { value: 'On-site', label: 'On-site' },
 ];
 
 function formatOpportunityType(type?: string): string {
@@ -93,9 +83,15 @@ function formatDeadline(deadline?: string): string {
   });
 }
 
-function formatPaidLabel(isPaid?: boolean | null): string {
-  if (isPaid == null) return 'Compensation not specified';
-  return isPaid ? 'Paid opportunity' : 'Unpaid opportunity';
+
+function getInitials(name: string | undefined): string {
+  if (!name) return '?';
+  return name
+    .split(/\s+/)
+    .map((w) => w[0] ?? '')
+    .join('')
+    .slice(0, 3)
+    .toUpperCase();
 }
 
 function buildOpportunityFilters(filters: OpportunityFilterState): StudentOpportunityFilters {
@@ -103,8 +99,6 @@ function buildOpportunityFilters(filters: OpportunityFilterState): StudentOpport
     q: filters.q || undefined,
     type: filters.type || undefined,
     location: filters.location || undefined,
-    workMode: filters.workMode || undefined,
-    paid: filters.paid === 'all' ? undefined : filters.paid === 'paid',
     skills: filters.skills.length ? filters.skills : undefined,
   };
 }
@@ -114,6 +108,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   currentUserName,
   currentUserRoleLabel,
   currentStudent,
+  onToggleSidebar,
 }) => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [student, setStudent] = useState<Student>(currentStudent ?? mockStudents[0]);
@@ -158,10 +153,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       }
 
       setOpportunities(data);
-      setSelectedOpportunity((current) => {
-        if (!current) return data[0] ?? null;
-        return data.find((item) => item.id === current.id) ?? data[0] ?? null;
-      });
+      setSelectedOpportunity((current) =>
+        current ? (data.find((item) => item.id === current.id) ?? null) : null
+      );
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Could not load opportunities.';
       setOpportunities([]);
@@ -264,39 +258,6 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         />
       </label>
 
-      <label className="block">
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Work Mode</span>
-        <select
-          value={opportunityFilters.workMode}
-          onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, workMode: e.target.value }))}
-          className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
-        >
-          {workModeOptions.map((option) => (
-            <option key={option.value || 'all'} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="block">
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Compensation</span>
-        <select
-          value={opportunityFilters.paid}
-          onChange={(e) =>
-            setOpportunityFilters((prev) => ({
-              ...prev,
-              paid: e.target.value as OpportunityFilterState['paid'],
-            }))
-          }
-          className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
-        >
-          <option value="all">All opportunities</option>
-          <option value="paid">Paid only</option>
-          <option value="unpaid">Unpaid only</option>
-        </select>
-      </label>
-
       <div className="space-y-3">
         <div>
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Required Skills</span>
@@ -393,7 +354,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
 
         <div className="p-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="rounded-2xl bg-slate-50 p-4">
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Deadline</div>
               <div className="text-sm font-semibold text-slate-900">{formatDeadline(selectedOpportunity.deadline)}</div>
@@ -401,14 +362,6 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             <div className="rounded-2xl bg-slate-50 p-4">
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Location</div>
               <div className="text-sm font-semibold text-slate-900">{selectedOpportunity.location || 'Not specified'}</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Work Mode</div>
-              <div className="text-sm font-semibold text-slate-900">{selectedOpportunity.workMode || 'Not specified'}</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Compensation</div>
-              <div className="text-sm font-semibold text-slate-900">{formatPaidLabel(selectedOpportunity.isPaid)}</div>
             </div>
           </div>
 
@@ -467,7 +420,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     if (!selectedOpportunity) return null;
 
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950/50 p-4 lg:hidden overflow-y-auto">
+      <div className="fixed inset-0 z-50 bg-slate-950/50 p-4 overflow-y-auto">
         <div className="max-w-3xl mx-auto py-6">
           <div className="mb-4 flex justify-end">
             <button
@@ -491,7 +444,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <div>
           <h2 className="text-xl font-bold text-slate-900">Available Opportunities</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Only opportunities matching at least one of your profile skills are shown.
+            Opportunities available to your university, sorted by how well they match your skills.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
@@ -518,7 +471,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
+      <div className={cn('grid grid-cols-1 gap-6 items-start', showFilters && 'xl:grid-cols-[300px_minmax(0,1fr)]')}>
         {showFilters ? renderFilterPanel() : null}
 
         <div className="space-y-6">
@@ -544,101 +497,64 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           ) : null}
 
           {!!opportunities.length && (
-            <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.9fr)] gap-6">
-              <div className="space-y-4">
-                {opportunities.map((opp) => {
-                  const isSelected = selectedOpportunity?.id === opp.id;
-                  return (
-                    <button
-                      key={opp.id}
-                      type="button"
-                      onClick={() => setSelectedOpportunity(opp)}
-                      className={cn(
-                        'w-full text-left bg-white p-6 rounded-2xl border shadow-sm transition-all duration-200',
-                        isSelected
-                          ? 'border-[#002B5B] ring-2 ring-[#002B5B]/10'
-                          : 'border-slate-200 hover:shadow-md'
-                      )}
-                    >
-                      <div className="flex justify-between items-start gap-4 mb-4">
-                        <div className="flex items-start gap-4">
-                          <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-500">
-                            {(opp.companyName || '?')[0]}
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-bold text-slate-900">{opp.title}</h3>
-                            <p className="text-[#20948B] text-sm font-bold mt-1">{opp.companyName}</p>
-                          </div>
-                        </div>
-                        <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
-                          {formatOpportunityType(opp.type)}
+            <div className="space-y-3">
+              {opportunities.map((opp) => (
+                <div
+                  key={opp.id}
+                  className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-start gap-4 hover:shadow-md transition-all duration-200"
+                >
+                  <div className="flex-shrink-0 w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-500 text-xs tracking-wide">
+                    {getInitials(opp.companyName)}
+                  </div>
+
+                  <div className="flex-1 min-w-0 flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-bold text-slate-900 leading-snug">{opp.title}</h3>
+                      <p className="text-[#20948B] text-sm font-semibold mt-0.5">{opp.companyName}</p>
+                      <p className="text-slate-500 text-sm mt-2 line-clamp-1">
+                        {opp.description || 'No description provided.'}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-xs text-slate-500">
+                        <span className="flex items-center gap-1.5">
+                          <Calendar size={13} className="flex-shrink-0" />
+                          Deadline: {formatDeadline(opp.deadline)}
                         </span>
-                      </div>
-
-                      <p className="text-slate-500 text-sm line-clamp-3 mb-5">{opp.description || 'No description provided.'}</p>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-500 mb-5">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={14} />
-                          {formatDeadline(opp.deadline)}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <MapPin size={14} />
-                          {opp.location || 'Location not specified'}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Briefcase size={14} />
-                          {opp.requiredExperience || 'Experience not specified'}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Wallet size={14} />
-                          {formatPaidLabel(opp.isPaid)}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 mb-5">
-                        {(opp.requiredSkills || []).slice(0, 4).map((skill) => (
-                          <span key={skill} className="px-3 py-1 bg-[#002B5B]/10 text-[#002B5B] rounded-lg text-xs font-bold">
-                            {skill}
+                        {opp.requiredExperience && (
+                          <span className="flex items-center gap-1.5">
+                            <Briefcase size={13} className="flex-shrink-0" />
+                            {opp.requiredExperience}
                           </span>
-                        ))}
+                        )}
                       </div>
+                    </div>
 
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleApply(opp.title);
-                          }}
-                          suppressHydrationWarning
-                          className="flex-1 py-2.5 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all"
-                        >
-                          Apply Now
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedOpportunity(opp)}
-                          suppressHydrationWarning
-                          className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all"
-                        >
-                          Details
-                        </button>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="hidden 2xl:block sticky top-24 self-start">
-                {renderOpportunityDetails()}
-              </div>
+                    <div className="flex flex-col gap-2 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOpportunity(opp)}
+                        suppressHydrationWarning
+                        className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all whitespace-nowrap"
+                      >
+                        View Details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApply(opp.title)}
+                        suppressHydrationWarning
+                        className="px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all whitespace-nowrap"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
       </div>
 
-      <div className="2xl:hidden">{selectedOpportunity ? renderOpportunityModal() : null}</div>
+      {selectedOpportunity ? renderOpportunityModal() : null}
     </div>
   );
 
@@ -1020,6 +936,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       title={`Hello, ${currentUserName}`}
       userName={currentUserName}
       userRole={currentUserRoleLabel}
+      onToggleSidebar={onToggleSidebar}
     >
       {renderContent()}
     </Dashboard>

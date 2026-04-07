@@ -10,13 +10,14 @@ interface DashboardProps {
   actions?: React.ReactNode;
   userName: string;
   userRole: string;
+  onToggleSidebar?: () => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ title, children, actions, userName, userRole }) => {
   return (
-    <div className="flex-1 ml-72 min-h-screen flex flex-col bg-[#F9FAFB]">
+    <div className="flex-1 min-h-screen flex flex-col bg-[#F9FAFB]">
       <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 px-8 flex items-center justify-between">
-        <div className="flex items-center gap-8 flex-1">
+        <div className="flex items-center gap-4 flex-1">
           <Logo size="sm" showText={false} className="md:hidden" />
           <div className="hidden md:flex relative max-w-md w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />

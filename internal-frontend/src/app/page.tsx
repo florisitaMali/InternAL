@@ -32,6 +32,8 @@ export default function Home() {
   const [authChecked, setAuthChecked] = useState(false);
   const isSigningOutRef = useRef(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const handleToggleSidebar = () => setSidebarOpen((prev) => !prev);
 
   const resetLocalUserState = () => {
     setIsLoggedIn(false);
@@ -210,6 +212,7 @@ export default function Home() {
             activeTab={activeTab}
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
+            onToggleSidebar={handleToggleSidebar}
           />
         );
       case 'PPA':
@@ -218,6 +221,7 @@ export default function Home() {
             activeTab={activeTab}
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
+            onToggleSidebar={handleToggleSidebar}
           />
         );
       case 'STUDENT':
@@ -227,6 +231,7 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             currentStudent={currentStudent}
+            onToggleSidebar={handleToggleSidebar}
           />
         );
       case 'COMPANY':
@@ -235,6 +240,7 @@ export default function Home() {
             activeTab={activeTab}
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
+            onToggleSidebar={handleToggleSidebar}
           />
         );
       default:
@@ -269,9 +275,15 @@ export default function Home() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onLogout={isLoggingOut ? () => {} : handleLogout}
+        isOpen={sidebarOpen}
+        onToggleSidebar={handleToggleSidebar}
       />
 
-      <div className="flex-1 relative z-10">{renderDashboard()}</div>
+      <div
+        className={`flex-1 relative z-10 transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-16'}`}
+      >
+        {renderDashboard()}
+      </div>
     </div>
   );
 }

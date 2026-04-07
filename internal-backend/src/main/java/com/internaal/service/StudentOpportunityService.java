@@ -47,7 +47,6 @@ public class StudentOpportunityService {
         List<Opportunity> rows = opportunityRepository.findForStudent(universityId, query);
 
         List<OpportunityResponseItem> items = rows.stream()
-                .filter(o -> skillMatchCount(o, studentSkills) >= 1)
                 .sorted(Comparator
                         .comparingInt((Opportunity o) -> -skillMatchCount(o, studentSkills))
                         .thenComparing(o -> o.deadline() != null ? o.deadline() : LocalDate.MAX)

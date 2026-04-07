@@ -4,14 +4,16 @@ import React, { useEffect, useState } from 'react';
 import Dashboard from './Dashboard';
 import ProfileEditor from './ProfileEditor';
 import UnderDevelopment from './UnderDevelopment';
+import SubmitApplicationModal from './SubmitApplicationModal';
+import { ApplicationFormData } from './SubmitApplicationModal';
 import { mockStudents, mockOpportunities, mockApplications } from '@/src/lib/mockData';
 import { 
   ArrowRight,
-  Briefcase, 
-  FileText, 
-  Search, 
-  Filter, 
-  Calendar, 
+  Briefcase,
+  FileText,
+  Search,
+  Filter,
+  Calendar,
   CheckCircle,
   Clock,
   XCircle,
@@ -47,6 +49,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [student, setStudent] = useState<Student>(currentStudent ?? mockStudents[0]);
+  const [selectedOpportunity, setSelectedOpportunity] = useState<{ id: string; title: string; company: string } | null>(null);
 
   useEffect(() => {
     if (!currentStudent) return;
@@ -54,8 +57,31 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     setIsEditingProfile(false);
   }, [currentStudent]);
 
-  const handleApply = (opportunityTitle: string) => {
-    toast.success(`Application submitted for ${opportunityTitle}!`);
+  const handleApply = (opportunityId: string, opportunityTitle: string, companyName: string) => {
+    setSelectedOpportunity({ id: opportunityId, title: opportunityTitle, company: companyName });
+  };
+
+  const handleSubmitApplication = async (data: ApplicationFormData) => {
+    try {
+      const response = await fetch('http://localhost:8080/api/student/applications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          opportunityId: selectedOpportunity?.id,
+          applicationType: data.applicationType,
+          phoneNumber: data.phoneNumber,
+          accuracyConfirmed: data.confirmed,
+        }),
+      });
+      if (response.ok) {
+        toast.success('Application submitted successfully!');
+        setSelectedOpportunity(null);
+      } else {
+        toast.error('Failed to submit application.');
+      }
+    } catch {
+      toast.error('Failed to submit application.');
+    }
   };
 
   const withAccessToken = async <T,>(
@@ -101,9 +127,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <div className="flex gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search opportunities..." 
+            <input
+              type="text"
+              placeholder="Search opportunities..."
               suppressHydrationWarning
               className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none w-64"
               value={searchTerm}
@@ -141,8 +167,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </div>
             </div>
             <div className="flex gap-2">
-              <button 
-                onClick={() => handleApply(opp.title)}
+              <button
+                onClick={() => handleApply(opp.id, opp.title, opp.companyName)}
                 suppressHydrationWarning
                 className="flex-1 py-2.5 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all shadow-lg shadow-indigo-500/20"
               >
@@ -200,8 +226,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const renderProfile = () => {
     if (isEditingProfile) {
       return (
-        <ProfileEditor 
-          student={student} 
+        <ProfileEditor
+          student={student}
           onSave={async (updated) => {
             const { data: savedStudent, errorMessage } = await withAccessToken((accessToken) =>
               saveCurrentStudentProfile(accessToken, updated)
@@ -301,7 +327,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
               throw new Error(errorMessage);
             }
           }}
-          onCancel={() => setIsEditingProfile(false)} 
+          onCancel={() => setIsEditingProfile(false)}
         />
       );
     }
@@ -369,9 +395,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-slate-900">Extended Profile</h3>
-                <button 
+                <button
                   onClick={() => setIsEditingProfile(true)}
-                  suppressHydrationWarning 
+                  suppressHydrationWarning
                   className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-[#002B5B] rounded-xl text-sm font-bold hover:bg-indigo-50 transition-all"
                 >
                   <Edit2 size={16} />
@@ -526,6 +552,23 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       userRole={currentUserRoleLabel}
     >
       {renderContent()}
+      {selectedOpportunity && (
+        <SubmitApplicationModal
+          opportunity={{ title: selectedOpportunity.title, company: selectedOpportunity.company }}
+          student={{
+            fullName: student.fullName,
+            email: student.email,
+            university: student.university,
+            department: student.departmentName ?? '',
+            studyField: student.studyFieldName ?? '',
+            studyYear: typeof student.studyYear === 'string' ? parseInt(student.studyYear) : student.studyYear,
+            cgpa: typeof student.cgpa === 'string' ? parseFloat(student.cgpa) : student.cgpa,
+            cvFileName: student.extendedProfile?.cvFilename ?? 'No CV uploaded',
+          }}
+          onClose={() => setSelectedOpportunity(null)}
+          onSubmit={handleSubmitApplication}
+        />
+      )}
     </Dashboard>
   );
 };

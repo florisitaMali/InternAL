@@ -63,22 +63,27 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   const handleSubmitApplication = async (data: ApplicationFormData) => {
     try {
-      const response = await fetch('http://localhost:8080/api/student/applications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          opportunityId: selectedOpportunity?.id,
-          applicationType: data.applicationType,
-          phoneNumber: data.phoneNumber,
-          accuracyConfirmed: data.confirmed,
-        }),
+      await withAccessToken(async (accessToken) => {
+        const response = await fetch('http://localhost:8080/api/student/applications', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            opportunityId: parseInt(selectedOpportunity?.id ?? '0'),
+            applicationType: data.applicationType,
+            phoneNumber: data.phoneNumber,
+            accuracyConfirmed: data.confirmed,
+          }),
+        });
+        if (response.ok) {
+          toast.success('Application submitted successfully!');
+          setSelectedOpportunity(null);
+        } else {
+          toast.error('Failed to submit application.');
+        }
       });
-      if (response.ok) {
-        toast.success('Application submitted successfully!');
-        setSelectedOpportunity(null);
-      } else {
-        toast.error('Failed to submit application.');
-      }
     } catch {
       toast.error('Failed to submit application.');
     }

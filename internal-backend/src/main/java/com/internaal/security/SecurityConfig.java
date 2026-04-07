@@ -1,5 +1,6 @@
 package com.internaal.security;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -33,11 +34,12 @@ public class SecurityConfig {
             .cors(Customizer.withDefaults())
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/health").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("UNIVERSITY_ADMIN")
-                .requestMatchers("/api/student/**").hasAnyRole("STUDENT", "UNIVERSITY_ADMIN")
+                .requestMatchers("/api/student/**").authenticated()
                 .requestMatchers("/api/ppa/**").hasAnyRole("PPA", "UNIVERSITY_ADMIN")
                 .requestMatchers("/api/company/**").hasAnyRole("COMPANY", "UNIVERSITY_ADMIN")
                 .requestMatchers("/api/**").authenticated()

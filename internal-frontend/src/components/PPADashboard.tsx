@@ -22,12 +22,14 @@ interface PPADashboardProps {
   activeTab: string;
   currentUserName: string;
   currentUserRoleLabel: string;
+  onToggleSidebar?: () => void;
 }
 
 const PPADashboard: React.FC<PPADashboardProps> = ({
   activeTab,
   currentUserName,
   currentUserRoleLabel,
+  onToggleSidebar,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const ppa = mockPPAs[0]; // Mock current PPA
@@ -263,6 +265,7 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
       title={`Hello, ${currentUserName}`}
       userName={currentUserName}
       userRole={currentUserRoleLabel}
+      onToggleSidebar={onToggleSidebar}
     >
       {renderContent()}
     </Dashboard>

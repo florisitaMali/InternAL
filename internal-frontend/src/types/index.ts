@@ -83,10 +83,14 @@ export interface Opportunity {
   title: string;
   description: string;
   requiredSkills: string[];
-  requiredExperience: string;
-  deadline: string;
+  requiredExperience?: string;
+  deadline?: string;
   targetUniversityIds: string[];
-  type?: string;
+  type?: 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH' | string;
+  location?: string;
+  isPaid?: boolean | null;
+  workMode?: string | null;
+  skillMatchCount?: number;
 }
 
 export type ApplicationType = 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH';

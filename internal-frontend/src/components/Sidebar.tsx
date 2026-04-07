@@ -8,11 +8,11 @@ import {
   Building2, 
   Briefcase, 
   FileText, 
-  Settings, 
   LogOut,
   GraduationCap,
   BookOpen,
-  Bell
+  Bell,
+  Menu,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Role } from '@/src/types';
@@ -22,9 +22,11 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onLogout: () => void;
+  isOpen: boolean;
+  onToggleSidebar?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogout }) => {
+const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogout, isOpen, onToggleSidebar }) => {
   const menuItems = {
     UNIVERSITY_ADMIN: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -57,49 +59,108 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
   const currentMenuItems = menuItems[role] || [];
 
   return (
-    <div className="w-72 bg-white border-r border-slate-200 h-screen flex flex-col fixed left-0 top-0 z-50 transition-all duration-300">
-      <div className="p-8">
-        <Logo />
+    <div
+      className={cn(
+        'bg-white border-r border-slate-200 h-screen flex flex-col fixed left-0 top-0 z-50 transition-all duration-300 overflow-hidden',
+        isOpen ? 'w-72' : 'w-16'
+      )}
+    >
+      {/* Header: dark navy toggle + logo */}
+      <div className="flex items-center h-16 border-b border-slate-100 flex-shrink-0">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          aria-label="Toggle sidebar"
+          className="w-16 h-16 bg-[#002B5B] flex items-center justify-center flex-shrink-0 hover:bg-[#001F42] transition-colors"
+        >
+          <Menu size={20} color="white" />
+        </button>
+        <div
+          className={cn(
+            'flex-1 px-3 overflow-hidden whitespace-nowrap transition-all duration-200',
+            isOpen ? 'opacity-100' : 'opacity-0 w-0 px-0'
+          )}
+        >
+          <Logo size="sm" />
+        </div>
       </div>
 
-      <nav className="flex-1 px-4 py-2 space-y-1 overflow-y-auto">
-        <div className="px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Main Menu</div>
+      {/* Nav items */}
+      <nav className="flex-1 py-4 space-y-1 overflow-y-auto overflow-x-hidden">
+        <div
+          className={cn(
+            'px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 whitespace-nowrap overflow-hidden transition-all duration-200',
+            isOpen ? 'opacity-100' : 'opacity-0 h-0 py-0 mb-0'
+          )}
+        >
+          Main Menu
+        </div>
         {currentMenuItems.map((item) => (
           <button
             key={item.id}
             suppressHydrationWarning
             onClick={() => setActiveTab(item.id)}
+            title={!isOpen ? item.label : undefined}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 text-sm font-semibold",
-              activeTab === item.id 
-                ? "bg-[#002B5B]/10 text-[#002B5B] shadow-sm" 
-                : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+              'flex items-center transition-all duration-200 text-sm font-semibold',
+              isOpen
+                ? 'w-[calc(100%-16px)] mx-2 gap-3 px-4 py-3 rounded-xl'
+                : 'w-full justify-center py-3',
+              activeTab === item.id
+                ? 'bg-[#002B5B]/10 text-[#002B5B] shadow-sm'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
             )}
           >
-            <item.icon size={18} strokeWidth={activeTab === item.id ? 2.5 : 2} />
-            {item.label}
+            <item.icon size={18} strokeWidth={activeTab === item.id ? 2.5 : 2} className="flex-shrink-0" />
+            <span
+              className={cn(
+                'whitespace-nowrap overflow-hidden transition-all duration-200',
+                isOpen ? 'opacity-100 max-w-full' : 'opacity-0 max-w-0'
+              )}
+            >
+              {item.label}
+            </span>
           </button>
         ))}
       </nav>
 
-      <div className="p-6 border-t border-slate-100">
-        <div className="bg-slate-50 rounded-2xl p-4 mb-4">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-8 h-8 bg-[#002B5B]/10 text-[#002B5B] rounded-full flex items-center justify-center font-bold text-xs uppercase">
-              {role[0]}
+      {/* Footer */}
+      <div className="border-t border-slate-100 flex-shrink-0">
+        <div
+          className={cn(
+            'overflow-hidden transition-all duration-200',
+            isOpen ? 'max-h-32 p-4' : 'max-h-0 p-0'
+          )}
+        >
+          <div className="bg-slate-50 rounded-2xl p-3 mb-3">
+            <div className="flex items-center gap-2 mb-0.5">
+              <div className="w-7 h-7 bg-[#002B5B]/10 text-[#002B5B] rounded-full flex items-center justify-center font-bold text-xs uppercase flex-shrink-0">
+                {role[0]}
+              </div>
+              <div className="text-xs font-bold text-slate-900 truncate">{role.replace('_', ' ')}</div>
             </div>
-            <div className="text-xs font-bold text-slate-900 truncate">{role.replace('_', ' ')}</div>
+            <p className="text-[10px] text-slate-500 font-medium">Active Workspace</p>
           </div>
-          <p className="text-[10px] text-slate-500 font-medium">Active Workspace</p>
         </div>
         <button
           type="button"
           onClick={onLogout}
           suppressHydrationWarning
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all duration-300 text-sm font-bold"
+          title={!isOpen ? 'Sign Out' : undefined}
+          className={cn(
+            'w-full flex items-center transition-all duration-200 text-sm font-bold text-slate-500 hover:bg-red-50 hover:text-red-600',
+            isOpen ? 'gap-3 px-6 py-4' : 'justify-center py-4'
+          )}
         >
-          <LogOut size={18} />
-          Sign Out
+          <LogOut size={18} className="flex-shrink-0" />
+          <span
+            className={cn(
+              'whitespace-nowrap overflow-hidden transition-all duration-200',
+              isOpen ? 'opacity-100 max-w-full' : 'opacity-0 max-w-0'
+            )}
+          >
+            Sign Out
+          </span>
         </button>
       </div>
     </div>

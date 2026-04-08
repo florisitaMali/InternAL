@@ -13,11 +13,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Repository;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -67,8 +70,7 @@ public class StudentProfileRepository {
     public Optional<StudentProfileResponse> saveByStudentId(
             Integer studentId,
             String userJwt,
-            StudentProfileUpdateRequest request
-    ) {
+            StudentProfileUpdateRequest request) {
         try {
             HttpHeaders headers = createUserHeaders(userJwt);
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -78,6 +80,26 @@ public class StudentProfileRepository {
         } catch (Exception e) {
             log.error("Failed to save student profile: {}", e.getMessage(), e);
             return Optional.empty();
+        }
+    }
+
+    public Optional<Integer> findUniversityIdByStudentId(Integer studentId) {
+        try {
+            JsonNode studentNode = fetchSingleRow("student", "student_id", studentId, createAuthenticatedHeaders());
+            return Optional.ofNullable(intValue(studentNode, "university_id"));
+        } catch (Exception e) {
+            log.error("findUniversityIdByStudentId failed: {}", e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
+    public List<String> findSkillsByStudentId(Integer studentId) {
+        try {
+            JsonNode profileNode = fetchSingleRow("studentprofile", "student_id", studentId, createAuthenticatedHeaders());
+            return splitCsv(textValue(profileNode, "skills"));
+        } catch (Exception e) {
+            log.error("findSkillsByStudentId failed: {}", e.getMessage(), e);
+            return Collections.emptyList();
         }
     }
 
@@ -147,8 +169,7 @@ public class StudentProfileRepository {
             String storagePath,
             String originalFilename,
             String mimeType,
-            long sizeBytes
-    ) {
+            long sizeBytes) {
         try {
             HttpHeaders headers = createServiceHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -324,6 +345,14 @@ public class StudentProfileRepository {
         return headers;
     }
 
+    private HttpHeaders createAuthenticatedHeaders() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getCredentials() instanceof String jwt && !jwt.isBlank()) {
+            return createUserHeaders(jwt);
+        }
+        return createServiceHeadersSafely();
+    }
+
     private HttpHeaders createServiceHeaders() {
         if (supabaseServiceRoleKey == null || supabaseServiceRoleKey.isBlank()) {
             throw new IllegalStateException("SUPABASE_SERVICE_ROLE_KEY is required for file operations");
@@ -410,5 +439,18 @@ public class StudentProfileRepository {
             log.warn("Failed to resolve name for table {} and id field {}: {}", table, idField, e.getMessage());
         }
         return null;
+    }
+
+    private static List<String> splitCsv(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return new ArrayList<>();
+        }
+        List<String> out = new ArrayList<>();
+        for (String s : raw.split(",")) {
+            if (s != null && !s.isBlank()) {
+                out.add(s.trim());
+            }
+        }
+        return out;
     }
 }

@@ -72,7 +72,7 @@ public class StudentProfileRepository {
             String userJwt,
             StudentProfileUpdateRequest request) {
         try {
-            HttpHeaders headers = createUserHeaders(userJwt);
+            HttpHeaders headers = createServiceHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             upsertStudentProfile(studentId, request, headers);

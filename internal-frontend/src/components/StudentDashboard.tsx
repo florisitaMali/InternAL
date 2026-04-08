@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Dashboard from './Dashboard';
 import ProfileEditor from './ProfileEditor';
 import UnderDevelopment from './UnderDevelopment';
+import SubmitApplicationModal from './SubmitApplicationModal';
+import { ApplicationFormData } from './SubmitApplicationModal';
 import { mockApplications, mockStudents } from '@/src/lib/mockData';
 import {
   ArrowRight,
@@ -116,6 +118,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [skillFilterInput, setSkillFilterInput] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
+  const [applicationOpportunity, setApplicationOpportunity] = useState<{ id: number; title: string; company: string } | null>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [isLoadingOpportunities, setIsLoadingOpportunities] = useState(false);
   const [opportunitiesError, setOpportunitiesError] = useState<string | null>(null);
@@ -177,8 +180,36 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     return Array.from(new Set([...ownSkills, ...requiredSkills])).sort((a, b) => a.localeCompare(b));
   }, [opportunities, student.extendedProfile?.skills]);
 
-  const handleApply = (opportunityTitle: string) => {
-    toast.info(`Application flow for ${opportunityTitle} is not wired to a backend endpoint yet.`);
+  const handleApply = (opp: Opportunity) => {
+    setApplicationOpportunity({ id: typeof opp.id === 'string' ? parseInt(opp.id) : opp.id, title: opp.title, company: opp.companyName ?? '' });
+  };
+
+  const handleSubmitApplication = async (data: ApplicationFormData) => {
+    try {
+      await withAccessToken(async (accessToken) => {
+        const response = await fetch('http://localhost:8080/api/student/applications', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            opportunityId: applicationOpportunity?.id,
+            applicationType: data.applicationType,
+            phoneNumber: data.phoneNumber,
+            accuracyConfirmed: data.confirmed,
+          }),
+        });
+        if (response.ok) {
+          toast.success('Application submitted successfully!');
+          setApplicationOpportunity(null);
+        } else {
+          toast.error('Failed to submit application.');
+        }
+      });
+    } catch {
+      toast.error('Failed to submit application.');
+    }
   };
 
   const addSkillFilter = (rawSkill: string) => {
@@ -345,7 +376,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => handleApply(selectedOpportunity.title)}
+              onClick={() => handleApply(selectedOpportunity)}
               className="px-5 py-3 rounded-xl bg-[#002B5B] text-sm font-bold text-white hover:bg-[#001F42]"
             >
               Apply Now
@@ -539,7 +570,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleApply(opp.title)}
+                        onClick={() => handleApply(opp)}
                         suppressHydrationWarning
                         className="px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all whitespace-nowrap"
                       >
@@ -939,6 +970,23 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       onToggleSidebar={onToggleSidebar}
     >
       {renderContent()}
+      {applicationOpportunity && (
+        <SubmitApplicationModal
+          opportunity={{ title: applicationOpportunity.title, company: applicationOpportunity.company }}
+          student={{
+            fullName: student.fullName,
+            email: student.email,
+            university: student.university,
+            department: student.departmentName ?? '',
+            studyField: student.studyFieldName ?? '',
+            studyYear: typeof student.studyYear === 'string' ? parseInt(student.studyYear) : student.studyYear,
+            cgpa: typeof student.cgpa === 'string' ? parseFloat(student.cgpa) : student.cgpa,
+            cvFileName: student.extendedProfile?.cvFilename ?? 'No CV uploaded',
+          }}
+          onClose={() => setApplicationOpportunity(null)}
+          onSubmit={handleSubmitApplication}
+        />
+      )}
     </Dashboard>
   );
 };

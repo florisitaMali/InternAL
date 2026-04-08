@@ -30,7 +30,7 @@ public class ApplicationController {
         if (user.getRole() != Role.STUDENT) return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
         try {
             ApplicationResponse result = applicationService.submitApplication(
-                    user.getLinkedEntityId(), request);
+                    Integer.parseInt(user.getLinkedEntityId()), request);
             return ResponseEntity.ok(result);
         } catch (RuntimeException e) {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
@@ -44,7 +44,7 @@ public class ApplicationController {
         if (user.getRole() != Role.STUDENT) return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
         try {
             List<ApplicationResponse> results = applicationService.getApplicationsByStudent(
-                    user.getLinkedEntityId());
+                    Integer.parseInt(user.getLinkedEntityId()));
             return ResponseEntity.ok(results);
         } catch (RuntimeException e) {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));

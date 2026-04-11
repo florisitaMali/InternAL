@@ -30,6 +30,10 @@ public class OpportunityRepository {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    public OpportunityRepository(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
     @Value("${supabase.url}")
     private String supabaseUrl;
 

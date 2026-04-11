@@ -26,8 +26,8 @@ public class DatabaseConfig {
     }
 
     /**
-     * Default {@link RestTemplate} uses {@code HttpURLConnection}, which often rejects PATCH ("Invalid HTTP method: PATCH").
-     * PostgREST requires PATCH for updates.
+     * Default {@link RestTemplate} uses {@link java.net.HttpURLConnection}, which throws
+     * {@code ProtocolException: Invalid HTTP method: PATCH}. PostgREST updates require PATCH.
      */
     @Bean
     public RestTemplate restTemplate() {

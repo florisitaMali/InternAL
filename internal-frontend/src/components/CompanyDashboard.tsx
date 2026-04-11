@@ -5,6 +5,7 @@ import Dashboard from './Dashboard';
 import AddOpportunityForm from './AddOpportunityForm';
 import UnderDevelopment from './UnderDevelopment';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
+import CompanyOpportunityManageRow from '@/src/components/CompanyOpportunityManageRow';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import {
   profileImageDisplayUrl,
@@ -33,6 +34,8 @@ import {
   Link as LinkIcon,
   Building,
   Upload,
+  X,
+  Star,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
@@ -152,6 +155,44 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       void loadCompanyProfile();
     }
   }, [activeTab, loadCompanyProfile]);
+
+  const closeEditProfileModal = useCallback(() => {
+    setProfileLogoFile(null);
+    setProfileCoverFile(null);
+    setIsEditingProfile(false);
+    if (activeTab === 'profile') {
+      void loadCompanyProfile();
+    }
+  }, [activeTab, loadCompanyProfile]);
+
+  useEffect(() => {
+    if (!isEditingProfile) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeEditProfileModal();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isEditingProfile, closeEditProfileModal]);
+
+  useEffect(() => {
+    if (!isEditingProfile) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isEditingProfile]);
+
+  useEffect(() => {
+    if (
+      isEditingProfile &&
+      (activeTab !== 'profile' || profileSection !== 'about')
+    ) {
+      setProfileLogoFile(null);
+      setProfileCoverFile(null);
+      setIsEditingProfile(false);
+    }
+  }, [activeTab, profileSection, isEditingProfile]);
 
   useEffect(() => {
     if (activeTab === 'profile' || activeTab === 'dashboard' || activeTab === 'opportunities') {
@@ -281,28 +322,31 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     </div>
   );
 
-  const renderOpportunities = () => {
+  const opportunityForm = isAddingOpportunity ? (
+    <AddOpportunityForm
+      companyId={companyIdStr}
+      companyName={displayName}
+      onSave={() => {
+        setIsAddingOpportunity(false);
+        void loadCompanyOpportunities();
+      }}
+      onCancel={() => setIsAddingOpportunity(false)}
+    />
+  ) : null;
+
+  /** Compact list for the dashboard column (unchanged behavior). */
+  const renderOpportunitiesEmbedded = () => {
     if (isAddingOpportunity) {
-      return (
-        <AddOpportunityForm 
-          companyId={companyIdStr} 
-          companyName={displayName} 
-          onSave={() => {
-            setIsAddingOpportunity(false);
-            void loadCompanyOpportunities();
-          }} 
-          onCancel={() => setIsAddingOpportunity(false)} 
-        />
-      );
+      return opportunityForm;
     }
 
     return (
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <h2 className="text-lg font-bold text-slate-900">My Internship Opportunities</h2>
-          <button 
+          <button
             onClick={() => setIsAddingOpportunity(true)}
-            suppressHydrationWarning 
+            suppressHydrationWarning
             className="flex items-center gap-2 px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all shadow-lg shadow-indigo-500/20"
           >
             <Plus size={16} />
@@ -319,7 +363,112 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
               <OpportunityRecordCard
                 key={opp.id}
                 opportunity={opp}
-                onViewDetails={() => void openOpportunityDetail(opp, activeTab === 'dashboard' ? 'dashboard' : 'manage')}
+                onViewDetails={() => void openOpportunityDetail(opp, 'dashboard')}
+              />
+            ))
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /** Full “My Opportunities” experience from the sidebar (wireframe layout). */
+  const renderSidebarOpportunitiesPage = () => {
+    if (isAddingOpportunity) {
+      return opportunityForm;
+    }
+
+    const companyApps = mockApplications.filter((a) => String(a.companyId) === String(companyIdStr));
+    const totalApplicants = companyApps.length;
+    const pendingReview = companyApps.filter((a) => a.isApprovedByCompany === undefined).length;
+    const hired = companyApps.filter((a) => a.isApprovedByCompany === true).length;
+
+    const statCards = [
+      {
+        value: opportunities.length,
+        label: 'Total Opportunities',
+        sub: 'All Active',
+        subClass: 'text-emerald-600 font-semibold',
+        icon: Briefcase,
+      },
+      {
+        value: totalApplicants,
+        label: 'Total Applicants',
+        sub: 'Across all jobs',
+        subClass: 'text-slate-500',
+        icon: Users,
+      },
+      {
+        value: pendingReview,
+        label: 'Pending Review',
+        sub: 'Awaiting decision',
+        subClass: 'text-slate-500',
+        icon: Clock,
+      },
+      {
+        value: hired,
+        label: 'Hired',
+        sub: 'Successfully placed',
+        subClass: 'text-slate-500',
+        icon: Star,
+      },
+    ] as const;
+
+    return (
+      <div className="space-y-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-[#0E2A50] md:text-4xl">My Opportunities</h1>
+            <p className="mt-2 text-sm text-slate-500 md:text-base">
+              Manage and track your internship opportunities
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAddingOpportunity(true)}
+            suppressHydrationWarning
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-[#002B5B] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#001F42]"
+          >
+            <Plus size={18} strokeWidth={2.5} />
+            Create New Opportunity
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {statCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="rounded-xl bg-slate-100 p-2.5 text-slate-600">
+                  <card.icon size={20} strokeWidth={2} />
+                </div>
+                <span className="text-3xl font-bold tabular-nums text-[#0E2A50]">{card.value}</span>
+              </div>
+              <p className="mt-4 text-sm font-bold text-slate-900">{card.label}</p>
+              <p className={cn('mt-1 text-xs', card.subClass)}>{card.sub}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          {oppListLoading ? (
+            <p className="text-sm text-slate-500">Loading opportunities…</p>
+          ) : opportunities.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 py-16 text-center">
+              <p className="text-sm font-medium text-slate-600">No opportunities yet.</p>
+              <p className="mt-1 text-xs text-slate-500">Create one with the button above to get started.</p>
+            </div>
+          ) : (
+            opportunities.map((opp) => (
+              <CompanyOpportunityManageRow
+                key={opp.id}
+                opportunity={opp}
+                postedLabel={postedDisplay(opp)}
+                onViewApplications={() => onNavigateTab?.('applications')}
+                onViewDetails={() => void openOpportunityDetail(opp, 'manage')}
+                onEdit={() => toast.info('Edit opportunity will be available soon.')}
               />
             ))
           )}
@@ -665,218 +814,6 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         </div>
       );
     }
-    if (isEditingProfile) {
-      return (
-        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6 mt-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <h3 className="text-2xl font-bold text-slate-900">Edit profile</h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setProfileLogoFile(null);
-                  setProfileCoverFile(null);
-                  setIsEditingProfile(false);
-                  if (activeTab === 'profile') {
-                    void loadCompanyProfile();
-                  }
-                }}
-                className="text-sm font-semibold text-slate-500 hover:text-slate-800"
-              >
-                Cancel
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="block text-sm">
-                <span className="font-semibold text-slate-700">Company name</span>
-                <input
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  value={profileDraft.name ?? ''}
-                  onChange={(e) => setProfileDraft((d) => ({ ...d, name: e.target.value }))}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-semibold text-slate-700">Headquarters / location</span>
-                <input
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  value={profileDraft.location ?? ''}
-                  onChange={(e) => setProfileDraft((d) => ({ ...d, location: e.target.value }))}
-                />
-              </label>
-              <label className="block text-sm md:col-span-2">
-                <span className="font-semibold text-slate-700">Overview / description</span>
-                <textarea
-                  rows={4}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  value={profileDraft.description ?? ''}
-                  onChange={(e) => setProfileDraft((d) => ({ ...d, description: e.target.value }))}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-semibold text-slate-700">Website</span>
-                <input
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  value={profileDraft.website ?? ''}
-                  onChange={(e) => setProfileDraft((d) => ({ ...d, website: e.target.value }))}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-semibold text-slate-700">Industry</span>
-                <input
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  value={profileDraft.industry ?? ''}
-                  onChange={(e) => setProfileDraft((d) => ({ ...d, industry: e.target.value }))}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-semibold text-slate-700">Number of employees</span>
-                <input
-                  type="number"
-                  min={0}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  value={profileDraft.employeeCount ?? ''}
-                  onChange={(e) =>
-                    setProfileDraft((d) => ({
-                      ...d,
-                      employeeCount: e.target.value === '' ? null : Number(e.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-semibold text-slate-700">Founded year</span>
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  value={profileDraft.foundedYear ?? ''}
-                  onChange={(e) =>
-                    setProfileDraft((d) => ({
-                      ...d,
-                      foundedYear: e.target.value === '' ? null : Number(e.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label className="block text-sm md:col-span-2">
-                <span className="font-semibold text-slate-700">Specialties</span>
-                <input
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  value={profileDraft.specialties ?? ''}
-                  onChange={(e) => setProfileDraft((d) => ({ ...d, specialties: e.target.value }))}
-                />
-              </label>
-              <div className="block text-sm md:col-span-2">
-                <span className="font-semibold text-slate-700">Logo</span>
-                <input
-                  ref={logoFileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) setProfileLogoFile(f);
-                    e.target.value = '';
-                  }}
-                />
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                    {(logoObjectUrl || profileDraft.logoUrl)?.trim() ? (
-                      <img
-                        src={logoObjectUrl || profileDraft.logoUrl || ''}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">No logo</div>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => logoFileInputRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <Upload size={14} />
-                      Upload logo
-                    </button>
-                    {(logoObjectUrl || profileDraft.logoUrl)?.trim() ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProfileLogoFile(null);
-                          setProfileDraft((d) => ({ ...d, logoUrl: '' }));
-                        }}
-                        className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
-                      >
-                        Remove
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-              <div className="block text-sm md:col-span-2">
-                <span className="font-semibold text-slate-700">Cover image</span>
-                <input
-                  ref={coverFileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) setProfileCoverFile(f);
-                    e.target.value = '';
-                  }}
-                />
-                <div className="mt-2 space-y-2">
-                  <div className="h-28 w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
-                    {(coverObjectUrl || profileDraft.coverUrl)?.trim() ? (
-                      <div
-                        className="h-full w-full bg-cover bg-center"
-                        style={{
-                          backgroundImage: `url(${coverObjectUrl || profileDraft.coverUrl})`,
-                        }}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">No cover image</div>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => coverFileInputRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <Upload size={14} />
-                      Upload cover
-                    </button>
-                    {(coverObjectUrl || profileDraft.coverUrl)?.trim() ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProfileCoverFile(null);
-                          setProfileDraft((d) => ({ ...d, coverUrl: '' }));
-                        }}
-                        className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
-                      >
-                        Remove
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => void saveProfileEdit()}
-              className="rounded-xl bg-[#002B5B] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#001F42]"
-            >
-              Save changes
-            </button>
-          </div>
-          {renderCompanyInfoCard()}
-        </div>
-      );
-    }
     return (
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6 mt-6">
         <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -897,6 +834,242 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
           </p>
         </div>
         {renderCompanyInfoCard()}
+      </div>
+    );
+  };
+
+  const renderEditProfileModal = () => {
+    if (!isEditingProfile) return null;
+    return (
+      <div
+        className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/50 px-4 py-10 sm:py-14 md:items-center md:py-8"
+        role="presentation"
+        onClick={closeEditProfileModal}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-profile-title"
+          className="relative my-auto w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
+            <h3 id="edit-profile-title" className="text-xl font-bold text-slate-900 sm:text-2xl">
+              Edit profile
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={closeEditProfileModal}
+                className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={closeEditProfileModal}
+                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+              >
+                <X size={22} />
+              </button>
+            </div>
+          </div>
+          <div className="max-h-[min(85vh,calc(100vh-7rem))] overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
+            <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-700">Company name</span>
+                    <input
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      value={profileDraft.name ?? ''}
+                      onChange={(e) => setProfileDraft((d) => ({ ...d, name: e.target.value }))}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-700">Headquarters / location</span>
+                    <input
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      value={profileDraft.location ?? ''}
+                      onChange={(e) => setProfileDraft((d) => ({ ...d, location: e.target.value }))}
+                    />
+                  </label>
+                  <label className="block text-sm md:col-span-2">
+                    <span className="font-semibold text-slate-700">Overview / description</span>
+                    <textarea
+                      rows={4}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      value={profileDraft.description ?? ''}
+                      onChange={(e) => setProfileDraft((d) => ({ ...d, description: e.target.value }))}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-700">Website</span>
+                    <input
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      value={profileDraft.website ?? ''}
+                      onChange={(e) => setProfileDraft((d) => ({ ...d, website: e.target.value }))}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-700">Industry</span>
+                    <input
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      value={profileDraft.industry ?? ''}
+                      onChange={(e) => setProfileDraft((d) => ({ ...d, industry: e.target.value }))}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-700">Number of employees</span>
+                    <input
+                      type="number"
+                      min={0}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      value={profileDraft.employeeCount ?? ''}
+                      onChange={(e) =>
+                        setProfileDraft((d) => ({
+                          ...d,
+                          employeeCount: e.target.value === '' ? null : Number(e.target.value),
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-700">Founded year</span>
+                    <input
+                      type="number"
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      value={profileDraft.foundedYear ?? ''}
+                      onChange={(e) =>
+                        setProfileDraft((d) => ({
+                          ...d,
+                          foundedYear: e.target.value === '' ? null : Number(e.target.value),
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm md:col-span-2">
+                    <span className="font-semibold text-slate-700">Specialties</span>
+                    <input
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      value={profileDraft.specialties ?? ''}
+                      onChange={(e) => setProfileDraft((d) => ({ ...d, specialties: e.target.value }))}
+                    />
+                  </label>
+                  <div className="block text-sm md:col-span-2">
+                    <span className="font-semibold text-slate-700">Logo</span>
+                    <input
+                      ref={logoFileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setProfileLogoFile(f);
+                        e.target.value = '';
+                      }}
+                    />
+                    <div className="mt-2 space-y-2">
+                      <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                        {(logoObjectUrl || profileDraft.logoUrl)?.trim() ? (
+                          <img
+                            src={logoObjectUrl || profileDraft.logoUrl || ''}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">
+                            No logo
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => logoFileInputRef.current?.click()}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          <Upload size={14} />
+                          Upload logo
+                        </button>
+                        {(logoObjectUrl || profileDraft.logoUrl)?.trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProfileLogoFile(null);
+                              setProfileDraft((d) => ({ ...d, logoUrl: '' }));
+                            }}
+                            className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="block text-sm md:col-span-2">
+                    <span className="font-semibold text-slate-700">Cover image</span>
+                    <input
+                      ref={coverFileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setProfileCoverFile(f);
+                        e.target.value = '';
+                      }}
+                    />
+                    <div className="mt-2 space-y-2">
+                      <div className="h-28 w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                        {(coverObjectUrl || profileDraft.coverUrl)?.trim() ? (
+                          <div
+                            className="h-full w-full bg-cover bg-center"
+                            style={{
+                              backgroundImage: `url(${coverObjectUrl || profileDraft.coverUrl})`,
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
+                            No cover image
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => coverFileInputRef.current?.click()}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          <Upload size={14} />
+                          Upload cover
+                        </button>
+                        {(coverObjectUrl || profileDraft.coverUrl)?.trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProfileCoverFile(null);
+                              setProfileDraft((d) => ({ ...d, coverUrl: '' }));
+                            }}
+                            className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void saveProfileEdit()}
+                  className="rounded-xl bg-[#002B5B] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#001F42]"
+                >
+                  Save changes
+                </button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -930,6 +1103,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   );
 
   const renderCompanyProfile = () => (
+    <>
     <div className="space-y-4">
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         {companyProfile?.coverUrl ? (
@@ -1005,6 +1179,8 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       </div>
       {profileSection === 'about' ? renderProfileAbout() : renderProfileOpportunities()}
     </div>
+    {renderEditProfileModal()}
+    </>
   );
 
   const renderContent = () => {
@@ -1035,7 +1211,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                     </div>
                   </div>
                 </div>
-                {renderOpportunities()}
+                {renderOpportunitiesEmbedded()}
               </div>
             </div>
           </>
@@ -1044,7 +1220,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         if (selectedOpportunityDetail && detailOpenedFrom === 'manage') {
           return renderOpportunityDetail(selectedOpportunityDetail);
         }
-        return renderOpportunities();
+        return renderSidebarOpportunitiesPage();
       case 'applications':
         return renderApplications();
       case 'profile':

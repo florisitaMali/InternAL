@@ -13,7 +13,7 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ title, children, actions }) => {
   return (
     <div className="flex-1 ml-72 min-h-screen flex flex-col bg-[#F9FAFB]">
-      <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 px-8 flex items-center justify-between">
+      <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 px-8 flex items-center justify-between">
         <div className="flex items-center gap-8 flex-1">
           <Logo size="sm" showText={false} className="md:hidden" />
           <div className="hidden md:flex relative max-w-md w-full">

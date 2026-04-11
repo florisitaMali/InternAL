@@ -38,6 +38,27 @@ export interface StudentProfileFile {
   sizeBytes?: number;
   uploadedAt?: string;
   downloadUrl?: string;
+  issuer?: string | null;
+  issueDate?: string | null;
+}
+
+/** Row from `studentproject` included in the student profile API. */
+export interface StudentProject {
+  projectId: number;
+  title: string;
+  githubUrl?: string | null;
+  description?: string | null;
+  skills?: string | null;
+}
+
+/** Row from `studentexperience`. */
+export interface StudentExperience {
+  experienceId: number;
+  companyName: string;
+  position: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  description?: string | null;
 }
 
 export interface Student extends User {
@@ -50,6 +71,14 @@ export interface Student extends User {
   hasCompletedPP: boolean;
   accessStartDate?: string;
   accessEndDate?: string;
+  /** Public or signed URL from `studentprofile.photo`. */
+  profilePhotoUrl?: string;
+  /** Public URL from `studentprofile.cover_url`. */
+  coverPhotoUrl?: string;
+  /** Custom banner heading from `studentprofile.banner_title`. */
+  bannerTitle?: string;
+  projects?: StudentProject[];
+  experiences?: StudentExperience[];
   extendedProfile?: {
     description: string;
     skills: string[];

@@ -29,8 +29,13 @@ public class StudentProfileResponse {
     private String hobbies;
     private String cvUrl;
     private String cvFilename;
+    private String photo;
+    private String coverUrl;
+    private String bannerTitle;
     private StudentProfileFileResponse cvFile;
     private List<StudentProfileFileResponse> certificationFiles = new ArrayList<>();
+    private List<StudentProjectResponse> projects = new ArrayList<>();
+    private List<StudentExperienceResponse> experiences = new ArrayList<>();
 
     public Integer getStudentId() { return studentId; }
     public void setStudentId(Integer studentId) { this.studentId = studentId; }
@@ -78,10 +83,24 @@ public class StudentProfileResponse {
     public void setCvUrl(String cvUrl) { this.cvUrl = cvUrl; }
     public String getCvFilename() { return cvFilename; }
     public void setCvFilename(String cvFilename) { this.cvFilename = cvFilename; }
+    public String getPhoto() { return photo; }
+    public void setPhoto(String photo) { this.photo = photo; }
+    public String getCoverUrl() { return coverUrl; }
+    public void setCoverUrl(String coverUrl) { this.coverUrl = coverUrl; }
+    public String getBannerTitle() { return bannerTitle; }
+    public void setBannerTitle(String bannerTitle) { this.bannerTitle = bannerTitle; }
     public StudentProfileFileResponse getCvFile() { return cvFile; }
     public void setCvFile(StudentProfileFileResponse cvFile) { this.cvFile = cvFile; }
     public List<StudentProfileFileResponse> getCertificationFiles() { return certificationFiles; }
     public void setCertificationFiles(List<StudentProfileFileResponse> certificationFiles) {
         this.certificationFiles = certificationFiles == null ? new ArrayList<>() : certificationFiles;
+    }
+    public List<StudentProjectResponse> getProjects() { return projects; }
+    public void setProjects(List<StudentProjectResponse> projects) {
+        this.projects = projects == null ? new ArrayList<>() : projects;
+    }
+    public List<StudentExperienceResponse> getExperiences() { return experiences; }
+    public void setExperiences(List<StudentExperienceResponse> experiences) {
+        this.experiences = experiences == null ? new ArrayList<>() : experiences;
     }
 }

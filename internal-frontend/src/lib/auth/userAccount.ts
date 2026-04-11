@@ -1,4 +1,10 @@
-import type { Role, Student, StudentProfileFile } from '@/src/types';
+import type {
+  Role,
+  Student,
+  StudentExperience,
+  StudentProfileFile,
+  StudentProject,
+} from '@/src/types';
 
 export type CurrentUserResponse = {
   userId: number;
@@ -31,8 +37,30 @@ export type StudentProfileResponse = {
   hobbies: string | null;
   cvUrl: string | null;
   cvFilename: string | null;
+  photo: string | null;
+  coverUrl: string | null;
+  bannerTitle: string | null;
   cvFile: StudentProfileFileResponse | null;
   certificationFiles: StudentProfileFileResponse[] | null;
+  projects: StudentProjectResponse[] | null;
+  experiences: StudentExperienceResponse[] | null;
+};
+
+export type StudentExperienceResponse = {
+  experienceId: number;
+  companyName: string | null;
+  position: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  description: string | null;
+};
+
+export type StudentProjectResponse = {
+  projectId: number;
+  title: string | null;
+  githubUrl: string | null;
+  description: string | null;
+  skills: string | null;
 };
 
 export type StudentProfileFileResponse = {
@@ -44,6 +72,8 @@ export type StudentProfileFileResponse = {
   sizeBytes?: number;
   uploadedAt?: string;
   downloadUrl?: string;
+  issuer?: string | null;
+  issueDate?: string | null;
 };
 
 export type LoadedAppUser = {
@@ -59,6 +89,7 @@ export type StudentProfileUpdateRequest = {
   languages: string;
   experience: string;
   hobbies: string;
+  bannerTitle: string;
 };
 
 function getApiBaseUrl(): string {
@@ -119,7 +150,7 @@ async function fetchBackendJson<T>(
 async function sendBackendJson<T>(
   path: string,
   accessToken: string,
-  method: 'PUT',
+  method: 'PUT' | 'POST' | 'PATCH',
   body: unknown
 ): Promise<{ data: T | null; errorMessage: string | null }> {
   try {
@@ -240,6 +271,7 @@ export function mapStudentToProfileUpdate(student: Student): StudentProfileUpdat
     languages: (student.extendedProfile?.languages || []).join(', '),
     experience: (student.extendedProfile?.experience || []).join(', '),
     hobbies: (student.extendedProfile?.hobbies || []).join(', '),
+    bannerTitle: student.bannerTitle?.trim() ?? '',
   };
 }
 
@@ -261,6 +293,27 @@ export async function saveCurrentStudentProfile(
   return { data: mapStudentProfileToStudent(data), errorMessage: null };
 }
 
+function mapStudentProject(row: StudentProjectResponse): StudentProject {
+  return {
+    projectId: row.projectId,
+    title: row.title || 'Untitled project',
+    githubUrl: row.githubUrl ?? undefined,
+    description: row.description ?? undefined,
+    skills: row.skills ?? undefined,
+  };
+}
+
+function mapStudentExperience(row: StudentExperienceResponse): StudentExperience {
+  return {
+    experienceId: row.experienceId,
+    companyName: row.companyName || '',
+    position: row.position || '',
+    startDate: row.startDate ?? undefined,
+    endDate: row.endDate ?? undefined,
+    description: row.description ?? undefined,
+  };
+}
+
 function mapStudentProfileFile(file: StudentProfileFileResponse): StudentProfileFile {
   return {
     certificationId: file.certificationId,
@@ -271,6 +324,8 @@ function mapStudentProfileFile(file: StudentProfileFileResponse): StudentProfile
     sizeBytes: file.sizeBytes,
     uploadedAt: file.uploadedAt,
     downloadUrl: file.downloadUrl,
+    issuer: file.issuer ?? undefined,
+    issueDate: file.issueDate ?? undefined,
   };
 }
 
@@ -292,6 +347,11 @@ export function mapStudentProfileToStudent(profile: StudentProfileResponse): Stu
     hasCompletedPP: Boolean(profile.hasCompletedPp),
     accessStartDate: profile.accessStartDate || undefined,
     accessEndDate: profile.accessEndDate || undefined,
+    profilePhotoUrl: profile.photo?.trim() || undefined,
+    coverPhotoUrl: profile.coverUrl?.trim() || undefined,
+    bannerTitle: profile.bannerTitle?.trim() || undefined,
+    projects: (profile.projects || []).map(mapStudentProject),
+    experiences: (profile.experiences || []).map(mapStudentExperience),
     extendedProfile: {
       description: profile.description || '',
       skills: parseList(profile.skills),
@@ -364,11 +424,10 @@ export async function deleteStudentCertification(
   return sendBackendRequest(`/api/student/profile/certifications/${certificationId}`, accessToken, 'DELETE');
 }
 
-export async function downloadStudentProfileFile(
+export async function fetchStudentProfileBlob(
   accessToken: string,
-  path: string,
-  fallbackFilename: string
-): Promise<{ errorMessage: string | null }> {
+  path: string
+): Promise<{ blob: Blob | null; errorMessage: string | null }> {
   try {
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method: 'GET',
@@ -381,6 +440,7 @@ export async function downloadStudentProfileFile(
       const raw = await response.text();
       const parsed = raw ? (JSON.parse(raw) as { error?: string }) : null;
       return {
+        blob: null,
         errorMessage:
           parsed && typeof parsed.error === 'string'
             ? parsed.error
@@ -389,6 +449,26 @@ export async function downloadStudentProfileFile(
     }
 
     const blob = await response.blob();
+    return { blob, errorMessage: null };
+  } catch (e) {
+    return {
+      blob: null,
+      errorMessage: e instanceof Error ? e.message : 'Could not load file.',
+    };
+  }
+}
+
+export async function downloadStudentProfileFile(
+  accessToken: string,
+  path: string,
+  fallbackFilename: string
+): Promise<{ errorMessage: string | null }> {
+  try {
+    const { blob, errorMessage } = await fetchStudentProfileBlob(accessToken, path);
+    if (!blob || errorMessage) {
+      return { errorMessage: errorMessage || 'Could not download file.' };
+    }
+
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -403,6 +483,106 @@ export async function downloadStudentProfileFile(
       errorMessage: e instanceof Error ? e.message : 'Could not download file.',
     };
   }
+}
+
+export type StudentExperienceWrite = {
+  companyName: string;
+  position: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  description?: string | null;
+};
+
+export type StudentProjectWrite = {
+  title: string;
+  githubUrl?: string | null;
+  description?: string | null;
+  skills?: string | null;
+};
+
+export async function createStudentExperience(
+  accessToken: string,
+  body: StudentExperienceWrite
+): Promise<{ data: StudentExperienceResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<StudentExperienceResponse>('/api/student/experiences', accessToken, 'POST', body);
+}
+
+export async function updateStudentExperience(
+  accessToken: string,
+  experienceId: number,
+  body: StudentExperienceWrite
+): Promise<{ data: StudentExperienceResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<StudentExperienceResponse>(
+    `/api/student/experiences/${experienceId}`,
+    accessToken,
+    'PUT',
+    body
+  );
+}
+
+export async function deleteStudentExperience(
+  accessToken: string,
+  experienceId: number
+): Promise<{ ok: boolean; errorMessage: string | null }> {
+  return sendBackendRequest(`/api/student/experiences/${experienceId}`, accessToken, 'DELETE');
+}
+
+export async function createStudentProject(
+  accessToken: string,
+  body: StudentProjectWrite
+): Promise<{ data: StudentProjectResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<StudentProjectResponse>('/api/student/projects', accessToken, 'POST', body);
+}
+
+export async function updateStudentProject(
+  accessToken: string,
+  projectId: number,
+  body: StudentProjectWrite
+): Promise<{ data: StudentProjectResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<StudentProjectResponse>(
+    `/api/student/projects/${projectId}`,
+    accessToken,
+    'PUT',
+    body
+  );
+}
+
+export async function deleteStudentProject(
+  accessToken: string,
+  projectId: number
+): Promise<{ ok: boolean; errorMessage: string | null }> {
+  return sendBackendRequest(`/api/student/projects/${projectId}`, accessToken, 'DELETE');
+}
+
+export async function patchCertificationMetadata(
+  accessToken: string,
+  certificationId: number,
+  body: { displayName?: string; issuer?: string; issueDate?: string | null }
+): Promise<{ data: unknown | null; errorMessage: string | null }> {
+  return sendBackendJson<unknown>(
+    `/api/student/profile/certifications/${certificationId}`,
+    accessToken,
+    'PATCH',
+    body
+  );
+}
+
+export async function uploadProfilePhoto(
+  accessToken: string,
+  file: File
+): Promise<{ data: { url: string } | null; errorMessage: string | null }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return sendBackendFormData<{ url: string }>('/api/student/profile/photo', accessToken, formData);
+}
+
+export async function uploadProfileCover(
+  accessToken: string,
+  file: File
+): Promise<{ data: { url: string } | null; errorMessage: string | null }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return sendBackendFormData<{ url: string }>('/api/student/profile/cover', accessToken, formData);
 }
 
 export async function loadCurrentAppUser(

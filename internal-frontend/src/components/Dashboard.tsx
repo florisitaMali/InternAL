@@ -29,14 +29,13 @@ const Dashboard: React.FC<DashboardProps> = ({
   actions,
   userName,
   userRole,
+  topBarVariant = 'default',
+  hidePageIntro = false,
 }) => {
   const resolvedSubtitle = subtitle === undefined ? DEFAULT_SUBTITLE : subtitle;
   const showTitle = Boolean(title?.trim());
   const showSubtitle = resolvedSubtitle != null && resolvedSubtitle !== '';
   const showPageHeader = showTitle || showSubtitle;
-  topBarVariant = 'default',
-  hidePageIntro = false,
-}) => {
   return (
     <div className="flex-1 min-h-screen flex flex-col bg-[#F4F6F8]">
       <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-40 px-6 sm:px-8 flex items-center justify-between">
@@ -91,7 +90,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       </header>
 
       <main className="p-10 max-w-7xl w-full mx-auto">
-        {showPageHeader && (
+        {!hidePageIntro && showPageHeader && (
           <header className="mb-10">
             {showTitle && (
               <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>

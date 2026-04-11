@@ -40,10 +40,6 @@ public class OpportunityRepository {
     @Value("${supabase.anon.key}")
     private String supabaseAnonKey;
 
-    public OpportunityRepository(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
-    }
-
     private HttpHeaders authHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.set("apikey", supabaseAnonKey);

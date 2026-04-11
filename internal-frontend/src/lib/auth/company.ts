@@ -32,7 +32,13 @@ type CompanyOpportunityDetailResponse = {
 };
 
 function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080';
+  const u = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080';
+  return u.replace(/\/+$/, '');
+}
+
+function normalizeBearerToken(accessToken: string): string | null {
+  const t = accessToken.trim();
+  return t.length > 0 ? t : null;
 }
 
 function parseBackendErrorMessage(
@@ -68,10 +74,18 @@ function mapOpportunity(item: ApiOpportunityItem): Opportunity {
 }
 
 async function fetchBackendJson<T>(path: string, accessToken: string): Promise<{ data: T | null; errorMessage: string | null }> {
+  const token = normalizeBearerToken(accessToken);
+  if (!token) {
+    return { data: null, errorMessage: 'Not signed in. Refresh the page or sign in again.' };
+  }
   try {
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
     });
     const raw = await response.text();
     const parsed = raw ? (JSON.parse(raw) as T | { error?: string }) : null;
@@ -93,14 +107,20 @@ async function sendBackendJson<T>(
   method: 'PUT',
   body: unknown
 ): Promise<{ data: T | null; errorMessage: string | null }> {
+  const token = normalizeBearerToken(accessToken);
+  if (!token) {
+    return { data: null, errorMessage: 'Not signed in. Refresh the page or sign in again.' };
+  }
   try {
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      cache: 'no-store',
     });
     const raw = await response.text();
     const parsed = raw ? (JSON.parse(raw) as T | { error?: string }) : null;

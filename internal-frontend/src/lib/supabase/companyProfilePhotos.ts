@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-/** Matches the bucket layout: `company/logo/...` and `company/cover/...`. */
-export const COMPANY_PROFILE_PHOTOS_BUCKET = 'company_profile_photos';
+/** Storage bucket for company logo/cover; object paths stay `company/logo/...` and `company/cover/...`. */
+export const COMPANY_PROFILE_PHOTOS_BUCKET = 'user-profile-photo';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 

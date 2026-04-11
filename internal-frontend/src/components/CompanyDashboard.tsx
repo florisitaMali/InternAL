@@ -18,6 +18,7 @@ import {
   updateCompanyProfile,
   type CompanyProfileUpdatePayload,
 } from '@/src/lib/auth/company';
+import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import { mockCompanies, mockApplications } from '@/src/lib/mockData';
 import { 
   Briefcase, 
@@ -107,13 +108,12 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const loadCompanyOpportunities = useCallback(async () => {
     setOppListLoading(true);
     try {
-      const supabase = getSupabaseBrowserClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
         setOppListLoading(false);
         return;
       }
-      const { data, errorMessage } = await fetchCompanyOpportunities(session.access_token);
+      const { data, errorMessage } = await fetchCompanyOpportunities(accessToken);
       if (errorMessage) {
         toast.error(errorMessage);
         setOppListLoading(false);
@@ -130,13 +130,12 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const loadCompanyProfile = useCallback(async () => {
     setProfileLoading(true);
     try {
-      const supabase = getSupabaseBrowserClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
         setProfileLoading(false);
         return;
       }
-      const { data, errorMessage } = await fetchCompanyProfile(session.access_token);
+      const { data, errorMessage } = await fetchCompanyProfile(accessToken);
       if (errorMessage) {
         toast.error(errorMessage);
         setProfileLoading(false);
@@ -203,13 +202,12 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const openOpportunityDetail = async (opportunity: Opportunity, from: 'profile' | 'manage' | 'dashboard') => {
     setDetailOpenedFrom(from);
     try {
-      const supabase = getSupabaseBrowserClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
         setSelectedOpportunityDetail(opportunity);
         return;
       }
-      const { data, errorMessage } = await fetchCompanyOpportunityDetail(session.access_token, opportunity.id);
+      const { data, errorMessage } = await fetchCompanyOpportunityDetail(accessToken, opportunity.id);
       if (data) {
         setSelectedOpportunityDetail(data);
       } else {
@@ -247,8 +245,8 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     }
     try {
       const supabase = getSupabaseBrowserClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
         toast.error('Not signed in');
         return;
       }
@@ -273,7 +271,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         coverUrl = up.publicUrl;
       }
 
-      const { data, errorMessage } = await updateCompanyProfile(session.access_token, {
+      const { data, errorMessage } = await updateCompanyProfile(accessToken, {
         ...profileDraft,
         logoUrl,
         coverUrl,

@@ -105,6 +105,30 @@ export interface Company {
   description: string;
 }
 
+
+/** Company profile returned from GET /api/company/profile */
+export interface CompanyProfileFromApi {
+  companyId: number;
+  name: string;
+  location: string | null;
+  description: string | null;
+  website: string | null;
+  industry: string | null;
+  employeeCount: number | null;
+  foundedYear: number | null;
+  specialties: string | null;
+  logoUrl: string | null;
+  coverUrl: string | null;
+}
+
+/** Aggregates returned with opportunity detail (or a separate summary endpoint). */
+export interface OpportunityApplicationStats {
+  total: number;
+  inReview: number;
+  approved: number;
+  rejected: number;
+}
+
 export interface Opportunity {
   id: string;
   companyId: string;
@@ -120,6 +144,17 @@ export interface Opportunity {
   isPaid?: boolean | null;
   workMode?: string | null;
   skillMatchCount?: number;
+  /** API-shaped optional fields for company detail view */
+  durationLabel?: string;
+  jobTypeLabel?: string;
+  startDateLabel?: string;
+  roleSummary?: string;
+  roleAboutExtra?: string;
+  responsibilities?: string[];
+  requirements?: string[];
+  postedAt?: string;
+  postedLabel?: string;
+  applicationStats?: OpportunityApplicationStats;
 }
 
 export type ApplicationType = 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH';

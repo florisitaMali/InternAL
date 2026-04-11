@@ -247,6 +247,7 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            onNavigateTab={setActiveTab}
           />
         );
       default:

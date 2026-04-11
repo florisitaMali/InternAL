@@ -6,6 +6,8 @@ import Logo from './Logo';
 
 interface DashboardProps {
   title: string;
+  /** Omit or leave undefined for default tagline; pass null to hide. */
+  subtitle?: string | null;
   children: React.ReactNode;
   actions?: React.ReactNode;
   userName: string;
@@ -13,7 +15,20 @@ interface DashboardProps {
   onToggleSidebar?: () => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ title, children, actions, userName, userRole }) => {
+const DEFAULT_SUBTITLE = 'Manage your internship lifecycle and track progress.';
+
+const Dashboard: React.FC<DashboardProps> = ({
+  title,
+  subtitle,
+  children,
+  actions,
+  userName,
+  userRole,
+}) => {
+  const resolvedSubtitle = subtitle === undefined ? DEFAULT_SUBTITLE : subtitle;
+  const showTitle = Boolean(title?.trim());
+  const showSubtitle = resolvedSubtitle != null && resolvedSubtitle !== '';
+  const showPageHeader = showTitle || showSubtitle;
   return (
     <div className="flex-1 min-h-screen flex flex-col bg-[#F9FAFB]">
       <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-40 px-8 flex items-center justify-between">
@@ -55,10 +70,16 @@ const Dashboard: React.FC<DashboardProps> = ({ title, children, actions, userNam
       </header>
 
       <main className="p-10 max-w-7xl w-full mx-auto">
-        <header className="mb-10">
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>
-          <p className="text-slate-500 mt-2 text-sm font-medium">Manage your internship lifecycle and track progress.</p>
-        </header>
+        {showPageHeader && (
+          <header className="mb-10">
+            {showTitle && (
+              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>
+            )}
+            {showSubtitle && (
+              <p className="text-slate-500 mt-2 text-sm font-medium">{resolvedSubtitle}</p>
+            )}
+          </header>
+        )}
         <div className="space-y-8">
           {children}
         </div>

@@ -34,6 +34,8 @@ import {
   uploadStudentCv,
 } from '@/src/lib/auth/userAccount';
 import { fetchStudentOpportunities, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
+import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
+import { formatDeadline, formatOpportunityType } from '@/src/lib/opportunityFormat';
 
 interface StudentDashboardProps {
   activeTab: string;
@@ -62,37 +64,6 @@ const typeOptions = [
   { value: 'PROFESSIONAL_PRACTICE', label: 'Professional Practice' },
   { value: 'INDIVIDUAL_GROWTH', label: 'Individual Growth' },
 ];
-
-function formatOpportunityType(type?: string): string {
-  if (!type) return 'Opportunity';
-  return type
-    .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function formatDeadline(deadline?: string): string {
-  if (!deadline) return 'No deadline specified';
-  const date = new Date(deadline);
-  if (Number.isNaN(date.getTime())) return deadline;
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-
-function getInitials(name: string | undefined): string {
-  if (!name) return '?';
-  return name
-    .split(/\s+/)
-    .map((w) => w[0] ?? '')
-    .join('')
-    .slice(0, 3)
-    .toUpperCase();
-}
 
 function buildOpportunityFilters(filters: OpportunityFilterState): StudentOpportunityFilters {
   return {
@@ -499,55 +470,13 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           {!!opportunities.length && (
             <div className="space-y-3">
               {opportunities.map((opp) => (
-                <div
+                <OpportunityRecordCard
                   key={opp.id}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-start gap-4 hover:shadow-md transition-all duration-200"
-                >
-                  <div className="flex-shrink-0 w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-500 text-xs tracking-wide">
-                    {getInitials(opp.companyName)}
-                  </div>
-
-                  <div className="flex-1 min-w-0 flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-bold text-slate-900 leading-snug">{opp.title}</h3>
-                      <p className="text-[#20948B] text-sm font-semibold mt-0.5">{opp.companyName}</p>
-                      <p className="text-slate-500 text-sm mt-2 line-clamp-1">
-                        {opp.description || 'No description provided.'}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-xs text-slate-500">
-                        <span className="flex items-center gap-1.5">
-                          <Calendar size={13} className="flex-shrink-0" />
-                          Deadline: {formatDeadline(opp.deadline)}
-                        </span>
-                        {opp.requiredExperience && (
-                          <span className="flex items-center gap-1.5">
-                            <Briefcase size={13} className="flex-shrink-0" />
-                            {opp.requiredExperience}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2 flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedOpportunity(opp)}
-                        suppressHydrationWarning
-                        className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all whitespace-nowrap"
-                      >
-                        View Details
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleApply(opp.title)}
-                        suppressHydrationWarning
-                        className="px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all whitespace-nowrap"
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  opportunity={opp}
+                  onViewDetails={() => setSelectedOpportunity(opp)}
+                  showApply
+                  onApply={() => handleApply(opp.title)}
+                />
               ))}
             </div>
           )}

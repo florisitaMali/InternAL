@@ -153,10 +153,12 @@ public class ApplicationRepository {
         r.setIsApprovedByPPA(approvedByPPA);
         r.setIsApprovedByCompany(approvedByCompany);
 
-        if (Boolean.TRUE.equals(approvedByPPA) && Boolean.TRUE.equals(approvedByCompany)) {
-            r.setStatus("APPROVED");
-        } else if (Boolean.FALSE.equals(approvedByPPA) || Boolean.FALSE.equals(approvedByCompany)) {
+        if (Boolean.FALSE.equals(approvedByPPA) || Boolean.FALSE.equals(approvedByCompany)) {
             r.setStatus("REJECTED");
+        } else if (Boolean.TRUE.equals(approvedByPPA) || Boolean.TRUE.equals(approvedByCompany)) {
+            r.setStatus("APPROVED");
+        } else if (approvedByPPA == null && approvedByCompany == null) {
+            r.setStatus("WAITING");
         } else {
             r.setStatus("PENDING");
         }

@@ -776,9 +776,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       if (approved === true) {
         return (
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
-            <span className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
-              <CheckCircle size={10} className="text-white" />
-            </span>
+            <CheckCircle size={16} className="text-white fill-emerald-500 flex-shrink-0" />
             {label} APPROVED
           </span>
         );
@@ -786,18 +784,16 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       if (approved === false) {
         return (
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600">
-            <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
-              <XCircle size={10} className="text-white" />
-            </span>
+            <XCircle size={16} className="text-white fill-red-500 flex-shrink-0" />
             {label} REJECTED
           </span>
         );
       }
       return (
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
-          <span className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-[8px] font-black leading-none">···</span>
-          </span>
+          <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-[8px] font-black leading-none tracking-tighter">···</span>
+          </div>
           {label} PENDING
         </span>
       );

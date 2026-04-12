@@ -10,7 +10,7 @@ import StudentDashboard from '@/src/components/StudentDashboard';
 import CompanyDashboard from '@/src/components/CompanyDashboard';
 import LoginPage from '@/src/components/LoginPage';
 import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
-import { toast } from 'sonner';
+import { toast } from 'sonner'; //used for notifications
 import { clearSupabaseAuthStorage, getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
 import { NotificationsFeedProvider } from '@/src/lib/auth/useNotificationsFeed';
@@ -31,7 +31,7 @@ export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
-  const isSigningOutRef = useRef(false);
+  const isSigningOutRef = useRef(false); //prevent multiple logout requests
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const handleToggleSidebar = () => setSidebarOpen((prev) => !prev);
@@ -75,9 +75,9 @@ export default function Home() {
       if (!appUser || errorMessage) {
         clearSupabaseAuthStorage();
         try {
-          await supabase!.auth.signOut({ scope: 'local' });
+          await supabase!.auth.signOut({ scope: 'local' });//sign out from supabase
         } catch {
-          /* ignore */
+          //ignore
         }
         resetLocalUserState();
         toast.error(errorMessage || 'Could not load your account profile.');
@@ -159,12 +159,18 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (isLoggedIn && role === 'STUDENT' && activeTab === 'dashboard') {
+      setActiveTab('opportunities');
+    }
+  }, [isLoggedIn, role, activeTab]);
+
   const handleLogin = (selectedRole: Role, name: string, studentProfile: Student | null) => {
     setRole(selectedRole);
     setCurrentUserName(name);
     setCurrentStudent(studentProfile);
     setIsLoggedIn(true);
-    setActiveTab('dashboard');
+    setActiveTab(selectedRole === 'STUDENT' ? 'opportunities' : 'dashboard'); 
   };
 
   const handleLogout = () => {
@@ -242,6 +248,7 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            onNavigateTab={setActiveTab}
           />
         );
       default:

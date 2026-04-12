@@ -1,13 +1,13 @@
 'use client';
 
 import React from 'react';
-import Logo from './Logo';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Building2, 
-  Briefcase, 
-  FileText, 
+import {
+  LayoutDashboard,
+  Users,
+  User,
+  Building2,
+  Briefcase,
+  FileText,
   LogOut,
   GraduationCap,
   BookOpen,
@@ -43,8 +43,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'notifications', label: 'Notifications', icon: Bell },
     ],
     STUDENT: [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { id: 'profile', label: 'My Profile', icon: Users },
+      { id: 'profile', label: 'My Profile', icon: User },
       { id: 'opportunities', label: 'Opportunities', icon: Briefcase },
       { id: 'applications', label: 'My Applications', icon: FileText },
     ],
@@ -65,7 +64,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
         isOpen ? 'w-72' : 'w-16'
       )}
     >
-      {/* Header: dark navy toggle + logo */}
       <div className="flex items-center h-16 border-b border-slate-100 flex-shrink-0">
         <button
           type="button"
@@ -75,17 +73,9 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
         >
           <Menu size={20} color="white" />
         </button>
-        <div
-          className={cn(
-            'flex-1 px-3 overflow-hidden whitespace-nowrap transition-all duration-200',
-            isOpen ? 'opacity-100' : 'opacity-0 w-0 px-0'
-          )}
-        >
-          <Logo size="sm" />
-        </div>
+        {isOpen ? <div className="flex-1 min-w-0" aria-hidden /> : null}
       </div>
 
-      {/* Nav items */}
       <nav className="flex-1 py-4 space-y-1 overflow-y-auto overflow-x-hidden">
         <div
           className={cn(
@@ -124,7 +114,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
         ))}
       </nav>
 
-      {/* Footer */}
       <div className="border-t border-slate-100 flex-shrink-0">
         <div
           className={cn(

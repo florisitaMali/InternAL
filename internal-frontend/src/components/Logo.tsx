@@ -11,8 +11,8 @@ interface LogoProps {
 }
 
 const Logo: React.FC<LogoProps> = ({ className, size = 'md' }) => {
-  const widths: Record<string, number> = { sm: 80, md: 120, lg: 160 };
-  const w = widths[size] ?? 120;
+  const widths: Record<string, number> = { sm: 112, md: 152, lg: 200 };
+  const w = widths[size] ?? 152;
 
   return (
     <div className={cn('inline-flex items-center', className)}>

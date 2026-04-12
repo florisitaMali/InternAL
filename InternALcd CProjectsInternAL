@@ -1,0 +1,10 @@
+[33m06f6dd8[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/INTE-4-v2[m[33m, [m[1;31morigin/feature/INTE-4-v2[m[33m)[m INTE-2: Fix profile save by using service role key for studentprofile upsert
+[33mb3f7fd1[m INTE-4: Fix ApplicationController linkedEntityId type, add SubmitApplicationModal to StudentDashboard
+[33m7c318a1[m Merge develop into feature/INTE-4-v2
+[33m06b25c1[m INTE-4: Fix auth token sending and opportunityId parsing
+[33me70a2ec[m INTE-4: Fix applicationType to single value, change checkboxes to radio buttons
+[33m875d341[m[33m ([m[1;31morigin/develop[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge pull request #13 from florisitaMali/feature/INTE-3-v3
+[33m7c7a728[m Logo edited
+[33mc903d6a[m Merge pull request #12 from florisitaMali/feature/INTE-3-v3
+[33mbcf37b0[m INTE-3: Retrive the opportunities from database
+[33m26e4b47[m INTE-4: Add SubmitApplicationModal component and wire up to StudentDashboard

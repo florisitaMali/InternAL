@@ -10,6 +10,7 @@ import { mockApplications, mockStudents } from '@/src/lib/mockData';
 import {
   ArrowRight,
   Briefcase,
+  Building2,
   Calendar,
   CheckCircle,
   ChevronRight,
@@ -35,7 +36,7 @@ import {
   uploadStudentCertification,
   uploadStudentCv,
 } from '@/src/lib/auth/userAccount';
-import { fetchStudentOpportunities, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
+import { fetchStudentOpportunities, getApiBaseUrl, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
 
 interface StudentDashboardProps {
   activeTab: string;
@@ -50,6 +51,8 @@ type OpportunityFilterState = {
   type: string;
   location: string;
   skills: string[];
+  workMode: string;
+  isPaid: string;
 };
 
 const EMPTY_FILTERS: OpportunityFilterState = {
@@ -57,6 +60,8 @@ const EMPTY_FILTERS: OpportunityFilterState = {
   type: '',
   location: '',
   skills: [],
+  workMode: '',
+  isPaid: '',
 };
 
 const typeOptions = [
@@ -96,12 +101,24 @@ function getInitials(name: string | undefined): string {
     .toUpperCase();
 }
 
+function formatWorkMode(mode?: string | null): string {
+  if (!mode) return '';
+  const map: Record<string, string> = {
+    REMOTE: 'Remote',
+    HYBRID: 'Hybrid',
+    IN_PERSON: 'In-person',
+  };
+  return map[mode] ?? mode;
+}
+
 function buildOpportunityFilters(filters: OpportunityFilterState): StudentOpportunityFilters {
   return {
     q: filters.q || undefined,
     type: filters.type || undefined,
     location: filters.location || undefined,
     skills: filters.skills.length ? filters.skills : undefined,
+    workMode: filters.workMode || undefined,
+    isPaid: filters.isPaid === 'true' ? true : filters.isPaid === 'false' ? false : undefined,
   };
 }
 
@@ -116,6 +133,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [student, setStudent] = useState<Student>(currentStudent ?? mockStudents[0]);
   const [opportunityFilters, setOpportunityFilters] = useState<OpportunityFilterState>(EMPTY_FILTERS);
   const [skillFilterInput, setSkillFilterInput] = useState('');
+  const [durationFilter, setDurationFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [applicationOpportunity, setApplicationOpportunity] = useState<{ id: number; title: string; company: string } | null>(null);
@@ -187,7 +205,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const handleSubmitApplication = async (data: ApplicationFormData) => {
     try {
       await withAccessToken(async (accessToken) => {
-        const response = await fetch('http://localhost:8080/api/student/applications', {
+        const response = await fetch(`${getApiBaseUrl()}/api/student/applications`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -248,101 +266,129 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   );
 
   const renderFilterPanel = () => (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900">Filters</h3>
-          <p className="text-sm text-slate-500">Refine your matched opportunities.</p>
-        </div>
+    <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-base font-bold text-slate-900">Filter Opportunities</h3>
         <button
           type="button"
           onClick={() => setOpportunityFilters(EMPTY_FILTERS)}
           className="text-sm font-semibold text-slate-500 hover:text-slate-900"
         >
-          Reset
+          Clear All
         </button>
       </div>
 
-      <label className="block">
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Type</span>
-        <select
-          value={opportunityFilters.type}
-          onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, type: e.target.value }))}
-          className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
-        >
-          {typeOptions.map((option) => (
-            <option key={option.value || 'all'} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="block">
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Location</span>
-        <input
-          type="text"
-          value={opportunityFilters.location}
-          onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, location: e.target.value }))}
-          placeholder="City, country, or remote"
-          className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
-        />
-      </label>
-
-      <div className="space-y-3">
-        <div>
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Required Skills</span>
-          <p className="text-sm text-slate-500 mt-1">Filter within your matched opportunities by specific skills.</p>
-        </div>
-        <div className="flex gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-6">
+        <div className="space-y-2">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Location</span>
           <input
             type="text"
-            value={skillFilterInput}
-            onChange={(e) => setSkillFilterInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addSkillFilter(skillFilterInput);
-              }
-            }}
-            placeholder="Add a skill"
-            className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
+            value={opportunityFilters.location}
+            onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, location: e.target.value }))}
+            placeholder="City, country, or remote"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
           />
-          <button
-            type="button"
-            onClick={() => addSkillFilter(skillFilterInput)}
-            className="px-4 py-3 rounded-xl bg-[#002B5B] text-sm font-bold text-white hover:bg-[#001F42]"
-          >
-            Add
-          </button>
         </div>
-        {!!availableSkillOptions.length && (
-          <div className="flex flex-wrap gap-2">
-            {availableSkillOptions.slice(0, 12).map((skill) => (
-              <button
-                key={skill}
-                type="button"
-                onClick={() => addSkillFilter(skill)}
-                className="px-3 py-1 rounded-full bg-slate-100 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-              >
-                {skill}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {opportunityFilters.skills.map((skill) => (
-            <button
-              key={skill}
-              type="button"
-              onClick={() => removeSkillFilter(skill)}
-              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#002B5B]/10 text-xs font-bold text-[#002B5B]"
-            >
-              {skill}
-              <X size={12} />
-            </button>
+
+        <div className="space-y-2">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Work Type</span>
+          {([
+            { label: 'Full-time', value: 'PROFESSIONAL_PRACTICE' },
+            { label: 'Part-time', value: 'INDIVIDUAL_GROWTH' },
+            { label: 'Flexible Hours', value: 'FLEXIBLE' },
+          ] as const).map(({ label, value }) => (
+            <label key={value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={opportunityFilters.type === value}
+                onChange={() =>
+                  setOpportunityFilters((prev) => ({
+                    ...prev,
+                    type: prev.type === value ? '' : value,
+                  }))
+                }
+                className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+              />
+              <span className="text-sm text-slate-700">{label}</span>
+            </label>
           ))}
         </div>
+
+        <div className="space-y-2">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Workplace Type</span>
+          {([
+            { label: 'Remote', value: 'REMOTE' },
+            { label: 'Hybrid', value: 'HYBRID' },
+            { label: 'In-person', value: 'IN_PERSON' },
+          ] as const).map(({ label, value }) => (
+            <label key={value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={opportunityFilters.workMode === value}
+                onChange={() =>
+                  setOpportunityFilters((prev) => ({
+                    ...prev,
+                    workMode: prev.workMode === value ? '' : value,
+                  }))
+                }
+                className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+              />
+              <span className="text-sm text-slate-700">{label}</span>
+            </label>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Duration</span>
+          {([
+            { label: '<3 months', value: '<3' },
+            { label: '3-6 months', value: '3-6' },
+            { label: '6+ months', value: '6+' },
+          ] as const).map(({ label, value }) => (
+            <label key={value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={durationFilter === value}
+                onChange={() => setDurationFilter((prev) => (prev === value ? '' : value))}
+                className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+              />
+              <span className="text-sm text-slate-700">{label}</span>
+            </label>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Paid Status</span>
+          {([
+            { label: 'Paid', value: 'true' },
+            { label: 'Unpaid', value: 'false' },
+          ] as const).map(({ label, value }) => (
+            <label key={value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={opportunityFilters.isPaid === value}
+                onChange={() =>
+                  setOpportunityFilters((prev) => ({
+                    ...prev,
+                    isPaid: prev.isPaid === value ? '' : value,
+                  }))
+                }
+                className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+              />
+              <span className="text-sm text-slate-700">{label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex justify-end mt-4">
+        <button
+          type="button"
+          onClick={() => loadOpportunities(opportunityFilters)}
+          className="px-5 py-2.5 bg-[#002B5B] text-white text-sm font-bold rounded-xl hover:bg-[#001F42] transition-all"
+        >
+          Apply Filters
+        </button>
       </div>
     </div>
   );
@@ -471,119 +517,128 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   const renderOpportunities = () => (
     <div className="space-y-6">
-      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">Available Opportunities</h2>
-          <p className="text-sm text-slate-500 mt-1">
-            Opportunities available to your university, sorted by how well they match your skills.
+      <div>
+        <h2 className="text-3xl font-bold text-slate-900">Explore Opportunities</h2>
+        <p className="text-sm text-slate-500 mt-1">
+          Discover internships that match your skills and interests.
+        </p>
+      </div>
+
+      <div className="flex gap-3 items-center mb-6">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <input
+            type="text"
+            placeholder="Search title, company, skill..."
+            suppressHydrationWarning
+            className="flex-1 w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+            value={opportunityFilters.q}
+            onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, q: e.target.value }))}
+          />
+        </div>
+        <button
+          type="button"
+          suppressHydrationWarning
+          onClick={() => setShowFilters((prev) => !prev)}
+          className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
+        >
+          <Filter size={16} />
+          Filters
+        </button>
+      </div>
+
+      {showFilters ? renderFilterPanel() : null}
+
+      {opportunitiesError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+          {opportunitiesError}
+        </div>
+      ) : null}
+
+      {isLoadingOpportunities ? (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-sm text-slate-500">
+          Loading opportunities...
+        </div>
+      ) : null}
+
+      {!isLoadingOpportunities && !opportunitiesError && !opportunities.length ? (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 space-y-2">
+          <h3 className="text-lg font-bold text-slate-900">No matching opportunities found</h3>
+          <p className="text-sm text-slate-500">
+            Try loosening your filters or adding more skills to your profile.
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
-              type="text"
-              placeholder="Search title, company, skill..."
-              suppressHydrationWarning
-              className="pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none w-full sm:w-80"
-              value={opportunityFilters.q}
-              onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, q: e.target.value }))}
-            />
-          </div>
-          <button
-            type="button"
-            suppressHydrationWarning
-            onClick={() => setShowFilters((prev) => !prev)}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
-          >
-            <Filter size={16} />
-            {showFilters ? 'Hide Filters' : 'Show Filters'}
-          </button>
-        </div>
-      </div>
+      ) : null}
 
-      <div className={cn('grid grid-cols-1 gap-6 items-start', showFilters && 'xl:grid-cols-[300px_minmax(0,1fr)]')}>
-        {showFilters ? renderFilterPanel() : null}
-
-        <div className="space-y-6">
-          {opportunitiesError ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-              {opportunitiesError}
-            </div>
-          ) : null}
-
-          {isLoadingOpportunities ? (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-sm text-slate-500">
-              Loading opportunities...
-            </div>
-          ) : null}
-
-          {!isLoadingOpportunities && !opportunitiesError && !opportunities.length ? (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 space-y-2">
-              <h3 className="text-lg font-bold text-slate-900">No matching opportunities found</h3>
-              <p className="text-sm text-slate-500">
-                Try loosening your filters or adding more skills to your profile.
-              </p>
-            </div>
-          ) : null}
-
-          {!!opportunities.length && (
-            <div className="space-y-3">
-              {opportunities.map((opp) => (
-                <div
-                  key={opp.id}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-start gap-4 hover:shadow-md transition-all duration-200"
-                >
-                  <div className="flex-shrink-0 w-14 h-14 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-500 text-xs tracking-wide">
-                    {getInitials(opp.companyName)}
-                  </div>
-
-                  <div className="flex-1 min-w-0 flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-bold text-slate-900 leading-snug">{opp.title}</h3>
-                      <p className="text-[#20948B] text-sm font-semibold mt-0.5">{opp.companyName}</p>
-                      <p className="text-slate-500 text-sm mt-2 line-clamp-1">
-                        {opp.description || 'No description provided.'}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-xs text-slate-500">
-                        <span className="flex items-center gap-1.5">
-                          <Calendar size={13} className="flex-shrink-0" />
-                          Deadline: {formatDeadline(opp.deadline)}
-                        </span>
-                        {opp.requiredExperience && (
-                          <span className="flex items-center gap-1.5">
-                            <Briefcase size={13} className="flex-shrink-0" />
-                            {opp.requiredExperience}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2 flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedOpportunity(opp)}
-                        suppressHydrationWarning
-                        className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all whitespace-nowrap"
-                      >
-                        View Details
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleApply(opp)}
-                        suppressHydrationWarning
-                        className="px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all whitespace-nowrap"
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  </div>
+      {!!opportunities.length && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {opportunities.map((opp) => (
+            <div
+              key={opp.id}
+              className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md transition-all duration-200 flex flex-col"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-500 text-xs tracking-wide">
+                  {getInitials(opp.companyName)}
                 </div>
-              ))}
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-[#002B5B] leading-snug">{opp.title}</h3>
+                  <p className="text-slate-500 text-sm mt-0.5">{opp.companyName}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Posted recently</p>
+                </div>
+              </div>
+
+              <p className="text-slate-500 text-sm mt-3 line-clamp-2">
+                {opp.description || 'No description provided.'}
+              </p>
+
+              <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-slate-500">
+                {opp.location && (
+                  <span className="flex items-center gap-1.5">
+                    <MapPin size={12} className="flex-shrink-0" />
+                    {opp.location}
+                  </span>
+                )}
+                {opp.workMode && (
+                  <span className="flex items-center gap-1.5">
+                    <Building2 size={12} className="flex-shrink-0" />
+                    {formatWorkMode(opp.workMode)}
+                  </span>
+                )}
+              </div>
+
+              {opp.requiredSkills && opp.requiredSkills.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {opp.requiredSkills.slice(0, 5).map((skill) => (
+                    <span key={skill} className="px-2 py-0.5 rounded-full bg-slate-100 text-xs text-slate-600">
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOpportunity(opp)}
+                  suppressHydrationWarning
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all whitespace-nowrap"
+                >
+                  View Details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApply(opp)}
+                  suppressHydrationWarning
+                  className="px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all whitespace-nowrap"
+                >
+                  Apply Now
+                </button>
+              </div>
             </div>
-          )}
+          ))}
         </div>
-      </div>
+      )}
 
       {selectedOpportunity ? renderOpportunityModal() : null}
     </div>
@@ -964,7 +1019,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   return (
     <Dashboard
-      title={`Hello, ${currentUserName}`}
+      title=""
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}

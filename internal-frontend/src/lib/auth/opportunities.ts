@@ -26,9 +26,11 @@ export type StudentOpportunityFilters = {
   skills?: string[];
   type?: string;
   location?: string;
+  workMode?: string;
+  isPaid?: boolean;
 };
 
-function getApiBaseUrl(): string {
+export function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080';
 }
 
@@ -61,6 +63,8 @@ export async function fetchStudentOpportunities(
     if (filters.q?.trim()) params.set('q', filters.q.trim());
     if (filters.type?.trim()) params.set('type', filters.type.trim());
     if (filters.location?.trim()) params.set('location', filters.location.trim());
+    if (filters.workMode?.trim()) params.set('workMode', filters.workMode.trim());
+    if (filters.isPaid !== undefined) params.set('isPaid', String(filters.isPaid));
     (filters.skills || [])
       .map((skill) => skill.trim())
       .filter(Boolean)

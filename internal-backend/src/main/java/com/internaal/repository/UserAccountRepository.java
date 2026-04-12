@@ -9,8 +9,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Repository;
+import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -27,15 +32,22 @@ public class UserAccountRepository {
     private final ObjectMapper objectMapper;
     private final String supabaseUrl;
     private final String supabaseAnonKey;
+    private final String supabaseServiceRoleKey;
 
     public UserAccountRepository(
             RestTemplate restTemplate,
             @Value("${supabase.url}") String supabaseUrl,
-            @Value("${supabase.anon.key}") String supabaseAnonKey) {
+            @Value("${supabase.anon.key}") String supabaseAnonKey,
+            @Value("${supabase.service.role.key:}") String supabaseServiceRoleKey) {
         this.restTemplate = restTemplate;
         this.objectMapper = new ObjectMapper();
         this.supabaseUrl = supabaseUrl;
         this.supabaseAnonKey = supabaseAnonKey;
+        this.supabaseServiceRoleKey = supabaseServiceRoleKey;
+    }
+
+    private boolean serviceRoleConfigured() {
+        return StringUtils.hasText(supabaseServiceRoleKey);
     }
 
     /**
@@ -50,77 +62,92 @@ public class UserAccountRepository {
      * /rest/v1/useraccount?supabase_user_id=eq.{id}
      */
     public Optional<UserAccount> findByEmail(String email, String userJwt) {
+        Objects.requireNonNull(email, "email");
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("apikey", supabaseAnonKey);
-            headers.set("Authorization", "Bearer " + userJwt);
-
-            String encodedEmail = URLEncoder.encode(email, StandardCharsets.UTF_8);
-            String url = supabaseUrl + "/rest/v1/useraccount?select=*&limit=1";
-            // #region agent log
-            debugLog("lookup-debug", "H6_H7_H8", "internal-backend/src/main/java/com/internaal/repository/UserAccountRepository.java:54",
-                    "useraccount request prepared",
-                    "\"emailLength\":" + (email == null ? 0 : email.length())
-                            + ",\"containsAt\":" + (email != null && email.contains("@"))
-                            + ",\"encodedDiffers\":" + (email != null && !encodedEmail.equals(email)));
-            // #endregion
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
-            // #region agent log
-            debugLog("lookup-debug", "H6_H7_H8", "internal-backend/src/main/java/com/internaal/repository/UserAccountRepository.java:58",
-                    "useraccount response received",
-                    "\"status\":" + response.getStatusCode().value()
-                            + ",\"bodyLength\":" + (response.getBody() == null ? 0 : response.getBody().length()));
-            // #endregion
-
-            JsonNode array = objectMapper.readTree(response.getBody());
-            // #region agent log
-            debugLog("lookup-debug", "H6_H7", "internal-backend/src/main/java/com/internaal/repository/UserAccountRepository.java:61",
-                    "useraccount body parsed",
-                    "\"isArray\":" + (array != null && array.isArray())
-                            + ",\"isEmpty\":" + (array == null || array.isEmpty())
-                            + ",\"resultCount\":" + (array != null && array.isArray() ? array.size() : -1));
-            // #endregion
-            if (array == null || array.isEmpty()) {
-                ResponseEntity<String> diagnosticResponse = restTemplate.exchange(
-                        supabaseUrl + "/rest/v1/useraccount?select=email&limit=1",
-                        HttpMethod.GET,
-                        new HttpEntity<>(headers),
-                        String.class
-                );
-                JsonNode diagnosticArray = objectMapper.readTree(diagnosticResponse.getBody());
-                // #region agent log
-                debugLog("lookup-debug", "H9_H10", "internal-backend/src/main/java/com/internaal/repository/UserAccountRepository.java:67",
-                        "diagnostic useraccount visibility check",
-                        "\"status\":" + diagnosticResponse.getStatusCode().value()
-                                + ",\"visibleRowCount\":" + (diagnosticArray != null && diagnosticArray.isArray() ? diagnosticArray.size() : -1));
-                // #endregion
-                return Optional.empty();
+            Optional<UserAccount> withUserJwt = fetchUseraccountWithUserJwt(email, userJwt);
+            if (withUserJwt.isPresent()) {
+                return withUserJwt;
             }
-
-            JsonNode node = array.get(0);
-            UserAccount user = new UserAccount();
-            user.setUserId(node.has("user_id") && !node.get("user_id").isNull()
-                    ? node.get("user_id").asInt() : null);
-            user.setEmail(node.has("email") ? node.get("email").asText() : null);
-            user.setPassword(node.has("password") ? node.get("password").asText() : null);
-            user.setRole(node.has("role") && !node.get("role").isNull()
-                    ? Role.valueOf(node.get("role").asText()) : null);
-            user.setLinkedEntityId(node.has("linked_entity_id") && !node.get("linked_entity_id").isNull()
-                    ? node.get("linked_entity_id").asText() : null);
-            return Optional.of(user);
-
+            if (serviceRoleConfigured()) {
+                log.debug("useraccount empty with user JWT; retrying with service role for email match");
+                return fetchUseraccountWithServiceRole(email);
+            }
+            return Optional.empty();
+        } catch (HttpClientErrorException e) {
+            int code = e.getStatusCode().value();
+            if ((code == HttpStatus.UNAUTHORIZED.value() || code == HttpStatus.FORBIDDEN.value())
+                    && serviceRoleConfigured()) {
+                log.warn("useraccount lookup with user JWT failed ({}), retrying with service role", code);
+                return fetchUseraccountWithServiceRole(email);
+            }
+            log.error("Failed to look up useraccount by email: {}", e.getMessage());
+            return Optional.empty();
         } catch (Exception e) {
-            // #region agent log
-            debugLog("lookup-debug", "H6_H7_H8", "internal-backend/src/main/java/com/internaal/repository/UserAccountRepository.java:76",
-                    "useraccount lookup exception",
-                    "\"exceptionClass\":\"" + escapeJson(e.getClass().getName())
-                            + "\",\"message\":\"" + escapeJson(e.getMessage()) + "\"");
-            // #endregion
             log.error("Failed to look up useraccount by email: {}", e.getMessage());
             return Optional.empty();
         }
+    }
+
+    private Optional<UserAccount> fetchUseraccountWithUserJwt(String email, String userJwt) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("apikey", supabaseAnonKey);
+        headers.set("Authorization", "Bearer " + userJwt);
+
+        String url = supabaseUrl + "/rest/v1/useraccount?select=*&limit=1";
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+        JsonNode array = objectMapper.readTree(response.getBody());
+        if (array == null || array.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(mapUseraccountRow(array.get(0)));
+    }
+
+    /**
+     * Loads exactly one row for the verified JWT email. Only used after JWT signature verification.
+     */
+    private Optional<UserAccount> fetchUseraccountWithServiceRole(String email) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("apikey", supabaseServiceRoleKey);
+            headers.set("Authorization", "Bearer " + supabaseServiceRoleKey);
+
+            String url = UriComponentsBuilder.fromHttpUrl(supabaseUrl + "/rest/v1/useraccount")
+                    .queryParam("select", "*")
+                    .queryParam("email", "eq." + email)
+                    .queryParam("limit", 1)
+                    .encode(StandardCharsets.UTF_8)
+                    .toUriString();
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || array.isEmpty()) {
+                return Optional.empty();
+            }
+
+            return Optional.of(mapUseraccountRow(array.get(0)));
+        } catch (Exception e) {
+            log.error("Service role useraccount lookup failed: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private UserAccount mapUseraccountRow(JsonNode node) {
+        UserAccount user = new UserAccount();
+        user.setUserId(node.has("user_id") && !node.get("user_id").isNull()
+                ? node.get("user_id").asInt() : null);
+        user.setEmail(node.has("email") ? node.get("email").asText() : null);
+        user.setPassword(node.has("password") ? node.get("password").asText() : null);
+        user.setRole(node.has("role") && !node.get("role").isNull()
+                ? Role.valueOf(node.get("role").asText()) : null);
+        user.setLinkedEntityId(node.has("linked_entity_id") && !node.get("linked_entity_id").isNull()
+                ? node.get("linked_entity_id").asText() : null);
+        return user;
     }
 
     private static String escapeJson(String value) {

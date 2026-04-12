@@ -116,3 +116,13 @@ export interface DashboardStats {
   totalDepartments: number;
   totalStudyFields: number;
 }
+
+/** Row from `notification` (API: camelCase). */
+export interface AppNotification {
+  notificationId: number;
+  recipientRole: string;
+  recipientId: number;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+}

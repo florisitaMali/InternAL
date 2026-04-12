@@ -15,6 +15,8 @@ type StudentOpportunityResponseItem = {
   isPaid: boolean | null;
   workMode: string | null;
   skillMatchCount: number | null;
+  workType?: string | null;
+  duration?: string | null;
 };
 
 type StudentOpportunitiesResponse = {
@@ -50,6 +52,8 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
     isPaid: item.isPaid,
     workMode: item.workMode || undefined,
     skillMatchCount: item.skillMatchCount ?? 0,
+    workType: item.workType || undefined,
+    duration: item.duration || undefined,
   };
 }
 

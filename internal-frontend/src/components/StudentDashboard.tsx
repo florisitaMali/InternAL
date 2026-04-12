@@ -605,6 +605,12 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     {formatWorkMode(opp.workMode)}
                   </span>
                 )}
+                {opp.duration && (
+                  <span className="flex items-center gap-1.5">
+                    <Clock size={12} className="flex-shrink-0" />
+                    {opp.duration}
+                  </span>
+                )}
               </div>
 
               {opp.requiredSkills && opp.requiredSkills.length > 0 && (

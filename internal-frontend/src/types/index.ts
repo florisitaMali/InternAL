@@ -91,6 +91,8 @@ export interface Opportunity {
   isPaid?: boolean | null;
   workMode?: string | null;
   skillMatchCount?: number;
+  workType?: string;
+  duration?: string;
 }
 
 export type ApplicationType = 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH';

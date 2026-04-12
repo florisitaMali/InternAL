@@ -20,6 +20,8 @@ public record OpportunityResponseItem(
         String location,
         Boolean isPaid,
         String workMode,
-        int skillMatchCount
+        int skillMatchCount,
+        String workType,
+        String duration
 ) {
 }

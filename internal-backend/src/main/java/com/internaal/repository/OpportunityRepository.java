@@ -55,7 +55,7 @@ public class OpportunityRepository {
         try {
             StringBuilder url = new StringBuilder(supabaseUrl);
             url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
-               .append("required_skills,required_experience,deadline,type,")
+               .append("required_skills,required_experience,deadline,type,is_paid,work_mode,job_location,work_type,duration,")
                .append("company(name,location),")
                .append("opportunitytarget(university_id)");
 
@@ -208,13 +208,21 @@ public class OpportunityRepository {
             } catch (IllegalArgumentException ignored) {}
         }
 
-        Boolean isPaid = null;     // column does not exist in live DB schema
-        Opportunity.WorkMode workMode = null; // column does not exist in live DB schema
+        Boolean isPaid = (node != null && node.has("is_paid") && !node.get("is_paid").isNull())
+                ? node.get("is_paid").asBoolean()
+                : null;
+        Opportunity.WorkMode workMode = Opportunity.WorkMode.fromDb(str(node, "work_mode"));
+        String jobLocation = str(node, "job_location");
+        if (jobLocation != null && !jobLocation.isBlank()) {
+            location = jobLocation;
+        }
+        String workType = str(node, "work_type");
+        String duration = str(node, "duration");
 
         return new Opportunity(
                 id, companyId, companyName, title, description,
                 requiredSkills, requiredExperience, deadline,
-                targetUniversities, type, location, isPaid, workMode);
+                targetUniversities, type, location, isPaid, workMode, workType, duration);
     }
 
     private static String str(JsonNode node, String field) {

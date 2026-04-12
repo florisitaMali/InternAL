@@ -16,7 +16,9 @@ public record Opportunity(
         InternshipType type,
         String location,
         Boolean isPaid,
-        WorkMode workMode
+        WorkMode workMode,
+        String workType,
+        String duration
 ) {
     public enum InternshipType {
         PROFESSIONAL_PRACTICE,

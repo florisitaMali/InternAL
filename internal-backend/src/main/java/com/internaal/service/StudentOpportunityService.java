@@ -75,7 +75,9 @@ public class StudentOpportunityService {
                 o.location(),
                 o.isPaid(),
                 wm,
-                matches
+                matches,
+                o.workType(),
+                o.duration()
         );
     }
 

@@ -317,9 +317,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <div className="space-y-2">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Workplace Type</span>
           {([
-            { label: 'Remote', value: 'REMOTE' },
-            { label: 'Hybrid', value: 'HYBRID' },
-            { label: 'In-person', value: 'IN_PERSON' },
+            { label: 'Remote', value: 'Remote' },
+            { label: 'Hybrid', value: 'Hybrid' },
+            { label: 'In-person', value: 'On-site' },
           ] as const).map(({ label, value }) => (
             <label key={value} className="flex items-center gap-2 cursor-pointer">
               <input

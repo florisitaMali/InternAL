@@ -125,7 +125,9 @@ public class ApplicationRepository {
 
     public List<ApplicationResponse> findByStudentId(Integer studentId) {
         String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
-                + "&select=*&order=created_at.desc";
+                + "&select=application_id,student_id,company_id,opportunity_id,application_type,accuracy_confirmed,"
+                + "created_at,is_approved_by_ppa,is_approved_by_company,opportunity(title),company(name)"
+                + "&order=created_at.desc";
         Optional<JsonNode> result = fetchArray(url);
         List<ApplicationResponse> list = new ArrayList<>();
         result.ifPresent(arr -> {
@@ -145,6 +147,30 @@ public class ApplicationRepository {
         r.setApplicationType(textValue(node, "application_type"));
         r.setAccuracyConfirmed(boolValue(node, "accuracy_confirmed"));
         r.setCreatedAt(textValue(node, "created_at"));
+
+        Boolean approvedByPPA = boolValue(node, "is_approved_by_ppa");
+        Boolean approvedByCompany = boolValue(node, "is_approved_by_company");
+        r.setIsApprovedByPPA(approvedByPPA);
+        r.setIsApprovedByCompany(approvedByCompany);
+
+        if (Boolean.TRUE.equals(approvedByPPA) && Boolean.TRUE.equals(approvedByCompany)) {
+            r.setStatus("APPROVED");
+        } else if (Boolean.FALSE.equals(approvedByPPA) || Boolean.FALSE.equals(approvedByCompany)) {
+            r.setStatus("REJECTED");
+        } else {
+            r.setStatus("PENDING");
+        }
+
+        JsonNode opportunity = node.get("opportunity");
+        if (opportunity != null && !opportunity.isNull()) {
+            r.setOpportunityTitle(textValue(opportunity, "title"));
+        }
+
+        JsonNode company = node.get("company");
+        if (company != null && !company.isNull()) {
+            r.setCompanyName(textValue(company, "name"));
+        }
+
         return r;
     }
 }

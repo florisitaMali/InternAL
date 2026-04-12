@@ -68,7 +68,7 @@ export async function fetchStudentOpportunities(
     if (filters.type?.trim()) params.set('type', filters.type.trim());
     if (filters.location?.trim()) params.set('location', filters.location.trim());
     if (filters.workMode?.trim()) params.set('workMode', filters.workMode.trim());
-    if (filters.isPaid !== undefined) params.set('isPaid', String(filters.isPaid));
+    if (filters.isPaid !== undefined) params.set('paid', String(filters.isPaid));
     (filters.skills || [])
       .map((skill) => skill.trim())
       .filter(Boolean)
@@ -105,6 +105,54 @@ export async function fetchStudentOpportunities(
     return {
       data: null,
       errorMessage: e instanceof Error ? e.message : 'Could not load opportunities.',
+    };
+  }
+}
+
+export type ApplicationResponse = {
+  applicationId: number | null;
+  studentId: number | null;
+  companyId: number | null;
+  opportunityId: number | null;
+  applicationType: string | null;
+  status: string | null;
+  isApprovedByPPA: boolean | null;
+  isApprovedByCompany: boolean | null;
+  opportunityTitle: string | null;
+  companyName: string | null;
+  createdAt: string | null;
+};
+
+export async function fetchStudentApplications(
+  accessToken: string
+): Promise<{ data: ApplicationResponse[] | null; errorMessage: string | null }> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/student/applications`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const raw = await response.text();
+    const parsed = raw ? (JSON.parse(raw) as ApplicationResponse[] | { error?: string }) : null;
+
+    if (!response.ok) {
+      const message =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed) && typeof parsed.error === 'string'
+          ? parsed.error
+          : `Request failed with status ${response.status}`;
+      return { data: null, errorMessage: message };
+    }
+
+    return {
+      data: (parsed as ApplicationResponse[]) || [],
+      errorMessage: null,
+    };
+  } catch (e) {
+    return {
+      data: null,
+      errorMessage: e instanceof Error ? e.message : 'Could not load applications.',
     };
   }
 }

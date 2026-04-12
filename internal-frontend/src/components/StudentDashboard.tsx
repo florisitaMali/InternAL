@@ -19,6 +19,7 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  CheckCircle,
   ChevronRight,
   Clock,
   FileText,
@@ -26,6 +27,7 @@ import {
   MapPin,
   Search,
   X,
+  XCircle,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
@@ -50,7 +52,7 @@ import {
   uploadStudentCertification,
   uploadStudentCv,
 } from '@/src/lib/auth/userAccount';
-import { fetchStudentOpportunities, getApiBaseUrl, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
+import { fetchStudentApplications, fetchStudentOpportunities, getApiBaseUrl, type ApplicationResponse, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
 
 interface StudentDashboardProps {
   activeTab: string;
@@ -154,6 +156,10 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [isLoadingOpportunities, setIsLoadingOpportunities] = useState(false);
   const [opportunitiesError, setOpportunitiesError] = useState<string | null>(null);
+  const [applications, setApplications] = useState<ApplicationResponse[]>([]);
+  const [isLoadingApplications, setIsLoadingApplications] = useState(false);
+  const [applicationsError, setApplicationsError] = useState<string | null>(null);
+  const [applicationSearch, setApplicationSearch] = useState('');
   const [pdfPreview, setPdfPreview] = useState<{
     title: string;
     url: string | null;
@@ -275,6 +281,31 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     if (!student?.id) return;
     void loadOpportunities(opportunityFilters);
   }, [loadOpportunities, student.id, opportunityFilters]);
+
+  const loadApplications = useCallback(async () => {
+    setIsLoadingApplications(true);
+    setApplicationsError(null);
+    try {
+      const { data, errorMessage } = await withAccessToken((accessToken) =>
+        fetchStudentApplications(accessToken)
+      );
+      if (!data || errorMessage) {
+        throw new Error(errorMessage || 'Could not load applications.');
+      }
+      setApplications(data);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not load applications.';
+      setApplications([]);
+      setApplicationsError(message);
+    } finally {
+      setIsLoadingApplications(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!student?.id) return;
+    void loadApplications();
+  }, [loadApplications, student.id]);
 
   const availableSkillOptions = useMemo(() => {
     const ownSkills = student.extendedProfile?.skills || [];
@@ -723,48 +754,162 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     </div>
   );
 
-  const renderApplications = () => (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-        <h2 className="text-lg font-bold text-slate-900">My Applications</h2>
-      </div>
-      <div className="divide-y divide-slate-100">
-        {mockApplications.filter((a) => a.studentId === student.id).map((app) => (
-          <div key={app.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">
-                {app.companyName[0]}
-              </div>
-              <div>
-                <div className="font-bold text-slate-900">{app.opportunityTitle}</div>
-                <div className="text-xs text-slate-500">{app.companyName} • {app.type}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-8">
-              <div className="text-right">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Status</div>
-                <span
-                  className={cn(
-                    'px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider',
-                    app.status === 'APPROVED'
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : app.status === 'REJECTED'
-                        ? 'bg-red-50 text-red-700'
-                        : 'bg-amber-50 text-amber-700'
-                  )}
-                >
-                  {app.status}
-                </span>
-              </div>
-              <button suppressHydrationWarning className="p-2 text-slate-400 hover:text-[#002B5B] transition-all">
-                <ChevronRight size={20} />
-              </button>
-            </div>
+  const renderApplications = () => {
+    const formatAppId = (id: number | null) =>
+      id != null ? `APP${String(id).padStart(3, '0')}` : '—';
+
+    const formatDate = (iso: string | null) => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    };
+
+    const formatType = (type: string | null) => {
+      if (!type) return '—';
+      if (type === 'PROFESSIONAL_PRACTICE') return 'Professional Practice';
+      if (type === 'INDIVIDUAL_GROWTH') return 'Individual Growth';
+      return type;
+    };
+
+    const approvalCell = (approved: boolean | null, label: string) => {
+      if (approved === true) {
+        return (
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+            <span className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+              <CheckCircle size={10} className="text-white" />
+            </span>
+            {label} APPROVED
+          </span>
+        );
+      }
+      if (approved === false) {
+        return (
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600">
+            <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
+              <XCircle size={10} className="text-white" />
+            </span>
+            {label} REJECTED
+          </span>
+        );
+      }
+      return (
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+          <span className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-[8px] font-black leading-none">···</span>
+          </span>
+          {label} PENDING
+        </span>
+      );
+    };
+
+    const filteredApplications = applicationSearch.trim()
+      ? applications.filter((a) =>
+          (a.companyName ?? '').toLowerCase().includes(applicationSearch.trim().toLowerCase())
+        )
+      : applications;
+
+    return (
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 mb-4">List of Applications</h2>
+
+        {applicationsError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 mb-4">
+            {applicationsError}
           </div>
-        ))}
+        )}
+
+        {isLoadingApplications && (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-sm text-slate-500">
+            Loading applications...
+          </div>
+        )}
+
+        {!isLoadingApplications && !applicationsError && applications.length === 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 space-y-1">
+            <h3 className="text-base font-bold text-slate-900">No applications yet</h3>
+            <p className="text-sm text-slate-500">Your submitted applications will appear here.</p>
+          </div>
+        )}
+
+        {!isLoadingApplications && applications.length > 0 && (
+          <>
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="Search a company..."
+                suppressHydrationWarning
+                value={applicationSearch}
+                onChange={(e) => setApplicationSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+              />
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[#002B5B]">
+                    {['Application ID', 'Company Name', 'Date Applied', 'Application Type', 'Approval Progress', 'Completed Status'].map((col) => (
+                      <th key={col} className="px-5 py-3 text-left text-xs font-semibold text-white uppercase tracking-wide whitespace-nowrap">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredApplications.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-5 py-8 text-center text-sm text-slate-400">
+                        No applications match your search.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredApplications.map((app) => (
+                      <tr key={app.applicationId} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                        <td className="px-5 py-4 font-mono text-xs font-semibold text-slate-700 whitespace-nowrap">
+                          {formatAppId(app.applicationId)}
+                        </td>
+                        <td className="px-5 py-4 text-slate-700 whitespace-nowrap">
+                          {app.companyName ?? '—'}
+                        </td>
+                        <td className="px-5 py-4 text-slate-700 whitespace-nowrap">
+                          {formatDate(app.createdAt)}
+                        </td>
+                        <td className="px-5 py-4 text-slate-700 whitespace-nowrap">
+                          {formatType(app.applicationType)}
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex flex-col gap-1.5">
+                            {approvalCell(app.isApprovedByPPA ?? null, 'PPA')}
+                            {approvalCell(app.isApprovedByCompany ?? null, 'COMPANY')}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap">
+                          <span
+                            className={cn(
+                              'px-3 py-1 rounded text-xs font-bold uppercase tracking-wide',
+                              app.status === 'APPROVED'
+                                ? 'bg-emerald-500 text-white'
+                                : app.status === 'REJECTED'
+                                  ? 'bg-red-500 text-white'
+                                  : 'bg-[#002B5B] text-white'
+                            )}
+                          >
+                            {app.status ?? 'PENDING'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderProfile = () => {
     const removeExperienceById = async (experienceId: number) => {

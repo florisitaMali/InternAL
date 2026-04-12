@@ -113,7 +113,9 @@ public class CompanyService {
                 o.location(),
                 o.isPaid(),
                 wm,
-                0
+                0,
+                o.workType(),
+                o.duration()
         );
     }
 

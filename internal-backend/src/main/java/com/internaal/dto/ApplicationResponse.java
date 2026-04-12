@@ -9,6 +9,11 @@ public class ApplicationResponse {
     private String applicationType;
     private Boolean accuracyConfirmed;
     private String createdAt;
+    private String status;
+    private Boolean isApprovedByPPA;
+    private Boolean isApprovedByCompany;
+    private String opportunityTitle;
+    private String companyName;
 
     public Integer getApplicationId() { return applicationId; }
     public void setApplicationId(Integer applicationId) { this.applicationId = applicationId; }
@@ -30,4 +35,19 @@ public class ApplicationResponse {
 
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    public Boolean getIsApprovedByPPA() { return isApprovedByPPA; }
+    public void setIsApprovedByPPA(Boolean isApprovedByPPA) { this.isApprovedByPPA = isApprovedByPPA; }
+
+    public Boolean getIsApprovedByCompany() { return isApprovedByCompany; }
+    public void setIsApprovedByCompany(Boolean isApprovedByCompany) { this.isApprovedByCompany = isApprovedByCompany; }
+
+    public String getOpportunityTitle() { return opportunityTitle; }
+    public void setOpportunityTitle(String opportunityTitle) { this.opportunityTitle = opportunityTitle; }
+
+    public String getCompanyName() { return companyName; }
+    public void setCompanyName(String companyName) { this.companyName = companyName; }
 }

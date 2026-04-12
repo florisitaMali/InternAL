@@ -611,6 +611,16 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     {opp.duration}
                   </span>
                 )}
+                {opp.isPaid === true && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700">
+                    Paid
+                  </span>
+                )}
+                {opp.isPaid === false && (
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-xs font-semibold text-slate-500">
+                    Unpaid
+                  </span>
+                )}
               </div>
 
               {opp.requiredSkills && opp.requiredSkills.length > 0 && (

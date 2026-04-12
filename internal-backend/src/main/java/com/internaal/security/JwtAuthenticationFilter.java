@@ -23,6 +23,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.net.URL;
 import java.util.Date;
 import java.util.List;
@@ -51,6 +54,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String authHeader = request.getHeader("Authorization");
+        // #region agent log
+        debugLog("token-debug", "H1", "internal-backend/src/main/java/com/internaal/security/JwtAuthenticationFilter.java:54",
+                "auth header inspected",
+                "\"hasAuthHeader\":" + (authHeader != null)
+                        + ",\"startsWithBearer\":" + (authHeader != null && authHeader.startsWith("Bearer "))
+                        + ",\"tokenParts\":" + tokenParts(authHeader)
+                        + ",\"tokenLength\":" + tokenLength(authHeader));
+        // #endregion
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
@@ -62,6 +73,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             SignedJWT signedJWT = SignedJWT.parse(token);
+            // #region agent log
+            debugLog("token-debug", "H1_H2", "internal-backend/src/main/java/com/internaal/security/JwtAuthenticationFilter.java:64",
+                    "jwt parsed",
+                    "\"alg\":\"" + escapeJson(String.valueOf(signedJWT.getHeader().getAlgorithm()))
+                            + "\",\"kid\":\"" + escapeJson(String.valueOf(signedJWT.getHeader().getKeyID())) + "\"");
+            // #endregion
 
             // ✅ Step 1: Get the kid from token header
             String kid = signedJWT.getHeader().getKeyID();
@@ -72,6 +89,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             // ✅ Step 2: Find corresponding key in JWKS
             ECKey ecKey = (ECKey) jwkSet.getKeyByKeyId(kid);
+            // #region agent log
+            debugLog("token-debug", "H2", "internal-backend/src/main/java/com/internaal/security/JwtAuthenticationFilter.java:74",
+                    "jwk resolved",
+                    "\"keyFound\":" + (ecKey != null)
+                            + ",\"curve\":\"" + escapeJson(ecKey != null && ecKey.getCurve() != null ? ecKey.getCurve().getName() : null) + "\"");
+            // #endregion
             if (ecKey == null) {
                 sendError(response, HttpStatus.UNAUTHORIZED, "Invalid token key");
                 return;
@@ -85,6 +108,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             JWTClaimsSet claims = signedJWT.getJWTClaimsSet();
+            // #region agent log
+            debugLog("token-debug", "H3_H4", "internal-backend/src/main/java/com/internaal/security/JwtAuthenticationFilter.java:87",
+                    "claims extracted",
+                    "\"issuer\":\"" + escapeJson(claims.getIssuer())
+                            + "\",\"hasEmail\":" + (claims.getStringClaim("email") != null)
+                            + ",\"isExpired\":" + (claims.getExpirationTime() != null && claims.getExpirationTime().before(new Date())) + "");
+            // #endregion
 
             // ✅ Step 4: Validate expiration
             Date expiration = claims.getExpirationTime();
@@ -109,6 +139,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             // ✅ Step 7: Lookup internal user account
             Optional<UserAccount> account = userAccountRepository.findByEmail(userIdentifier, token);
+            // #region agent log
+            debugLog("token-debug", "H5", "internal-backend/src/main/java/com/internaal/security/JwtAuthenticationFilter.java:110",
+                    "user account lookup finished",
+                    "\"accountFound\":" + account.isPresent());
+            // #endregion
             if (account.isEmpty()) {
                 sendError(response, HttpStatus.FORBIDDEN, "No matching account found");
                 return;
@@ -136,6 +171,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(auth);
 
         } catch (Exception e) {
+            // #region agent log
+            debugLog("token-debug", "H1_H2_H3_H4_H5", "internal-backend/src/main/java/com/internaal/security/JwtAuthenticationFilter.java:138",
+                    "jwt validation exception",
+                    "\"exceptionClass\":\"" + escapeJson(e.getClass().getName())
+                            + "\",\"message\":\"" + escapeJson(e.getMessage()) + "\"");
+            // #endregion
             log.error("JWT validation failed: {}", e.getMessage());
             SecurityContextHolder.clearContext();
             sendError(response, HttpStatus.UNAUTHORIZED, "Token validation failed");
@@ -143,9 +184,52 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         try {
+            debugLog("token-debug", "H11", "internal-backend/src/main/java/com/internaal/security/JwtAuthenticationFilter.java:145",
+                    "security context set",
+                    "\"role\":\"" + escapeJson(String.valueOf(user.getRole()))
+                            + "\",\"linkedEntityId\":\"" + escapeJson(user.getLinkedEntityId()) + "\"");
             filterChain.doFilter(request, response);
         } finally {
             SecurityContextHolder.clearContext();
+        }
+    }
+
+    private static int tokenParts(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return 0;
+        }
+        return authHeader.substring(7).split("\\.", -1).length;
+    }
+
+    private static int tokenLength(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return 0;
+        }
+        return authHeader.substring(7).length();
+    }
+
+    private static String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static void debugLog(String runId, String hypothesisId, String location, String message, String dataJson) {
+        try {
+            String payload = "{\"sessionId\":\"f639a7\",\"runId\":\"" + escapeJson(runId)
+                    + "\",\"hypothesisId\":\"" + escapeJson(hypothesisId)
+                    + "\",\"location\":\"" + escapeJson(location)
+                    + "\",\"message\":\"" + escapeJson(message)
+                    + "\",\"data\":{" + dataJson + "},\"timestamp\":" + System.currentTimeMillis() + "}\n";
+            Files.writeString(
+                    Path.of("/Users/apple/Desktop/InternAL/.cursor/debug-f639a7.log"),
+                    payload,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND
+            );
+        } catch (Exception ignored) {
+            /* debug logging must never break auth flow */
         }
     }
 

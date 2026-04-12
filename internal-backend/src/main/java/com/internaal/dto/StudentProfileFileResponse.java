@@ -10,8 +10,6 @@ public class StudentProfileFileResponse {
     private Long sizeBytes;
     private String uploadedAt;
     private String downloadUrl;
-    private String issuer;
-    private String issueDate;
 
     public Integer getCertificationId() { return certificationId; }
     public void setCertificationId(Integer certificationId) { this.certificationId = certificationId; }
@@ -29,8 +27,4 @@ public class StudentProfileFileResponse {
     public void setUploadedAt(String uploadedAt) { this.uploadedAt = uploadedAt; }
     public String getDownloadUrl() { return downloadUrl; }
     public void setDownloadUrl(String downloadUrl) { this.downloadUrl = downloadUrl; }
-    public String getIssuer() { return issuer; }
-    public void setIssuer(String issuer) { this.issuer = issuer; }
-    public String getIssueDate() { return issueDate; }
-    public void setIssueDate(String issueDate) { this.issueDate = issueDate; }
 }

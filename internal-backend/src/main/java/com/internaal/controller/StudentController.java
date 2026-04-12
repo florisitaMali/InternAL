@@ -1,19 +1,13 @@
 package com.internaal.controller;
 
-import com.internaal.dto.CertificationMetadataUpdateRequest;
-import com.internaal.dto.StudentExperienceResponse;
-import com.internaal.dto.StudentExperienceUpsertRequest;
 import com.internaal.dto.StudentFileDownload;
 import com.internaal.dto.StudentProfileFileResponse;
 import com.internaal.dto.StudentProfileResponse;
 import com.internaal.dto.StudentProfileUpdateRequest;
-import com.internaal.dto.StudentProjectResponse;
-import com.internaal.dto.StudentProjectUpsertRequest;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.StudentProfileRepository;
 import com.internaal.service.StudentProfileFileService;
-import com.internaal.service.StudentProfileImageService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -24,7 +18,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -43,15 +36,12 @@ public class StudentController {
 
     private final StudentProfileRepository studentProfileRepository;
     private final StudentProfileFileService studentProfileFileService;
-    private final StudentProfileImageService studentProfileImageService;
 
     public StudentController(
             StudentProfileRepository studentProfileRepository,
-            StudentProfileFileService studentProfileFileService,
-            StudentProfileImageService studentProfileImageService) {
+            StudentProfileFileService studentProfileFileService) {
         this.studentProfileRepository = studentProfileRepository;
         this.studentProfileFileService = studentProfileFileService;
-        this.studentProfileImageService = studentProfileImageService;
     }
 
     @GetMapping("/profile")
@@ -248,268 +238,6 @@ public class StudentController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", "Could not download certification"));
-        }
-    }
-
-    @PatchMapping("/profile/certifications/{id}")
-    public ResponseEntity<?> updateCertificationMetadata(
-            @AuthenticationPrincipal UserAccount user,
-            HttpServletRequest request,
-            @PathVariable("id") Integer certificationId,
-            @RequestBody CertificationMetadataUpdateRequest body) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        String userJwt = extractBearerToken(request);
-        if (userJwt == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Missing bearer token"));
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            boolean ok = studentProfileRepository.updateCertificationMetadata(
-                    studentId,
-                    certificationId,
-                    body,
-                    studentProfileRepository.createUserHeaders(userJwt)
-            );
-            if (!ok) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("error", "Certification not found or nothing to update"));
-            }
-            return ResponseEntity.ok(Map.of("status", "updated"));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not update certification"));
-        }
-    }
-
-    @PostMapping(value = "/profile/photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> uploadProfilePhoto(
-            @AuthenticationPrincipal UserAccount user,
-            @RequestParam("file") MultipartFile file) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            String url = studentProfileImageService.uploadProfilePhoto(studentId, file);
-            return ResponseEntity.ok(Map.of("url", url));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not upload profile photo"));
-        }
-    }
-
-    @PostMapping(value = "/profile/cover", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> uploadProfileCover(
-            @AuthenticationPrincipal UserAccount user,
-            @RequestParam("file") MultipartFile file) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            String url = studentProfileImageService.uploadProfileCover(studentId, file);
-            return ResponseEntity.ok(Map.of("url", url));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not upload cover image"));
-        }
-    }
-
-    @PostMapping("/experiences")
-    public ResponseEntity<?> createExperience(
-            @AuthenticationPrincipal UserAccount user,
-            HttpServletRequest request,
-            @RequestBody StudentExperienceUpsertRequest body) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        String userJwt = extractBearerToken(request);
-        if (userJwt == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Missing bearer token"));
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            Optional<StudentExperienceResponse> saved = studentProfileRepository.insertStudentExperience(
-                    studentId,
-                    body,
-                    studentProfileRepository.createUserHeaders(userJwt)
-            );
-            if (saved.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                        .body(Map.of("error", "Could not create experience"));
-            }
-            return ResponseEntity.ok(saved.get());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not create experience"));
-        }
-    }
-
-    @PutMapping("/experiences/{id}")
-    public ResponseEntity<?> updateExperience(
-            @AuthenticationPrincipal UserAccount user,
-            HttpServletRequest request,
-            @PathVariable("id") Integer experienceId,
-            @RequestBody StudentExperienceUpsertRequest body) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        String userJwt = extractBearerToken(request);
-        if (userJwt == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Missing bearer token"));
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            Optional<StudentExperienceResponse> saved = studentProfileRepository.updateStudentExperience(
-                    studentId,
-                    experienceId,
-                    body,
-                    studentProfileRepository.createUserHeaders(userJwt)
-            );
-            if (saved.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("error", "Experience not found"));
-            }
-            return ResponseEntity.ok(saved.get());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not update experience"));
-        }
-    }
-
-    @DeleteMapping("/experiences/{id}")
-    public ResponseEntity<?> deleteExperience(
-            @AuthenticationPrincipal UserAccount user,
-            HttpServletRequest request,
-            @PathVariable("id") Integer experienceId) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        String userJwt = extractBearerToken(request);
-        if (userJwt == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Missing bearer token"));
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            studentProfileRepository.deleteStudentExperience(
-                    studentId,
-                    experienceId,
-                    studentProfileRepository.createUserHeaders(userJwt)
-            );
-            return ResponseEntity.ok(Map.of("status", "deleted"));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not delete experience"));
-        }
-    }
-
-    @PostMapping("/projects")
-    public ResponseEntity<?> createProject(
-            @AuthenticationPrincipal UserAccount user,
-            HttpServletRequest request,
-            @RequestBody StudentProjectUpsertRequest body) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        String userJwt = extractBearerToken(request);
-        if (userJwt == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Missing bearer token"));
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            Optional<StudentProjectResponse> saved = studentProfileRepository.insertStudentProject(
-                    studentId,
-                    body,
-                    studentProfileRepository.createUserHeaders(userJwt)
-            );
-            if (saved.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                        .body(Map.of("error", "Could not create project"));
-            }
-            return ResponseEntity.ok(saved.get());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not create project"));
-        }
-    }
-
-    @PutMapping("/projects/{id}")
-    public ResponseEntity<?> updateProject(
-            @AuthenticationPrincipal UserAccount user,
-            HttpServletRequest request,
-            @PathVariable("id") Integer projectId,
-            @RequestBody StudentProjectUpsertRequest body) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        String userJwt = extractBearerToken(request);
-        if (userJwt == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Missing bearer token"));
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            Optional<StudentProjectResponse> saved = studentProfileRepository.updateStudentProject(
-                    studentId,
-                    projectId,
-                    body,
-                    studentProfileRepository.createUserHeaders(userJwt)
-            );
-            if (saved.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("error", "Project not found"));
-            }
-            return ResponseEntity.ok(saved.get());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not update project"));
-        }
-    }
-
-    @DeleteMapping("/projects/{id}")
-    public ResponseEntity<?> deleteProject(
-            @AuthenticationPrincipal UserAccount user,
-            HttpServletRequest request,
-            @PathVariable("id") Integer projectId) {
-        ResponseEntity<Map<String, String>> guard = guardStudentUser(user);
-        if (guard != null) {
-            return guard;
-        }
-        String userJwt = extractBearerToken(request);
-        if (userJwt == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Missing bearer token"));
-        }
-        Integer studentId = parseStudentId(user);
-        try {
-            studentProfileRepository.deleteStudentProject(
-                    studentId,
-                    projectId,
-                    studentProfileRepository.createUserHeaders(userJwt)
-            );
-            return ResponseEntity.ok(Map.of("status", "deleted"));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "Could not delete project"));
         }
     }
 

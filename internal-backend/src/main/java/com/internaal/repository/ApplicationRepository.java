@@ -115,8 +115,8 @@ public class ApplicationRepository {
         body.put("company_id", companyId);
         body.put("opportunity_id", request.getOpportunityId());
         body.put("application_type", normalizedType);
-        body.put("is_approved_by_ppa", false);
-        body.put("is_approved_by_company", false);
+        body.putNull("is_approved_by_ppa");
+        body.putNull("is_approved_by_company");
         body.put("accuracy_confirmed", request.getAccuracyConfirmed());
 
         String url = supabaseUrl + "/rest/v1/application";

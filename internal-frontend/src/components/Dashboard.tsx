@@ -1,9 +1,10 @@
 'use client';
 
 import React from 'react';
-import { Bell, User } from 'lucide-react';
+import { User } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import Logo from './Logo';
+import NotificationBell from './NotificationBell';
 
 interface DashboardProps {
   title: string;
@@ -58,13 +59,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              suppressHydrationWarning
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all relative"
-            >
-              <Bell size={20} />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </button>
+            <NotificationBell />
           </div>
           <div
             className={cn(

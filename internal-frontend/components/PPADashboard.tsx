@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import Dashboard from './Dashboard';
 import UnderDevelopment from './UnderDevelopment';
-import NotificationsFullPage from './NotificationsFullPage';
 import { mockStudents, mockApplications, mockPPAs } from '@/src/lib/mockData';
 import { 
   Users, 
@@ -21,17 +20,9 @@ import { cn } from '@/src/lib/utils';
 
 interface PPADashboardProps {
   activeTab: string;
-  currentUserName: string;
-  currentUserRoleLabel: string;
-  onToggleSidebar?: () => void;
 }
 
-const PPADashboard: React.FC<PPADashboardProps> = ({
-  activeTab,
-  currentUserName,
-  currentUserRoleLabel,
-  onToggleSidebar,
-}) => {
+const PPADashboard: React.FC<PPADashboardProps> = ({ activeTab }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const ppa = mockPPAs[0]; // Mock current PPA
 
@@ -256,20 +247,13 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
         return renderApplications();
       case 'students':
         return renderStudents();
-      case 'notifications':
-        return <NotificationsFullPage />;
       default:
         return <UnderDevelopment moduleName={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} />;
     }
   };
 
   return (
-    <Dashboard
-      title={`Hello, ${currentUserName}`}
-      userName={currentUserName}
-      userRole={currentUserRoleLabel}
-      onToggleSidebar={onToggleSidebar}
-    >
+    <Dashboard title={`Welcome, ${ppa.fullName}`}>
       {renderContent()}
     </Dashboard>
   );

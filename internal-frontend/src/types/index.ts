@@ -38,27 +38,6 @@ export interface StudentProfileFile {
   sizeBytes?: number;
   uploadedAt?: string;
   downloadUrl?: string;
-  issuer?: string | null;
-  issueDate?: string | null;
-}
-
-/** Row from `studentproject` included in the student profile API. */
-export interface StudentProject {
-  projectId: number;
-  title: string;
-  githubUrl?: string | null;
-  description?: string | null;
-  skills?: string | null;
-}
-
-/** Row from `studentexperience`. */
-export interface StudentExperience {
-  experienceId: number;
-  companyName: string;
-  position: string;
-  startDate?: string | null;
-  endDate?: string | null;
-  description?: string | null;
 }
 
 export interface Student extends User {
@@ -71,14 +50,6 @@ export interface Student extends User {
   hasCompletedPP: boolean;
   accessStartDate?: string;
   accessEndDate?: string;
-  /** Public or signed URL from `studentprofile.photo`. */
-  profilePhotoUrl?: string;
-  /** Public URL from `studentprofile.cover_url`. */
-  coverPhotoUrl?: string;
-  /** Custom banner heading from `studentprofile.banner_title`. */
-  bannerTitle?: string;
-  projects?: StudentProject[];
-  experiences?: StudentExperience[];
   extendedProfile?: {
     description: string;
     skills: string[];
@@ -103,30 +74,6 @@ export interface Company {
   email: string;
   industry: string;
   description: string;
-}
-
-
-/** Company profile returned from GET /api/company/profile */
-export interface CompanyProfileFromApi {
-  companyId: number;
-  name: string;
-  location: string | null;
-  description: string | null;
-  website: string | null;
-  industry: string | null;
-  employeeCount: number | null;
-  foundedYear: number | null;
-  specialties: string | null;
-  logoUrl: string | null;
-  coverUrl: string | null;
-}
-
-/** Aggregates returned with opportunity detail (or a separate summary endpoint). */
-export interface OpportunityApplicationStats {
-  total: number;
-  inReview: number;
-  approved: number;
-  rejected: number;
 }
 
 export interface Opportunity {
@@ -181,4 +128,14 @@ export interface DashboardStats {
   totalStudents: number;
   totalDepartments: number;
   totalStudyFields: number;
+}
+
+/** Row from `notification` (API: camelCase). */
+export interface AppNotification {
+  notificationId: number;
+  recipientRole: string;
+  recipientId: number;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
 }

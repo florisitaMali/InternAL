@@ -8,7 +8,6 @@ import NotificationBell from './NotificationBell';
 
 interface DashboardProps {
   title: string;
-  /** Omit or leave undefined for default tagline; pass null to hide. */
   subtitle?: string | null;
   children: React.ReactNode;
   actions?: React.ReactNode;
@@ -21,8 +20,6 @@ interface DashboardProps {
   hidePageIntro?: boolean;
 }
 
-const DEFAULT_SUBTITLE = 'Manage your internship lifecycle and track progress.';
-
 const Dashboard: React.FC<DashboardProps> = ({
   title,
   subtitle,
@@ -33,9 +30,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   topBarVariant = 'default',
   hidePageIntro = false,
 }) => {
-  const resolvedSubtitle = subtitle === undefined ? DEFAULT_SUBTITLE : subtitle;
   const showTitle = Boolean(title?.trim());
-  const showSubtitle = resolvedSubtitle != null && resolvedSubtitle !== '';
+  const showSubtitle = subtitle != null && subtitle !== '';
   const showPageHeader = showTitle || showSubtitle;
   return (
     <div className="flex-1 min-h-screen flex flex-col bg-[#F4F6F8]">
@@ -82,7 +78,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>
             )}
             {showSubtitle && (
-              <p className="text-slate-500 mt-2 text-sm font-medium">{resolvedSubtitle}</p>
+              <p className="text-slate-500 mt-2 text-sm font-medium">{subtitle}</p>
             )}
           </header>
         )}

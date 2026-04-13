@@ -20,6 +20,7 @@ import {
   Filter,
   MapPin,
   Search,
+  Tag,
   Wallet,
   X,
   XCircle,
@@ -143,6 +144,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [isLoadingApplications, setIsLoadingApplications] = useState(false);
   const [applicationsError, setApplicationsError] = useState<string | null>(null);
   const [applicationSearch, setApplicationSearch] = useState('');
+  const [showApplicationFilters, setShowApplicationFilters] = useState(false);
 
   useEffect(() => {
     if (!currentStudent) return;
@@ -706,45 +708,128 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       return type;
     };
 
-    const approvalCell = (approved: boolean | null, label: string) => {
-      if (approved === true) {
-        return (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
-            <CheckCircle size={16} className="text-white fill-emerald-500 flex-shrink-0" />
-            {label} APPROVED
-          </span>
-        );
-      }
-      if (approved === false) {
-        return (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600">
-            <XCircle size={16} className="text-white fill-red-500 flex-shrink-0" />
-            {label} REJECTED
-          </span>
-        );
-      }
-      return (
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
-          <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-[8px] font-black leading-none tracking-tighter">···</span>
-          </div>
-          {label} PENDING
-        </span>
-      );
+    const approvalIcon = (approved: boolean | null) => {
+      if (approved === true)
+        return <CheckCircle size={16} className="text-white fill-emerald-500 flex-shrink-0" />;
+      if (approved === false)
+        return <XCircle size={16} className="text-white fill-red-500 flex-shrink-0" />;
+      return <Clock size={16} className="text-slate-400 flex-shrink-0" />;
+    };
+
+    const approvalText = (approved: boolean | null, status: string | null) => {
+      if (approved === true) return { label: 'Approved', color: 'text-emerald-600' };
+      if (approved === false) return { label: 'Rejected', color: 'text-red-600' };
+      if (status === 'WAITING') return { label: 'Waiting', color: 'text-slate-400' };
+      return { label: 'Pending', color: 'text-slate-400' };
     };
 
     const filteredApplications = applicationSearch.trim()
-      ? applications.filter((a) =>
-          (a.companyName ?? '').toLowerCase().includes(applicationSearch.trim().toLowerCase())
-        )
+      ? applications.filter((a) => {
+          const q = applicationSearch.trim().toLowerCase();
+          return (
+            (a.companyName ?? '').toLowerCase().includes(q) ||
+            formatAppId(a.applicationId).toLowerCase().includes(q)
+          );
+        })
       : applications;
 
     return (
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-4">List of Applications</h2>
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">My Applications</h2>
+          <p className="text-slate-500 text-sm mt-1">Track and manage your internship applications</p>
+        </div>
+
+        <div className="flex gap-3 items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              type="text"
+              placeholder="Search companies or application ID..."
+              suppressHydrationWarning
+              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+              value={applicationSearch}
+              onChange={(e) => setApplicationSearch(e.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            suppressHydrationWarning
+            onClick={() => setShowApplicationFilters((prev) => !prev)}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
+          >
+            <Filter size={16} />
+            Filters
+          </button>
+        </div>
+
+        {showApplicationFilters && (
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-slate-900">Filter Applications</h3>
+              <button type="button" className="text-sm font-semibold text-slate-500 hover:text-slate-900">
+                Clear All
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-6">
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Location</span>
+                <input
+                  type="text"
+                  placeholder="City, country, or remote"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
+                />
+              </div>
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Work Type</span>
+                {(['Full-time', 'Part-time', 'Flexible Hours'] as const).map((label) => (
+                  <label key={label} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]" />
+                    <span className="text-sm text-slate-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Workplace Type</span>
+                {(['Remote', 'Hybrid', 'In-person'] as const).map((label) => (
+                  <label key={label} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]" />
+                    <span className="text-sm text-slate-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Duration</span>
+                {(['<3 months', '3-6 months', '6+ months'] as const).map((label) => (
+                  <label key={label} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]" />
+                    <span className="text-sm text-slate-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Paid Status</span>
+                {(['Paid', 'Unpaid'] as const).map((label) => (
+                  <label key={label} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]" />
+                    <span className="text-sm text-slate-700">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                className="px-5 py-2.5 bg-[#002B5B] text-white text-sm font-bold rounded-xl hover:bg-[#001F42] transition-all"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        )}
 
         {applicationsError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 mb-4">
+          <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
             {applicationsError}
           </div>
         )}
@@ -763,62 +848,31 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         )}
 
         {!isLoadingApplications && applications.length > 0 && (
-          <>
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input
-                type="text"
-                placeholder="Search a company..."
-                suppressHydrationWarning
-                value={applicationSearch}
-                onChange={(e) => setApplicationSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
-              />
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-[#002B5B]">
-                    {['Application ID', 'Company Name', 'Date Applied', 'Application Type', 'Approval Progress', 'Completed Status'].map((col) => (
-                      <th key={col} className="px-5 py-3 text-left text-xs font-semibold text-white uppercase tracking-wide whitespace-nowrap">
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredApplications.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-5 py-8 text-center text-sm text-slate-400">
-                        No applications match your search.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredApplications.map((app) => (
-                      <tr key={app.applicationId} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="px-5 py-4 font-mono text-xs font-semibold text-slate-700 whitespace-nowrap">
-                          {formatAppId(app.applicationId)}
-                        </td>
-                        <td className="px-5 py-4 text-slate-700 whitespace-nowrap">
-                          {app.companyName ?? '—'}
-                        </td>
-                        <td className="px-5 py-4 text-slate-700 whitespace-nowrap">
-                          {formatDate(app.createdAt)}
-                        </td>
-                        <td className="px-5 py-4 text-slate-700 whitespace-nowrap">
-                          {formatType(app.applicationType)}
-                        </td>
-                        <td className="px-5 py-4">
-                          <div className="flex flex-col gap-1.5">
-                            {approvalCell(app.isApprovedByPPA ?? null, 'PPA')}
-                            {approvalCell(app.isApprovedByCompany ?? null, 'COMPANY')}
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
+          <div className="space-y-3">
+            {filteredApplications.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-400">
+                No applications match your search.
+              </div>
+            ) : (
+              filteredApplications.map((app) => {
+                const ppaInfo = approvalText(app.isApprovedByPPA ?? null, app.status);
+                const companyInfo = approvalText(app.isApprovedByCompany ?? null, app.status);
+                return (
+                  <div key={app.applicationId} className="bg-white rounded-xl border border-slate-200 p-5">
+                    <div className="flex items-start gap-4">
+                      <div className="flex-shrink-0 w-14 h-14 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">
+                        {getInitials(app.companyName ?? undefined)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="text-[#0891b2] font-semibold text-lg leading-snug">
+                            {app.opportunityTitle
+                              ? `${app.opportunityTitle} — ${app.companyName ?? ''}`
+                              : (app.companyName ?? '—')}
+                          </h3>
                           <span
                             className={cn(
-                              'px-3 py-1 rounded text-xs font-bold uppercase tracking-wide',
+                              'px-3 py-1 rounded text-xs font-bold uppercase tracking-wide flex-shrink-0',
                               app.status === 'APPROVED'
                                 ? 'bg-emerald-500 text-white'
                                 : app.status === 'REJECTED'
@@ -828,14 +882,43 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           >
                             {app.status ?? 'PENDING'}
                           </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-2 text-xs text-slate-500">
+                          <span className="flex items-center gap-1.5">
+                            <Calendar size={13} className="flex-shrink-0" />
+                            {formatDate(app.createdAt)}
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <Briefcase size={13} className="flex-shrink-0" />
+                            {formatType(app.applicationType)}
+                          </span>
+                          <span className="flex items-center gap-1.5 text-slate-400 text-xs">
+                            <Tag size={13} className="flex-shrink-0" />
+                            ID: {formatAppId(app.applicationId)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-500">PPA Response</span>
+                            {approvalIcon(app.isApprovedByPPA ?? null)}
+                            <span className={cn('text-xs font-semibold', ppaInfo.color)}>{ppaInfo.label}</span>
+                          </div>
+                          <div className="w-px h-4 bg-slate-200 flex-shrink-0" />
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-500">Company Response</span>
+                            {approvalIcon(app.isApprovedByCompany ?? null)}
+                            <span className={cn('text-xs font-semibold', companyInfo.color)}>{companyInfo.label}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         )}
       </div>
     );

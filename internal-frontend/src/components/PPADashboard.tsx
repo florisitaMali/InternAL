@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import Dashboard from './Dashboard';
 import UnderDevelopment from './UnderDevelopment';
-import NotificationsFullPage from './NotificationsFullPage';
 import { mockStudents, mockApplications, mockPPAs } from '@/src/lib/mockData';
 import { 
   Users, 
@@ -256,8 +255,6 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
         return renderApplications();
       case 'students':
         return renderStudents();
-      case 'notifications':
-        return <NotificationsFullPage />;
       default:
         return <UnderDevelopment moduleName={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} />;
     }

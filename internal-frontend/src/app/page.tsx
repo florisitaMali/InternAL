@@ -13,7 +13,6 @@ import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
 import { toast } from 'sonner'; //used for notifications
 import { clearSupabaseAuthStorage, getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
-import { NotificationsFeedProvider } from '@/src/lib/auth/useNotificationsFeed';
 
 const GET_SESSION_TIMEOUT_MS = 25_000;
 const ROLE_LABELS: Record<Role, string> = {
@@ -272,28 +271,26 @@ export default function Home() {
   }
 
   return (
-    <NotificationsFeedProvider>
-      <div className="flex min-h-screen bg-[#F9FAFB] relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0">
-          <div className="absolute -top-24 -right-24 w-96 h-96 bg-indigo-50 rounded-full blur-3xl opacity-50"></div>
-          <div className="absolute top-1/2 -left-24 w-72 h-72 bg-blue-50 rounded-full blur-3xl opacity-30"></div>
-        </div>
-
-        <Sidebar
-          role={role}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          onLogout={isLoggingOut ? () => {} : handleLogout}
-          isOpen={sidebarOpen}
-          onToggleSidebar={handleToggleSidebar}
-        />
-
-        <div
-          className={`flex-1 relative z-10 transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-16'}`}
-        >
-          {renderDashboard()}
-        </div>
+    <div className="flex min-h-screen bg-[#F9FAFB] relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0">
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-indigo-50 rounded-full blur-3xl opacity-50"></div>
+        <div className="absolute top-1/2 -left-24 w-72 h-72 bg-blue-50 rounded-full blur-3xl opacity-30"></div>
       </div>
-    </NotificationsFeedProvider>
+
+      <Sidebar
+        role={role}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onLogout={isLoggingOut ? () => {} : handleLogout}
+        isOpen={sidebarOpen}
+        onToggleSidebar={handleToggleSidebar}
+      />
+
+      <div
+        className={`flex-1 relative z-10 transition-all duration-300 ${sidebarOpen ? 'ml-72' : 'ml-16'}`}
+      >
+        {renderDashboard()}
+      </div>
+    </div>
   );
 }

@@ -20,14 +20,19 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 @Repository
 public class OpportunityRepository {
 
     private static final Logger log = LoggerFactory.getLogger(OpportunityRepository.class);
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public OpportunityRepository(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
 
     @Value("${supabase.url}")
     private String supabaseUrl;
@@ -86,6 +91,57 @@ public class OpportunityRepository {
         } catch (Exception e) {
             log.error("findForStudent failed: {}", e.getMessage());
             return List.of();
+        }
+    }
+
+    public List<Opportunity> findForCompany(Integer companyId) {
+        try {
+            StringBuilder url = new StringBuilder(supabaseUrl);
+            url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
+               .append("required_skills,required_experience,deadline,type,")
+               .append("company(name,location),")
+               .append("opportunitytarget(university_id)")
+               .append("&company_id=eq.").append(companyId);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url.toString(), HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
+
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || !array.isArray()) {
+                return List.of();
+            }
+            List<Opportunity> result = new ArrayList<>();
+            for (JsonNode node : array) {
+                result.add(mapOpportunity(node));
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("findForCompany failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    public Optional<Opportunity> findByIdAndCompany(Integer opportunityId, Integer companyId) {
+        try {
+            StringBuilder url = new StringBuilder(supabaseUrl);
+            url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
+               .append("required_skills,required_experience,deadline,type,")
+               .append("company(name,location),")
+               .append("opportunitytarget(university_id)")
+               .append("&opportunity_id=eq.").append(opportunityId)
+               .append("&company_id=eq.").append(companyId);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url.toString(), HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
+
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || !array.isArray() || array.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(mapOpportunity(array.get(0)));
+        } catch (Exception e) {
+            log.error("findByIdAndCompany failed: {}", e.getMessage());
+            return Optional.empty();
         }
     }
 

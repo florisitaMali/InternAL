@@ -146,6 +146,13 @@ export interface Opportunity {
   skillMatchCount?: number;
   workType?: string;
   duration?: string;
+  code?: string;
+  positionCount?: number | null;
+  salaryMonthly?: number | null;
+  niceToHave?: string | null;
+  startDate?: string | null;
+  createdAt?: string | null;
+  applicantCount?: number;
   /** API-shaped optional fields for company detail view */
   durationLabel?: string;
   jobTypeLabel?: string;

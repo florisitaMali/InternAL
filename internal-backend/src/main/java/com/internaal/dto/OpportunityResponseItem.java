@@ -22,6 +22,13 @@ public record OpportunityResponseItem(
         String workMode,
         int skillMatchCount,
         String workType,
-        String duration
+        String duration,
+        String code,
+        Integer positionCount,
+        Integer salaryMonthly,
+        String niceToHave,
+        LocalDate startDate,
+        String createdAt,
+        Integer applicantCount
 ) {
 }

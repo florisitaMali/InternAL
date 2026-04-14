@@ -27,6 +27,13 @@ class StudentOpportunityServiceTest {
                 null,
                 Opportunity.WorkMode.Remote,
                 null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 null
         );
         List<String> studentSkills = List.of("react", "SQL");
@@ -45,6 +52,13 @@ class StudentOpportunityServiceTest {
                 "",
                 LocalDate.now(),
                 List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,

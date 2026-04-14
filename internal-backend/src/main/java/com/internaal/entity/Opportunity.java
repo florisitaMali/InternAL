@@ -18,7 +18,14 @@ public record Opportunity(
         Boolean isPaid,
         WorkMode workMode,
         String workType,
-        String duration
+        String duration,
+        String typeRaw,
+        String code,
+        Integer positionCount,
+        Integer salaryMonthly,
+        String niceToHave,
+        LocalDate startDate,
+        String createdAt
 ) {
     public enum InternshipType {
         PROFESSIONAL_PRACTICE,
@@ -35,7 +42,8 @@ public record Opportunity(
                 return null;
             }
             String v = value.trim();
-            if ("On-site".equalsIgnoreCase(v) || "ON_SITE".equalsIgnoreCase(v) || "onsite".equalsIgnoreCase(v)) {
+            if ("On-site".equalsIgnoreCase(v) || "ON_SITE".equalsIgnoreCase(v) || "onsite".equalsIgnoreCase(v)
+                    || "IN-PERSON".equalsIgnoreCase(v) || "IN_PERSON".equalsIgnoreCase(v)) {
                 return On_site;
             }
             if ("remote".equalsIgnoreCase(v)) {

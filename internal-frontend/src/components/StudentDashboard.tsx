@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Dashboard from './Dashboard';
 import PdfPreviewModal from './PdfPreviewModal';
 import {
@@ -19,13 +19,18 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  CheckCircle,
   ChevronRight,
+  Clock,
+  Eye,
   FileText,
   Filter,
+  MapPin,
   Search,
   Tag,
   Wallet,
   X,
+  XCircle,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
@@ -52,7 +57,13 @@ import {
 } from '@/src/lib/auth/userAccount';
 import { fetchStudentApplications, fetchStudentOpportunities, getApiBaseUrl, type ApplicationResponse, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
-import { formatDeadline, formatOpportunityType } from '@/src/lib/opportunityFormat';
+import {
+  formatDbDuration,
+  formatDbWorkType,
+  formatDeadline,
+  formatOpportunityType,
+  formatRelativePosted,
+} from '@/src/lib/opportunityFormat';
 
 interface StudentDashboardProps {
   activeTab: string;
@@ -64,45 +75,138 @@ interface StudentDashboardProps {
 
 type OpportunityFilterState = {
   q: string;
-  type: string;
-  location: string;
-  skills: string[];
-  workMode: string;
-  isPaid: string;
+  locationPresets: string[];
+  locationOther: string;
+  workTypes: Array<'FULL_TIME' | 'PART_TIME' | 'FLEXIBLE'>;
+  workModes: Array<'Remote' | 'Hybrid' | 'On-site'>;
+  durationBuckets: Array<'<3' | '3-6' | '6+'>;
+  paidSelections: Array<'paid' | 'unpaid'>;
+  salaryMin: string;
+  salaryMax: string;
 };
 
 const EMPTY_FILTERS: OpportunityFilterState = {
   q: '',
-  type: '',
-  location: '',
-  skills: [],
-  workMode: '',
-  isPaid: '',
+  locationPresets: [],
+  locationOther: '',
+  workTypes: [],
+  workModes: [],
+  durationBuckets: [],
+  paidSelections: [],
+  salaryMin: '',
+  salaryMax: '',
 };
 
-const typeOptions = [
-  { value: '', label: 'All types' },
-  { value: 'PROFESSIONAL_PRACTICE', label: 'Professional Practice' },
-  { value: 'INDIVIDUAL_GROWTH', label: 'Individual Growth' },
-];
+type FilterCheckboxProps = {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+};
 
-function formatOpportunityType(type?: string): string {
-  if (!type) return 'Opportunity';
-  return type
-    .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+function FilterCheckbox({ checked, onChange, label }: FilterCheckboxProps) {
+  return (
+    <label className="flex items-center gap-2.5 cursor-pointer group">
+      <input type="checkbox" className="sr-only" checked={checked} onChange={() => onChange(!checked)} />
+      <span
+        className={cn(
+          'flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors',
+          checked ? 'bg-[#002B5B] border-[#002B5B]' : 'border-slate-300 group-hover:border-slate-400'
+        )}
+        aria-hidden
+      >
+        {checked ? (
+          <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M2 6l3 3 5-6" />
+          </svg>
+        ) : null}
+      </span>
+      <span className="text-sm text-slate-700">{label}</span>
+    </label>
+  );
 }
 
-function formatDeadline(deadline?: string): string {
-  if (!deadline) return 'No deadline specified';
-  const date = new Date(deadline);
-  if (Number.isNaN(date.getTime())) return deadline;
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
+function durationMonthsApprox(duration: string | undefined | null): number | null {
+  if (!duration?.trim()) return null;
+  const m = /^(\d+)_MONTHS?$/i.exec(duration.trim());
+  if (m) return parseInt(m[1], 10);
+  const lower = duration.toLowerCase();
+  if (lower.includes('1-3') || lower.includes('1 to 3')) return 2;
+  if (lower.includes('3-6') || lower.includes('3 to 6')) return 4;
+  if (lower.includes('6-12') || lower.includes('6 to 12')) return 9;
+  return null;
+}
+
+function durationMatchesBucket(duration: string, bucket: string): boolean {
+  const months = durationMonthsApprox(duration);
+  if (months != null) {
+    if (bucket === '<3') return months < 3;
+    if (bucket === '3-6') return months >= 3 && months <= 6;
+    if (bucket === '6+') return months > 6;
+  }
+  const lower = duration.toLowerCase();
+  if (bucket === '<3') return lower.includes('1-3');
+  if (bucket === '3-6') return lower.includes('3-6');
+  if (bucket === '6+') return lower.includes('6-12') || lower.includes('12');
+  return false;
+}
+
+function normalizeWorkTypeKey(wt: string | undefined): string | null {
+  if (!wt?.trim()) return null;
+  return wt.trim().toUpperCase().replace(/-/g, '_');
+}
+
+function matchesFlexibleWorkType(workType: string | undefined): boolean {
+  const w = (workType || '').toLowerCase();
+  return w.includes('flex') || w.includes('part');
+}
+
+function applyClientOpportunityFilters(opps: Opportunity[], f: OpportunityFilterState): Opportunity[] {
+  return opps.filter((opp) => {
+    const hay = (opp.location || '').toLowerCase();
+    const other = f.locationOther.trim().toLowerCase();
+    const hasLoc = f.locationPresets.length > 0 || !!other;
+    if (hasLoc) {
+      const presetMatch = f.locationPresets.some((p) => hay.includes(p.toLowerCase()));
+      const otherMatch = !!other && hay.includes(other);
+      if (!presetMatch && !otherMatch) return false;
+    }
+
+    if (f.workTypes.length > 0) {
+      const ok = f.workTypes.some((choice) => {
+        if (choice === 'FLEXIBLE') return matchesFlexibleWorkType(opp.workType);
+        return normalizeWorkTypeKey(opp.workType) === choice;
+      });
+      if (!ok) return false;
+    }
+
+    if (f.workModes.length > 0) {
+      const wm = opp.workMode;
+      if (!wm || !f.workModes.includes(wm as (typeof f.workModes)[number])) return false;
+    }
+
+    if (f.durationBuckets.length > 0) {
+      const ok = f.durationBuckets.some((b) => durationMatchesBucket(opp.duration || '', b));
+      if (!ok) return false;
+    }
+
+    if (f.paidSelections.length === 1) {
+      const onlyPaid = f.paidSelections[0] === 'paid';
+      if (onlyPaid) {
+        if (opp.isPaid !== true) return false;
+        const minParsed = f.salaryMin.trim() ? Number(f.salaryMin) : null;
+        const maxParsed = f.salaryMax.trim() ? Number(f.salaryMax) : null;
+        if (minParsed != null && !Number.isNaN(minParsed)) {
+          if (opp.salaryMonthly == null || opp.salaryMonthly < minParsed) return false;
+        }
+        if (maxParsed != null && !Number.isNaN(maxParsed)) {
+          if (opp.salaryMonthly == null || opp.salaryMonthly > maxParsed) return false;
+        }
+      } else if (opp.isPaid === true) {
+        return false;
+      }
+    }
+
+    return true;
   });
 }
 
@@ -126,14 +230,40 @@ function formatWorkMode(mode?: string | null): string {
   return map[mode] ?? mode;
 }
 
+function formatPostedLabel(iso?: string | null): string {
+  if (!iso?.trim()) return '—';
+  const d = new Date(iso);
+  if (!Number.isNaN(d.getTime())) {
+    return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+  return iso.length >= 10 ? iso.slice(0, 10) : iso;
+}
+
+function formatApplicationIdDisplay(id: number | null): string {
+  return id != null ? `APP${String(id).padStart(3, '0')}` : '—';
+}
+
 function buildOpportunityFilters(filters: OpportunityFilterState): StudentOpportunityFilters {
+  let location: string | undefined;
+  if (filters.locationPresets.length === 1 && !filters.locationOther.trim()) {
+    location = filters.locationPresets[0];
+  } else if (filters.locationPresets.length === 0 && filters.locationOther.trim()) {
+    location = filters.locationOther.trim();
+  }
+
+  const workModeParam =
+    filters.workModes.length === 1 ? filters.workModes[0] : undefined;
+
+  let isPaid: boolean | undefined;
+  if (filters.paidSelections.length === 1) {
+    isPaid = filters.paidSelections[0] === 'paid';
+  }
+
   return {
     q: filters.q || undefined,
-    type: filters.type || undefined,
-    location: filters.location || undefined,
-    skills: filters.skills.length ? filters.skills : undefined,
-    workMode: filters.workMode || undefined,
-    isPaid: filters.isPaid === 'true' ? true : filters.isPaid === 'false' ? false : undefined,
+    location,
+    workMode: workModeParam,
+    isPaid,
   };
 }
 
@@ -147,8 +277,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [student, setStudent] = useState<Student>(currentStudent ?? mockStudents[0]);
   const [opportunityFilters, setOpportunityFilters] = useState<OpportunityFilterState>(EMPTY_FILTERS);
-  const [skillFilterInput, setSkillFilterInput] = useState('');
-  const [durationFilter, setDurationFilter] = useState('');
+  const [discoveredLocations, setDiscoveredLocations] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [applicationOpportunity, setApplicationOpportunity] = useState<{ id: number; title: string; company: string } | null>(null);
@@ -160,6 +289,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [applicationsError, setApplicationsError] = useState<string | null>(null);
   const [applicationSearch, setApplicationSearch] = useState('');
   const [showApplicationFilters, setShowApplicationFilters] = useState(false);
+  const [opportunityById, setOpportunityById] = useState<Map<string, Opportunity>>(() => new Map());
+  const [selectedApplication, setSelectedApplication] = useState<ApplicationResponse | null>(null);
   const [pdfPreview, setPdfPreview] = useState<{
     title: string;
     url: string | null;
@@ -263,9 +394,27 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         throw new Error(errorMessage || 'Could not load opportunities.');
       }
 
-      setOpportunities(data);
+      setOpportunityById((prev) => {
+        const next = new Map(prev);
+        data.forEach((o) => {
+          next.set(String(o.id), o);
+        });
+        return next;
+      });
+
+      setDiscoveredLocations((prev) => {
+        const s = new Set(prev);
+        data.forEach((o) => {
+          if (o.location?.trim()) s.add(o.location.trim());
+        });
+        return Array.from(s).sort((a, b) => a.localeCompare(b));
+      });
+
+      const withSkillMatches = data.filter((o) => (o.skillMatchCount ?? 0) > 0);
+      const visible = applyClientOpportunityFilters(withSkillMatches, filters);
+      setOpportunities(visible);
       setSelectedOpportunity((current) =>
-        current ? (data.find((item) => item.id === current.id) ?? null) : null
+        current ? (visible.find((item) => item.id === current.id) ?? null) : null
       );
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Could not load opportunities.';
@@ -279,8 +428,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   useEffect(() => {
     if (!student?.id) return;
+    if (activeTab !== 'opportunities') return;
     void loadOpportunities(opportunityFilters);
-  }, [loadOpportunities, student.id, opportunityFilters]);
+  }, [loadOpportunities, student.id, opportunityFilters, activeTab]);
 
   const loadApplications = useCallback(async () => {
     setIsLoadingApplications(true);
@@ -307,12 +457,6 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     void loadApplications();
   }, [loadApplications, student.id]);
 
-  const availableSkillOptions = useMemo(() => {
-    const ownSkills = student.extendedProfile?.skills || [];
-    const requiredSkills = opportunities.flatMap((opportunity) => opportunity.requiredSkills || []);
-    return Array.from(new Set([...ownSkills, ...requiredSkills])).sort((a, b) => a.localeCompare(b));
-  }, [opportunities, student.extendedProfile?.skills]);
-
   const handleApply = (opp: Opportunity) => {
     setApplicationOpportunity({ id: typeof opp.id === 'string' ? parseInt(opp.id) : opp.id, title: opp.title, company: opp.companyName ?? '' });
   };
@@ -336,6 +480,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         if (response.ok) {
           toast.success('Application submitted successfully!');
           setApplicationOpportunity(null);
+          void loadApplications();
         } else {
           toast.error('Failed to submit application.');
         }
@@ -345,141 +490,235 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     }
   };
 
-  const addSkillFilter = (rawSkill: string) => {
-    const skill = rawSkill.trim();
-    if (!skill || opportunityFilters.skills.includes(skill)) return;
-    setOpportunityFilters((prev) => ({ ...prev, skills: [...prev.skills, skill] }));
-    setSkillFilterInput('');
-  };
+  const locationRadioOptions = useMemo(() => {
+    if (discoveredLocations.length > 0) return discoveredLocations.slice(0, 6);
+    return ['San Francisco, CA', 'New York, NY', 'Austin, TX'];
+  }, [discoveredLocations]);
 
-  const removeSkillFilter = (skill: string) => {
-    setOpportunityFilters((prev) => ({
-      ...prev,
-      skills: prev.skills.filter((item) => item !== skill),
-    }));
-  };
+  const filteredApplications = useMemo(() => {
+    let list = applications;
+    if (applicationSearch.trim()) {
+      const q = applicationSearch.trim().toLowerCase();
+      list = list.filter(
+        (a) =>
+          (a.companyName ?? '').toLowerCase().includes(q) ||
+          formatApplicationIdDisplay(a.applicationId).toLowerCase().includes(q) ||
+          (a.opportunityTitle ?? '').toLowerCase().includes(q)
+      );
+    }
+    const dim = opportunityFilters;
+    const hasDim =
+      dim.locationPresets.length > 0 ||
+      dim.locationOther.trim() !== '' ||
+      dim.workTypes.length > 0 ||
+      dim.workModes.length > 0 ||
+      dim.durationBuckets.length > 0 ||
+      dim.paidSelections.length > 0;
+    if (!hasDim) return list;
+    return list.filter((app) => {
+      const id = app.opportunityId != null ? String(app.opportunityId) : '';
+      const opp = opportunityById.get(id);
+      if (!opp) return false;
+      return applyClientOpportunityFilters([opp], dim).length > 0;
+    });
+  }, [applications, applicationSearch, opportunityFilters, opportunityById]);
 
-  const renderFilterPanel = () => (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-bold text-slate-900">Filter Opportunities</h3>
+  const appliedOpportunityIds = useMemo(() => {
+    const ids = new Set<string>();
+    applications.forEach((a) => {
+      if (a.opportunityId != null) ids.add(String(a.opportunityId));
+    });
+    return ids;
+  }, [applications]);
+
+  const hasAppliedToOpportunity = (opp: Opportunity) => appliedOpportunityIds.has(String(opp.id));
+
+  const renderExploreFilterPanel = (opts: { title: string; onApply: () => void; panelClassName?: string }) => (
+    <div
+      className={cn(
+        'bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6',
+        opts.panelClassName
+      )}
+    >
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-lg font-bold text-slate-900">{opts.title}</h3>
         <button
           type="button"
           onClick={() => setOpportunityFilters(EMPTY_FILTERS)}
-          className="text-sm font-semibold text-slate-500 hover:text-slate-900"
+          className="text-sm font-semibold text-slate-500 hover:text-[#002B5B]"
         >
           Clear All
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-6">
-        <div className="space-y-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-6">
+        <div className="space-y-3">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Location</span>
+          <div className="space-y-2.5">
+            {locationRadioOptions.map((loc) => (
+              <FilterCheckbox
+                key={loc}
+                checked={opportunityFilters.locationPresets.includes(loc)}
+                onChange={(checked) =>
+                  setOpportunityFilters((prev) => ({
+                    ...prev,
+                    locationPresets: checked
+                      ? [...new Set([...prev.locationPresets, loc])]
+                      : prev.locationPresets.filter((x) => x !== loc),
+                  }))
+                }
+                label={loc}
+              />
+            ))}
+          </div>
           <input
             type="text"
-            value={opportunityFilters.location}
-            onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, location: e.target.value }))}
-            placeholder="City, country, or remote"
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
+            value={opportunityFilters.locationOther}
+            onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, locationOther: e.target.value }))}
+            placeholder="Other location (contains)…"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B] mt-1"
           />
         </div>
 
-        <div className="space-y-2">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Work Type</span>
-          {([
-            { label: 'Full-time', value: 'PROFESSIONAL_PRACTICE' },
-            { label: 'Part-time', value: 'INDIVIDUAL_GROWTH' },
-            { label: 'Flexible Hours', value: 'FLEXIBLE' },
-          ] as const).map(({ label, value }) => (
-            <label key={value} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={opportunityFilters.type === value}
-                onChange={() =>
+        <div className="space-y-3">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Work type</span>
+          <div className="space-y-2.5">
+            {(
+              [
+                { label: 'Full-time', value: 'FULL_TIME' as const },
+                { label: 'Part-time', value: 'PART_TIME' as const },
+                { label: 'Flexible hours', value: 'FLEXIBLE' as const },
+              ] as const
+            ).map(({ label, value }) => (
+              <FilterCheckbox
+                key={value}
+                checked={opportunityFilters.workTypes.includes(value)}
+                onChange={(checked) =>
                   setOpportunityFilters((prev) => ({
                     ...prev,
-                    type: prev.type === value ? '' : value,
+                    workTypes: checked
+                      ? [...new Set([...prev.workTypes, value])]
+                      : prev.workTypes.filter((x) => x !== value),
                   }))
                 }
-                className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+                label={label}
               />
-              <span className="text-sm text-slate-700">{label}</span>
-            </label>
-          ))}
+            ))}
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Workplace Type</span>
-          {([
-            { label: 'Remote', value: 'Remote' },
-            { label: 'Hybrid', value: 'Hybrid' },
-            { label: 'In-person', value: 'On-site' },
-          ] as const).map(({ label, value }) => (
-            <label key={value} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={opportunityFilters.workMode === value}
-                onChange={() =>
+        <div className="space-y-3">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Workplace type</span>
+          <div className="space-y-2.5">
+            {(
+              [
+                { label: 'Remote', value: 'Remote' as const },
+                { label: 'Hybrid', value: 'Hybrid' as const },
+                { label: 'In-person', value: 'On-site' as const },
+              ] as const
+            ).map(({ label, value }) => (
+              <FilterCheckbox
+                key={value}
+                checked={opportunityFilters.workModes.includes(value)}
+                onChange={(checked) =>
                   setOpportunityFilters((prev) => ({
                     ...prev,
-                    workMode: prev.workMode === value ? '' : value,
+                    workModes: checked
+                      ? [...new Set([...prev.workModes, value])]
+                      : prev.workModes.filter((x) => x !== value),
                   }))
                 }
-                className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+                label={label}
               />
-              <span className="text-sm text-slate-700">{label}</span>
-            </label>
-          ))}
+            ))}
+          </div>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Duration</span>
-          {([
-            { label: '<3 months', value: '<3' },
-            { label: '3-6 months', value: '3-6' },
-            { label: '6+ months', value: '6+' },
-          ] as const).map(({ label, value }) => (
-            <label key={value} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={durationFilter === value}
-                onChange={() => setDurationFilter((prev) => (prev === value ? '' : value))}
-                className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
-              />
-              <span className="text-sm text-slate-700">{label}</span>
-            </label>
-          ))}
-        </div>
-
-        <div className="space-y-2">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Paid Status</span>
-          {([
-            { label: 'Paid', value: 'true' },
-            { label: 'Unpaid', value: 'false' },
-          ] as const).map(({ label, value }) => (
-            <label key={value} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={opportunityFilters.isPaid === value}
-                onChange={() =>
+          <div className="space-y-2.5">
+            {(
+              [
+                { label: '< 3 months', value: '<3' as const },
+                { label: '3–6 months', value: '3-6' as const },
+                { label: '6+ months', value: '6+' as const },
+              ] as const
+            ).map(({ label, value }) => (
+              <FilterCheckbox
+                key={value}
+                checked={opportunityFilters.durationBuckets.includes(value)}
+                onChange={(checked) =>
                   setOpportunityFilters((prev) => ({
                     ...prev,
-                    isPaid: prev.isPaid === value ? '' : value,
+                    durationBuckets: checked
+                      ? [...new Set([...prev.durationBuckets, value])]
+                      : prev.durationBuckets.filter((x) => x !== value),
                   }))
                 }
-                className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+                label={label}
               />
-              <span className="text-sm text-slate-700">{label}</span>
-            </label>
-          ))}
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Paid status</span>
+          <div className="space-y-2.5">
+            <FilterCheckbox
+              checked={opportunityFilters.paidSelections.includes('unpaid')}
+              onChange={(checked) =>
+                setOpportunityFilters((prev) => ({
+                  ...prev,
+                  paidSelections: checked
+                    ? ([...new Set([...prev.paidSelections, 'unpaid'])] as OpportunityFilterState['paidSelections'])
+                    : prev.paidSelections.filter((x) => x !== 'unpaid'),
+                }))
+              }
+              label="Unpaid"
+            />
+            <FilterCheckbox
+              checked={opportunityFilters.paidSelections.includes('paid')}
+              onChange={(checked) =>
+                setOpportunityFilters((prev) => ({
+                  ...prev,
+                  paidSelections: checked
+                    ? ([...new Set([...prev.paidSelections, 'paid'])] as OpportunityFilterState['paidSelections'])
+                    : prev.paidSelections.filter((x) => x !== 'paid'),
+                }))
+              }
+              label="Paid"
+            />
+          </div>
+          {opportunityFilters.paidSelections.length === 1 && opportunityFilters.paidSelections[0] === 'paid' ? (
+            <div className="flex flex-wrap items-center gap-1.5 text-sm text-slate-600 pt-1">
+              <span className="text-slate-500">$</span>
+              <input
+                type="number"
+                min={0}
+                placeholder="0"
+                value={opportunityFilters.salaryMin}
+                onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, salaryMin: e.target.value }))}
+                className="w-16 px-2 py-1 rounded-md border border-slate-200 text-sm"
+              />
+              <span className="text-slate-400">to</span>
+              <input
+                type="number"
+                min={0}
+                placeholder="max"
+                value={opportunityFilters.salaryMax}
+                onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, salaryMax: e.target.value }))}
+                className="w-20 px-2 py-1 rounded-md border border-slate-200 text-sm"
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
-      <div className="flex justify-end mt-4">
+      <div className="flex justify-end mt-8 pt-2">
         <button
           type="button"
-          onClick={() => loadOpportunities(opportunityFilters)}
-          className="px-5 py-2.5 bg-[#002B5B] text-white text-sm font-bold rounded-xl hover:bg-[#001F42] transition-all"
+          onClick={opts.onApply}
+          className="px-8 py-3 bg-[#002B5B] text-white text-sm font-bold rounded-xl hover:bg-[#001F42] transition-all shadow-sm"
         >
           Apply Filters
         </button>
@@ -516,16 +755,22 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
             <button
               type="button"
+              disabled={hasAppliedToOpportunity(selectedOpportunity)}
               onClick={() => handleApply(selectedOpportunity)}
-              className="px-5 py-3 rounded-xl bg-[#002B5B] text-sm font-bold text-white hover:bg-[#001F42]"
+              className={cn(
+                'px-5 py-3 rounded-xl text-sm font-bold transition-colors',
+                hasAppliedToOpportunity(selectedOpportunity)
+                  ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                  : 'bg-[#002B5B] text-white hover:bg-[#001F42]'
+              )}
             >
-              Apply Now
+              {hasAppliedToOpportunity(selectedOpportunity) ? 'Applied' : 'Apply Now'}
             </button>
           </div>
         </div>
 
         <div className="p-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <div className="rounded-2xl bg-slate-50 p-4">
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Deadline</div>
               <div className="text-sm font-semibold text-slate-900">{formatDeadline(selectedOpportunity.deadline)}</div>
@@ -533,6 +778,52 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             <div className="rounded-2xl bg-slate-50 p-4">
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Location</div>
               <div className="text-sm font-semibold text-slate-900">{selectedOpportunity.location || 'Not specified'}</div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Reference code</div>
+              <div className="text-sm font-semibold text-slate-900">{selectedOpportunity.code || '—'}</div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Workplace</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {selectedOpportunity.workMode || '—'}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Employment type</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {formatDbWorkType(selectedOpportunity.workType)}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Duration</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {formatDbDuration(selectedOpportunity.duration)}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Start date</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {selectedOpportunity.startDate ? formatDeadline(selectedOpportunity.startDate) : '—'}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Posted</div>
+              <div className="text-sm font-semibold text-slate-900">{formatPostedLabel(selectedOpportunity.createdAt)}</div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Open positions</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {selectedOpportunity.positionCount != null ? String(selectedOpportunity.positionCount) : '—'}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Monthly salary</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {selectedOpportunity.salaryMonthly != null && selectedOpportunity.salaryMonthly > 0
+                  ? `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(selectedOpportunity.salaryMonthly)} / month`
+                  : '—'}
+              </div>
             </div>
           </div>
 
@@ -566,19 +857,32 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
           </div>
 
+          {selectedOpportunity.niceToHave?.trim() ? (
+            <div>
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Nice to have</h4>
+              <div className="text-sm leading-7 text-slate-600 whitespace-pre-wrap rounded-2xl bg-slate-50 p-4">
+                {selectedOpportunity.niceToHave}
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div>
               <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Qualifications</h4>
               <p className="text-sm leading-7 text-slate-600">
                 {(selectedOpportunity.requiredSkills || []).length
                   ? `Candidates should be comfortable with ${selectedOpportunity.requiredSkills.join(', ')}.`
-                  : 'Qualifications were not specified separately in the backend data.'}
+                  : 'Qualifications were not specified separately for this opportunity.'}
               </p>
             </div>
             <div>
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Benefits</h4>
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Compensation notes</h4>
               <p className="text-sm leading-7 text-slate-600">
-                Benefits are not stored separately for this opportunity yet.
+                {selectedOpportunity.isPaid === false
+                  ? 'This role is listed as unpaid.'
+                  : selectedOpportunity.isPaid === true
+                    ? 'This role is listed as paid; see monthly salary above if provided.'
+                    : 'Paid status was not specified for this listing.'}
               </p>
             </div>
           </div>
@@ -591,19 +895,75 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     if (!selectedOpportunity) return null;
 
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950/50 p-4 overflow-y-auto">
-        <div className="max-w-3xl mx-auto py-6">
+      <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-950/50">
+        <div className="flex min-h-full justify-center px-4 pb-16 pt-[max(1rem,env(safe-area-inset-top,0px))] sm:px-6 sm:pb-20 sm:pt-8">
+          <div className="w-full max-w-5xl sm:my-4">
           <div className="mb-4 flex justify-end">
             <button
               type="button"
               onClick={() => setSelectedOpportunity(null)}
-              className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-700"
+              className="inline-flex items-center justify-center gap-2 min-h-11 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-800 shadow-md border border-slate-200 hover:bg-slate-50"
             >
-              <X size={16} />
+              <X size={22} strokeWidth={2.25} className="shrink-0" aria-hidden />
               Close
             </button>
           </div>
           {renderOpportunityDetails()}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const applicationStudentFormProps = {
+    fullName: student.fullName,
+    email: student.email,
+    university: student.university,
+    department: student.departmentName ?? '',
+    studyField: student.studyFieldName ?? '',
+    studyYear: typeof student.studyYear === 'string' ? parseInt(student.studyYear, 10) : student.studyYear,
+    cgpa: typeof student.cgpa === 'string' ? parseFloat(student.cgpa) : student.cgpa,
+    cvFileName: student.extendedProfile?.cvFilename ?? 'No CV uploaded',
+  };
+
+  const applicationListingDetails = (app: ApplicationResponse): ReactNode => {
+    const oppId = app.opportunityId != null ? String(app.opportunityId) : '';
+    const opp = opportunityById.get(oppId);
+    if (!opp) {
+      return (
+        <p className="text-sm text-gray-600 rounded-md bg-gray-50 px-3 py-2">
+          Open Opportunities to load listings; listing details appear when this role is included in your latest results.
+        </p>
+      );
+    }
+    return (
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold text-gray-900">Listing details</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Location</div>
+            <div className="font-medium text-gray-900">{opp.location || '—'}</div>
+          </div>
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Workplace</div>
+            <div className="font-medium text-gray-900">{formatWorkMode(opp.workMode) || opp.workMode || '—'}</div>
+          </div>
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Employment type</div>
+            <div className="font-medium text-gray-900">{formatDbWorkType(opp.workType)}</div>
+          </div>
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Duration</div>
+            <div className="font-medium text-gray-900">{formatDbDuration(opp.duration)}</div>
+          </div>
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Reference code</div>
+            <div className="font-medium text-gray-900">{opp.code || '—'}</div>
+          </div>
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Deadline</div>
+            <div className="font-medium text-gray-900">{formatDeadline(opp.deadline)}</div>
+          </div>
         </div>
       </div>
     );
@@ -612,20 +972,20 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const renderOpportunities = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold text-slate-900">Explore Opportunities</h2>
-        <p className="text-sm text-slate-500 mt-1">
+        <h2 className="text-3xl font-bold text-[#002B5B] tracking-tight">Explore Opportunities</h2>
+        <p className="text-sm text-slate-500 mt-1.5">
           Discover internships that match your skills and interests.
         </p>
       </div>
 
-      <div className="flex gap-3 items-center mb-6">
+      <div className="flex gap-3 items-stretch mb-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input
             type="text"
-            placeholder="Search title, company, skill..."
+            placeholder="Search opportunities by title, company, or skills..."
             suppressHydrationWarning
-            className="flex-1 w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+            className="flex-1 w-full pl-11 pr-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-[#002B5B]/30 focus:border-[#002B5B] outline-none shadow-sm"
             value={opportunityFilters.q}
             onChange={(e) => setOpportunityFilters((prev) => ({ ...prev, q: e.target.value }))}
           />
@@ -634,14 +994,25 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           type="button"
           suppressHydrationWarning
           onClick={() => setShowFilters((prev) => !prev)}
-          className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
+          className={cn(
+            'flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all shadow-sm shrink-0',
+            showFilters
+              ? 'bg-[#001F42] text-white'
+              : 'bg-[#002B5B] text-white hover:bg-[#001F42]'
+          )}
         >
-          <Filter size={16} />
+          <Filter size={18} />
           Filters
         </button>
       </div>
 
-      {showFilters ? renderFilterPanel() : null}
+      {showFilters
+        ? renderExploreFilterPanel({
+            title: 'Filter Opportunities',
+            panelClassName: 'mb-10',
+            onApply: () => loadOpportunities(opportunityFilters),
+          })
+        : null}
 
       {opportunitiesError ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
@@ -665,85 +1036,91 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       ) : null}
 
       {!!opportunities.length && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {opportunities.map((opp) => (
             <div
               key={opp.id}
-              className="bg-white rounded-xl border border-slate-200 p-5 hover:shadow-md transition-all duration-200 flex flex-col"
+              className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5 hover:shadow-md transition-shadow duration-200 flex flex-col"
             >
-              <div className="flex items-start gap-3">
-                <div className="flex-shrink-0 w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-500 text-xs tracking-wide">
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0 w-14 h-14 bg-[#002B5B] rounded-lg flex items-center justify-center font-bold text-white text-sm tracking-wide">
                   {getInitials(opp.companyName)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-semibold text-[#002B5B] leading-snug">{opp.title}</h3>
-                  <p className="text-slate-500 text-sm mt-0.5">{opp.companyName}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Posted recently</p>
+                  <h3 className="text-base font-bold text-[#002B5B] leading-snug">{opp.title}</h3>
+                  <p className="text-slate-600 text-sm font-medium mt-0.5">{opp.companyName}</p>
+                  <p className="text-xs text-slate-400 mt-1">{formatRelativePosted(opp.createdAt)}</p>
                 </div>
               </div>
 
-              <p className="text-slate-500 text-sm mt-3 line-clamp-2">
+              <p className="text-slate-600 text-sm mt-4 leading-relaxed line-clamp-2">
                 {opp.description || 'No description provided.'}
               </p>
 
-              <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-slate-500">
-                {opp.location && (
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-xs text-slate-500">
+                {opp.location ? (
                   <span className="flex items-center gap-1.5">
-                    <MapPin size={12} className="flex-shrink-0" />
+                    <MapPin size={14} className="flex-shrink-0 text-slate-400" />
                     {opp.location}
                   </span>
-                )}
-                {opp.workMode && (
+                ) : null}
+                {opp.workMode ? (
                   <span className="flex items-center gap-1.5">
-                    <Building2 size={12} className="flex-shrink-0" />
-                    {formatWorkMode(opp.workMode)}
+                    <Building2 size={14} className="flex-shrink-0 text-slate-400" />
+                    {formatWorkMode(opp.workMode) || opp.workMode}
                   </span>
-                )}
-                {opp.duration && (
+                ) : null}
+                {opp.duration ? (
                   <span className="flex items-center gap-1.5">
-                    <Clock size={12} className="flex-shrink-0" />
-                    {opp.duration}
+                    <Clock size={14} className="flex-shrink-0 text-slate-400" />
+                    {formatDbDuration(opp.duration)}
                   </span>
-                )}
-                {opp.isPaid === true && (
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700">
-                    Paid
-                  </span>
-                )}
-                {opp.isPaid === false && (
-                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-xs font-semibold text-slate-500">
-                    Unpaid
-                  </span>
-                )}
+                ) : null}
               </div>
 
-              {opp.requiredSkills && opp.requiredSkills.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {opp.requiredSkills.slice(0, 5).map((skill) => (
-                    <span key={skill} className="px-2 py-0.5 rounded-full bg-slate-100 text-xs text-slate-600">
+              {opp.requiredSkills && opp.requiredSkills.length > 0 ? (
+                <div className="flex flex-wrap gap-2 mt-4">
+                  {opp.requiredSkills.slice(0, 6).map((skill) => (
+                    <span
+                      key={skill}
+                      className="px-2.5 py-1 rounded-md bg-sky-100/90 text-xs font-semibold text-sky-900"
+                    >
                       {skill}
                     </span>
                   ))}
                 </div>
-              )}
+              ) : null}
 
-              <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setSelectedOpportunity(opp)}
-                  suppressHydrationWarning
-                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all whitespace-nowrap"
-                >
-                  View Details
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleApply(opp)}
-                  suppressHydrationWarning
-                  className="px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all whitespace-nowrap"
-                >
-                  Apply Now
-                </button>
+              <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-slate-100">
+                <span className="text-xs font-medium text-slate-500">
+                  {typeof opp.applicantCount === 'number'
+                    ? `${opp.applicantCount} applicant${opp.applicantCount === 1 ? '' : 's'}`
+                    : '—'}
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOpportunity(opp)}
+                    suppressHydrationWarning
+                    className="px-4 py-2 border-2 border-[#002B5B] text-[#002B5B] bg-white rounded-xl text-sm font-bold hover:bg-slate-50 transition-all whitespace-nowrap"
+                  >
+                    View Details
+                  </button>
+                  <button
+                    type="button"
+                    disabled={hasAppliedToOpportunity(opp)}
+                    onClick={() => handleApply(opp)}
+                    suppressHydrationWarning
+                    className={cn(
+                      'px-4 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap shadow-sm',
+                      hasAppliedToOpportunity(opp)
+                        ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                        : 'bg-[#002B5B] text-white hover:bg-[#001F42]'
+                    )}
+                  >
+                    {hasAppliedToOpportunity(opp) ? 'Applied' : 'Apply Now'}
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -755,9 +1132,6 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   );
 
   const renderApplications = () => {
-    const formatAppId = (id: number | null) =>
-      id != null ? `APP${String(id).padStart(3, '0')}` : '—';
-
     const formatDate = (iso: string | null) => {
       if (!iso) return '—';
       const d = new Date(iso);
@@ -787,110 +1161,49 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       return { label: 'Pending', color: 'text-slate-400' };
     };
 
-    const filteredApplications = applicationSearch.trim()
-      ? applications.filter((a) => {
-          const q = applicationSearch.trim().toLowerCase();
-          return (
-            (a.companyName ?? '').toLowerCase().includes(q) ||
-            formatAppId(a.applicationId).toLowerCase().includes(q)
-          );
-        })
-      : applications;
-
     return (
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">My Applications</h2>
-          <p className="text-slate-500 text-sm mt-1">Track and manage your internship applications</p>
-        </div>
+      <>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">My Applications</h2>
+            <p className="text-slate-500 text-sm mt-1">Track and manage your internship applications</p>
+          </div>
 
-        <div className="flex gap-3 items-center">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
-              type="text"
-              placeholder="Search companies or application ID..."
+          <div className="flex gap-3 items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="Search company, role, or application ID..."
+                suppressHydrationWarning
+                className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                value={applicationSearch}
+                onChange={(e) => setApplicationSearch(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
               suppressHydrationWarning
-              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
-              value={applicationSearch}
-              onChange={(e) => setApplicationSearch(e.target.value)}
-            />
+              onClick={() => setShowApplicationFilters((prev) => !prev)}
+              className={cn(
+                'flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold transition-all shrink-0',
+                showApplicationFilters
+                  ? 'bg-[#001F42] text-white'
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+              )}
+            >
+              <Filter size={16} />
+              Filters
+            </button>
           </div>
-          <button
-            type="button"
-            suppressHydrationWarning
-            onClick={() => setShowApplicationFilters((prev) => !prev)}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
-          >
-            <Filter size={16} />
-            Filters
-          </button>
-        </div>
 
-        {showApplicationFilters && (
-          <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-900">Filter Applications</h3>
-              <button type="button" className="text-sm font-semibold text-slate-500 hover:text-slate-900">
-                Clear All
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-6">
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Location</span>
-                <input
-                  type="text"
-                  placeholder="City, country, or remote"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-[#002B5B]"
-                />
-              </div>
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Work Type</span>
-                {(['Full-time', 'Part-time', 'Flexible Hours'] as const).map((label) => (
-                  <label key={label} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]" />
-                    <span className="text-sm text-slate-700">{label}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Workplace Type</span>
-                {(['Remote', 'Hybrid', 'In-person'] as const).map((label) => (
-                  <label key={label} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]" />
-                    <span className="text-sm text-slate-700">{label}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Duration</span>
-                {(['<3 months', '3-6 months', '6+ months'] as const).map((label) => (
-                  <label key={label} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]" />
-                    <span className="text-sm text-slate-700">{label}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Paid Status</span>
-                {(['Paid', 'Unpaid'] as const).map((label) => (
-                  <label key={label} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="w-4 h-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]" />
-                    <span className="text-sm text-slate-700">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="flex justify-end mt-4">
-              <button
-                type="button"
-                className="px-5 py-2.5 bg-[#002B5B] text-white text-sm font-bold rounded-xl hover:bg-[#001F42] transition-all"
-              >
-                Apply Filters
-              </button>
-            </div>
-          </div>
-        )}
+          {showApplicationFilters
+            ? renderExploreFilterPanel({
+                title: 'Filter Applications',
+                panelClassName: 'rounded-xl p-5 mb-8',
+                onApply: () => setShowApplicationFilters(false),
+              })
+            : null}
 
         {applicationsError && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
@@ -915,7 +1228,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           <div className="space-y-3">
             {filteredApplications.length === 0 ? (
               <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-400">
-                No applications match your search.
+                No applications match your search or filters.
               </div>
             ) : (
               filteredApplications.map((app) => {
@@ -959,22 +1272,32 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           </span>
                           <span className="flex items-center gap-1.5 text-slate-400 text-xs">
                             <Tag size={13} className="flex-shrink-0" />
-                            ID: {formatAppId(app.applicationId)}
+                            ID: {formatApplicationIdDisplay(app.applicationId)}
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-slate-500">PPA Response</span>
-                            {approvalIcon(app.isApprovedByPPA ?? null)}
-                            <span className={cn('text-xs font-semibold', ppaInfo.color)}>{ppaInfo.label}</span>
+                        <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-100">
+                          <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-semibold text-slate-500">PPA Response</span>
+                              {approvalIcon(app.isApprovedByPPA ?? null)}
+                              <span className={cn('text-xs font-semibold', ppaInfo.color)}>{ppaInfo.label}</span>
+                            </div>
+                            <div className="w-px h-4 bg-slate-200 flex-shrink-0 hidden sm:block" />
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-semibold text-slate-500">Company Response</span>
+                              {approvalIcon(app.isApprovedByCompany ?? null)}
+                              <span className={cn('text-xs font-semibold', companyInfo.color)}>{companyInfo.label}</span>
+                            </div>
                           </div>
-                          <div className="w-px h-4 bg-slate-200 flex-shrink-0" />
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-slate-500">Company Response</span>
-                            {approvalIcon(app.isApprovedByCompany ?? null)}
-                            <span className={cn('text-xs font-semibold', companyInfo.color)}>{companyInfo.label}</span>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedApplication(app)}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-[#002B5B] text-[#002B5B] text-xs font-bold hover:bg-slate-50 transition-colors"
+                          >
+                            <Eye size={14} />
+                            View
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -984,7 +1307,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             )}
           </div>
         )}
-      </div>
+        </div>
+      </>
     );
   };
 
@@ -1333,18 +1657,34 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       {applicationOpportunity && (
         <SubmitApplicationModal
           opportunity={{ title: applicationOpportunity.title, company: applicationOpportunity.company }}
-          student={{
-            fullName: student.fullName,
-            email: student.email,
-            university: student.university,
-            department: student.departmentName ?? '',
-            studyField: student.studyFieldName ?? '',
-            studyYear: typeof student.studyYear === 'string' ? parseInt(student.studyYear) : student.studyYear,
-            cgpa: typeof student.cgpa === 'string' ? parseFloat(student.cgpa) : student.cgpa,
-            cvFileName: student.extendedProfile?.cvFilename ?? 'No CV uploaded',
-          }}
+          student={applicationStudentFormProps}
           onClose={() => setApplicationOpportunity(null)}
           onSubmit={handleSubmitApplication}
+        />
+      )}
+      {selectedApplication && (
+        <SubmitApplicationModal
+          key={selectedApplication.applicationId ?? 'app-view'}
+          mode="view"
+          opportunity={{
+            title: selectedApplication.opportunityTitle ?? 'Opportunity',
+            company: selectedApplication.companyName ?? '',
+          }}
+          student={applicationStudentFormProps}
+          onClose={() => setSelectedApplication(null)}
+          viewReview={{
+            applicationId: selectedApplication.applicationId,
+            status: selectedApplication.status,
+            createdAt: selectedApplication.createdAt,
+            isApprovedByPPA: selectedApplication.isApprovedByPPA,
+            isApprovedByCompany: selectedApplication.isApprovedByCompany,
+          }}
+          viewFields={{
+            phoneNumber: selectedApplication.phoneNumber,
+            applicationType: selectedApplication.applicationType,
+            accuracyConfirmed: selectedApplication.accuracyConfirmed ?? null,
+          }}
+          listingDetails={applicationListingDetails(selectedApplication)}
         />
       )}
     </Dashboard>

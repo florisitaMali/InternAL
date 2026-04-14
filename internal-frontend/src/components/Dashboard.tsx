@@ -64,9 +64,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{userRole}</div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <NotificationBell />
-          </div>
+
           <div
             className={cn(
               'w-10 h-10 flex items-center justify-center border',

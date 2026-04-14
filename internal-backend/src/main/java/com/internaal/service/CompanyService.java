@@ -96,8 +96,15 @@ public class CompanyService {
         return new OpportunityApplicationStatsDto(0, 0, 0, 0);
     }
 
+    private static String resolveTypeDisplay(Opportunity o) {
+        if (o.typeRaw() != null && !o.typeRaw().isBlank()) {
+            return o.typeRaw().trim();
+        }
+        return o.type() != null ? o.type().name() : null;
+    }
+
     private OpportunityResponseItem toItem(Opportunity o) {
-        String typeStr = o.type() == null ? null : o.type().name();
+        String typeStr = resolveTypeDisplay(o);
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
         return new OpportunityResponseItem(
                 o.id(),
@@ -113,6 +120,15 @@ public class CompanyService {
                 o.location(),
                 o.isPaid(),
                 wm,
+                0,
+                o.workType(),
+                o.duration(),
+                o.code(),
+                o.positionCount(),
+                o.salaryMonthly(),
+                o.niceToHave(),
+                o.startDate(),
+                o.createdAt(),
                 0
         );
     }

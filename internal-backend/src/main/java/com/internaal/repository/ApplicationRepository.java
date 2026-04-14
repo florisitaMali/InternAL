@@ -11,8 +11,11 @@ import org.springframework.stereotype.Repository;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Repository
 public class ApplicationRepository {
@@ -118,14 +121,42 @@ public class ApplicationRepository {
         body.putNull("is_approved_by_ppa");
         body.putNull("is_approved_by_company");
         body.put("accuracy_confirmed", request.getAccuracyConfirmed());
+        if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()) {
+            body.put("phone_number", request.getPhoneNumber().trim());
+        }
 
         String url = supabaseUrl + "/rest/v1/application";
         return postRow(url, body).map(this::mapToResponse);
     }
 
+    /**
+     * Returns total application rows per opportunity id (for student-facing opportunity cards).
+     */
+    public Map<Integer, Integer> countApplicationsByOpportunityIds(List<Integer> opportunityIds) {
+        if (opportunityIds == null || opportunityIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Integer> distinct = opportunityIds.stream().distinct().toList();
+        String inList = distinct.stream().map(String::valueOf).collect(Collectors.joining(","));
+        String url = supabaseUrl + "/rest/v1/application?opportunity_id=in.(" + inList + ")&select=opportunity_id";
+        Optional<JsonNode> opt = fetchArray(url);
+        Map<Integer, Integer> counts = new HashMap<>();
+        opt.ifPresent(arr -> {
+            if (arr.isArray()) {
+                for (JsonNode node : arr) {
+                    Integer oid = intValue(node, "opportunity_id");
+                    if (oid != null) {
+                        counts.merge(oid, 1, Integer::sum);
+                    }
+                }
+            }
+        });
+        return counts;
+    }
+
     public List<ApplicationResponse> findByStudentId(Integer studentId) {
         String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
-                + "&select=application_id,student_id,company_id,opportunity_id,application_type,accuracy_confirmed,"
+                + "&select=application_id,student_id,company_id,opportunity_id,application_type,phone_number,accuracy_confirmed,"
                 + "created_at,is_approved_by_ppa,is_approved_by_company,opportunity(title),company(name)"
                 + "&order=created_at.desc";
         Optional<JsonNode> result = fetchArray(url);
@@ -145,6 +176,7 @@ public class ApplicationRepository {
         r.setCompanyId(intValue(node, "company_id"));
         r.setOpportunityId(intValue(node, "opportunity_id"));
         r.setApplicationType(textValue(node, "application_type"));
+        r.setPhoneNumber(textValue(node, "phone_number"));
         r.setAccuracyConfirmed(boolValue(node, "accuracy_confirmed"));
         r.setCreatedAt(textValue(node, "created_at"));
 

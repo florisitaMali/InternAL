@@ -39,6 +39,7 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           script: |
             cd /var/www/test-internalbania
+            rm -rf internal-frontend/dist
             git pull origin develop
             cd internal-frontend
             npm ci

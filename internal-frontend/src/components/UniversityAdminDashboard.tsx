@@ -5,14 +5,8 @@ import Dashboard from './Dashboard';
 import AddStudentForm from './AddStudentForm';
 import ImportCSVForm from './ImportCSVForm';
 import UnderDevelopment from './UnderDevelopment';
-import { 
-  mockPPAs, 
-  mockApplications, 
-  mockOpportunities, 
-  mockCompanies 
-} from '@/src/lib/mockData';
 import { api } from '@/src/lib/api';
-import type { DashboardStats, Department, Student, StudyField } from '@/src/types';
+import type { Application, Company, DashboardStats, Department, Opportunity, Student, StudyField } from '@/src/types';
 import { 
   Users, 
   GraduationCap, 
@@ -53,6 +47,10 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     totalStudyFields: 0
   });
   const [isLoading, setIsLoading] = useState(true);
+  const ppasCount = 0;
+  const applications: Application[] = [];
+  const opportunities: Opportunity[] = [];
+  const companies: Company[] = [];
 
   useEffect(() => {
     const loadData = async () => {
@@ -89,7 +87,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
       {[
         { label: 'Total Students', value: stats.totalStudents, icon: Users, color: 'bg-blue-50 text-blue-600', trend: '+12%' },
-        { label: 'PP Approvers', value: mockPPAs.length, icon: GraduationCap, color: 'bg-[#002B5B]/10 text-[#002B5B]', trend: '+5%' },
+        { label: 'PP Approvers', value: ppasCount, icon: GraduationCap, color: 'bg-[#002B5B]/10 text-[#002B5B]', trend: '+5%' },
         { label: 'Departments', value: stats.totalDepartments, icon: Briefcase, color: 'bg-emerald-50 text-emerald-600', trend: '+2' },
         { label: 'Study Fields', value: stats.totalStudyFields, icon: FileText, color: 'bg-amber-50 text-amber-600', trend: '-3%' },
       ].map((stat, i) => (
@@ -292,7 +290,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         </div>
       </div>
       <div className="divide-y divide-slate-100">
-        {mockOpportunities.map((opp) => (
+        {opportunities.map((opp) => (
           <div key={opp.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 bg-[#002B5B]/10 text-[#002B5B] rounded-lg flex items-center justify-center font-bold">
@@ -345,7 +343,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {mockApplications.map((app) => (
+            {applications.map((app) => (
               <tr key={app.id} className="hover:bg-slate-50 transition-all">
                 <td className="px-6 py-4">
                   <div className="font-bold text-slate-900">{app.studentName}</div>
@@ -399,7 +397,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
                     Top Companies
                   </h3>
                   <div className="space-y-4">
-                    {mockCompanies.slice(0, 3).map((company) => (
+                    {companies.slice(0, 3).map((company) => (
                       <div key={company.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-all cursor-pointer">
                         <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">
                           {company.name[0]}

@@ -10,7 +10,6 @@ export type CompanyOpportunityManageRowProps = {
   postedLabel: string;
   onViewApplications: () => void;
   onViewDetails: () => void;
-  onEdit: () => void;
 };
 
 const CompanyOpportunityManageRow: React.FC<CompanyOpportunityManageRowProps> = ({
@@ -18,23 +17,39 @@ const CompanyOpportunityManageRow: React.FC<CompanyOpportunityManageRowProps> = 
   postedLabel,
   onViewApplications,
   onViewDetails,
-  onEdit,
 }) => {
   const skills = opportunity.requiredSkills?.length ? opportunity.requiredSkills : [];
   const workMode = opportunity.workMode?.trim() || 'Hybrid';
   const duration = opportunity.durationLabel?.trim() || '3-6 months';
   const location = opportunity.location?.trim() || '—';
 
+  const isDraft = opportunity.draft === true;
+
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-stretch lg:gap-6 lg:p-6">
+    <div
+      className={cn(
+        'flex flex-col gap-5 rounded-2xl border p-5 shadow-sm lg:flex-row lg:items-stretch lg:gap-6 lg:p-6',
+        isDraft ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200 bg-white'
+      )}
+    >
       <div
-        className="h-20 w-20 shrink-0 rounded-xl bg-[#002B5B] lg:h-[5.5rem] lg:w-[5.5rem]"
+        className={cn(
+          'h-20 w-20 shrink-0 rounded-xl lg:h-[5.5rem] lg:w-[5.5rem]',
+          isDraft ? 'bg-amber-200/80' : 'bg-[#002B5B]'
+        )}
         aria-hidden
       />
 
       <div className="min-w-0 flex-1">
-        <h3 className="text-lg font-bold leading-snug text-[#0E2A50] lg:text-xl">{opportunity.title}</h3>
-        <p className="mt-1 text-sm text-slate-500">{postedLabel}</p>
+        <div className="flex flex-wrap items-center gap-2 gap-y-1">
+          <h3 className="text-lg font-bold leading-snug text-[#0E2A50] lg:text-xl">{opportunity.title}</h3>
+          {isDraft ? (
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-900">
+              Draft
+            </span>
+          ) : null}
+        </div>
+        <p className={cn('mt-1 text-sm', isDraft ? 'text-amber-900/90' : 'text-slate-500')}>{postedLabel}</p>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1.5">
             <MapPin size={14} className="shrink-0 text-slate-400" />
@@ -81,13 +96,6 @@ const CompanyOpportunityManageRow: React.FC<CompanyOpportunityManageRowProps> = 
           className="rounded-full border-2 border-[#002B5B] bg-white px-4 py-2.5 text-sm font-bold text-[#0E2A50] transition-colors hover:bg-slate-50"
         >
           View Details
-        </button>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="rounded-full border-2 border-[#002B5B] bg-white px-4 py-2.5 text-sm font-bold text-[#0E2A50] transition-colors hover:bg-slate-50"
-        >
-          Edit
         </button>
       </div>
     </div>

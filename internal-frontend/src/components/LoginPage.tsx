@@ -7,9 +7,16 @@ import { Mail, Lock, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
+import { messageFromUnknown } from '@/src/lib/messageFromUnknown';
 
 interface LoginPageProps {
-  onLogin: (role: Role, name: string, studentProfile: Student | null) => void;
+  onLogin: (
+    role: Role,
+    name: string,
+    studentProfile: Student | null,
+    linkedEntityId?: string | number,
+    accessToken?: string
+  ) => void;
   onForgotPassword: () => void;
 }
 
@@ -103,7 +110,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
               toast.error('Could not load your account profile from the backend.', { duration: 10000 });
               return;
             }
-            onLogin(appUser.user.role, appUser.displayName || 'User', appUser.studentProfile);
+            onLogin(
+              appUser.user.role,
+              appUser.displayName || 'User',
+              appUser.studentProfile,
+              appUser.user.linkedEntityId,
+              session.access_token
+            );
             toast.success(`Welcome back! Logged in as ${appUser.user.role.replace('_', ' ')}`);
           })(),
           new Promise<never>((_, reject) =>
@@ -111,7 +124,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
           ),
         ]);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Something went wrong.';
+        const message = messageFromUnknown(err);
         if (message.includes('NEXT_PUBLIC_SUPABASE')) {
           toast.error('Server configuration is incomplete. Add Supabase keys to .env.local.');
         } else if (message.includes('timed out')) {

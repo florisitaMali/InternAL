@@ -12,7 +12,6 @@ import {
 import ProfileEditor from './ProfileEditor';
 import StudentProfileView from './StudentProfileView';
 import UnderDevelopment from './UnderDevelopment';
-import { mockApplications, mockStudents } from '@/src/lib/mockData';
 import {
   Briefcase,
   Calendar,
@@ -24,7 +23,14 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
-import type { Opportunity, Student, StudentExperience, StudentProfileFile, StudentProject } from '../types';
+import type {
+  Application,
+  Opportunity,
+  Student,
+  StudentExperience,
+  StudentProfileFile,
+  StudentProject,
+} from '../types';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import {
   createStudentExperience,
@@ -47,7 +53,11 @@ import {
 } from '@/src/lib/auth/userAccount';
 import { fetchStudentOpportunities, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
-import { formatDeadline, formatOpportunityType } from '@/src/lib/opportunityFormat';
+import {
+  formatDeadline,
+  formatOpportunityType,
+  formatTargetUniversitiesDisplay,
+} from '@/src/lib/opportunityFormat';
 
 interface StudentDashboardProps {
   activeTab: string;
@@ -70,6 +80,19 @@ const EMPTY_FILTERS: OpportunityFilterState = {
   location: '',
   skills: [],
 };
+
+const DEFAULT_STUDENT: Student = {
+  id: 'current-student',
+  fullName: 'Student',
+  email: '',
+  role: 'STUDENT',
+  university: '',
+  studyYear: 1,
+  cgpa: 0,
+  hasCompletedPP: false,
+};
+
+const applications: Application[] = [];
 
 const typeOptions = [
   { value: '', label: 'All types' },
@@ -94,7 +117,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onToggleSidebar,
 }) => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [student, setStudent] = useState<Student>(currentStudent ?? mockStudents[0]);
+  const [student, setStudent] = useState<Student>(currentStudent ?? DEFAULT_STUDENT);
   const [opportunityFilters, setOpportunityFilters] = useState<OpportunityFilterState>(EMPTY_FILTERS);
   const [skillFilterInput, setSkillFilterInput] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -386,7 +409,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
 
         <div className="p-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="rounded-2xl bg-slate-50 p-4">
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Deadline</div>
               <div className="text-sm font-semibold text-slate-900">{formatDeadline(selectedOpportunity.deadline)}</div>
@@ -394,6 +417,14 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             <div className="rounded-2xl bg-slate-50 p-4">
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Location</div>
               <div className="text-sm font-semibold text-slate-900">{selectedOpportunity.location || 'Not specified'}</div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4 md:col-span-1">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+                Target universities
+              </div>
+              <div className="text-sm font-semibold text-slate-900">
+                {formatTargetUniversitiesDisplay(selectedOpportunity)}
+              </div>
             </div>
           </div>
 
@@ -554,7 +585,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <h2 className="text-lg font-bold text-slate-900">My Applications</h2>
       </div>
       <div className="divide-y divide-slate-100">
-        {mockApplications.filter((a) => a.studentId === student.id).map((app) => (
+        {applications.filter((a) => a.studentId === student.id).map((app) => (
           <div key={app.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">

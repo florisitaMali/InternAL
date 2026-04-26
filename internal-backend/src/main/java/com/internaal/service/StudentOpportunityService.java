@@ -2,7 +2,9 @@ package com.internaal.service;
 
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.StudentOpportunitiesResponse;
+import com.internaal.dto.TargetUniversityOption;
 import com.internaal.entity.Opportunity;
+import com.internaal.entity.TargetUniversity;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.OpportunityRepository;
 import com.internaal.repository.StudentProfileRepository;
@@ -57,10 +59,29 @@ public class StudentOpportunityService {
         return new StudentOpportunitiesResponse(items);
     }
 
+    private static List<Integer> targetUniversityIds(Opportunity o) {
+        if (o.targetUniversities() == null) {
+            return List.of();
+        }
+        return o.targetUniversities().stream().map(TargetUniversity::id).toList();
+    }
+
+    private static List<TargetUniversityOption> targetUniversityOptions(Opportunity o) {
+        if (o.targetUniversities() == null || o.targetUniversities().isEmpty()) {
+            return List.of();
+        }
+        return o.targetUniversities().stream()
+                .map(t -> new TargetUniversityOption(
+                        t.id(),
+                        t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id())))
+                .toList();
+    }
+
     private static OpportunityResponseItem toDto(Opportunity o, List<String> studentSkills) {
         int matches = skillMatchCount(o, studentSkills);
-        String typeStr = o.type() == null ? null : o.type().name();
+        String typeStr = o.type();
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
+        String wt = o.workType() == null ? null : o.workType().name();
         return new OpportunityResponseItem(
                 o.id(),
                 o.companyId(),
@@ -70,11 +91,20 @@ public class StudentOpportunityService {
                 o.requiredSkills(),
                 o.requiredExperience(),
                 o.deadline(),
-                o.targetUniversityIds(),
+                o.startDate(),
+                targetUniversityIds(o),
+                targetUniversityOptions(o),
                 typeStr,
                 o.location(),
                 o.isPaid(),
                 wm,
+                o.positionCount(),
+                wt,
+                o.duration(),
+                o.salaryMonthly(),
+                o.niceToHave(),
+                o.draft(),
+                o.postedAt(),
                 matches
         );
     }

@@ -53,6 +53,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            String uri = request.getRequestURI();
+            if (uri != null && uri.startsWith("/api/company") && !"OPTIONS".equalsIgnoreCase(request.getMethod())) {
+                log.warn("Missing Bearer token on {} {} (browser must send Authorization header)", request.getMethod(), uri);
+            }
             filterChain.doFilter(request, response);
             return;
         }

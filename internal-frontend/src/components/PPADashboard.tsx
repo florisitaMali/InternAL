@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Dashboard from './Dashboard';
 import UnderDevelopment from './UnderDevelopment';
-import { mockStudents, mockApplications, mockPPAs } from '@/src/lib/mockData';
+import type { Application, PPA, Student } from '@/src/types';
 import { 
   Users, 
   CheckCircle, 
@@ -32,15 +32,23 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
   onToggleSidebar,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const ppa = mockPPAs[0]; // Mock current PPA
+  const students: Student[] = [];
+  const applications: Application[] = [];
+  const ppa: PPA = {
+    id: 'current-ppa',
+    fullName: currentUserName || 'PPA User',
+    email: '—',
+    role: 'PPA',
+    supervisedFieldIds: [],
+  };
 
   const renderStats = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
       {[
-        { label: 'Assigned Students', value: mockStudents.length, icon: Users, color: 'bg-blue-50 text-blue-600', trend: '+12%' },
-        { label: 'Pending Reviews', value: mockApplications.filter(a => a.type === 'PROFESSIONAL_PRACTICE' && a.isApprovedByPPA === undefined).length, icon: Clock, color: 'bg-amber-50 text-amber-600', trend: '5 pending' },
-        { label: 'Approved by Me', value: mockApplications.filter(a => a.isApprovedByPPA === true).length, icon: CheckCircle, color: 'bg-emerald-50 text-emerald-600', trend: '+18' },
-        { label: 'Rejected', value: mockApplications.filter(a => a.isApprovedByPPA === false).length, icon: XCircle, color: 'bg-red-50 text-red-600', trend: '2 this week' },
+        { label: 'Assigned Students', value: students.length, icon: Users, color: 'bg-blue-50 text-blue-600', trend: '+12%' },
+        { label: 'Pending Reviews', value: applications.filter(a => a.type === 'PROFESSIONAL_PRACTICE' && a.isApprovedByPPA === undefined).length, icon: Clock, color: 'bg-amber-50 text-amber-600', trend: '5 pending' },
+        { label: 'Approved by Me', value: applications.filter(a => a.isApprovedByPPA === true).length, icon: CheckCircle, color: 'bg-emerald-50 text-emerald-600', trend: '+18' },
+        { label: 'Rejected', value: applications.filter(a => a.isApprovedByPPA === false).length, icon: XCircle, color: 'bg-red-50 text-red-600', trend: '2 this week' },
       ].map((stat, i) => (
         <div key={i} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 group">
           <div className="flex items-center justify-between mb-4">
@@ -95,7 +103,7 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {mockApplications.filter(a => a.type === 'PROFESSIONAL_PRACTICE').map((app) => (
+            {applications.filter(a => a.type === 'PROFESSIONAL_PRACTICE').map((app) => (
               <tr key={app.id} className="hover:bg-slate-50 transition-all group">
                 <td className="px-6 py-4">
                   <div className="font-bold text-slate-900">{app.studentName}</div>
@@ -177,7 +185,7 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {mockStudents.map((student) => (
+            {students.map((student) => (
               <tr key={student.id} className="hover:bg-slate-50 transition-all">
                 <td className="px-6 py-4 font-mono text-xs text-slate-500">{student.id}</td>
                 <td className="px-6 py-4">

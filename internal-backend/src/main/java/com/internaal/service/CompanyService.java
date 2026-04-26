@@ -1,37 +1,26 @@
 package com.internaal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.internaal.dto.CompanyOpportunityDetailResponse;
 import com.internaal.dto.CompanyProfileResponse;
 import com.internaal.dto.CompanyProfileUpdateRequest;
-import com.internaal.dto.OpportunityApplicationStatsDto;
-import com.internaal.dto.OpportunityResponseItem;
-import com.internaal.dto.StudentOpportunitiesResponse;
-import com.internaal.entity.Opportunity;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.CompanyRepository;
-import com.internaal.repository.OpportunityRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Comparator;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 public class CompanyService {
 
     private final CompanyRepository companyRepository;
-    private final OpportunityRepository opportunityRepository;
 
-    public CompanyService(CompanyRepository companyRepository, OpportunityRepository opportunityRepository) {
+    public CompanyService(CompanyRepository companyRepository) {
         this.companyRepository = companyRepository;
-        this.opportunityRepository = opportunityRepository;
     }
 
     public CompanyProfileResponse getProfile(UserAccount user) {
@@ -73,48 +62,6 @@ public class CompanyService {
                                 + "or add an RLS UPDATE policy on `company`. Ensure linked_entity_id matches company.company_id (or id)."
                 ));
         return mapCompany(updated, companyId);
-    }
-
-    public StudentOpportunitiesResponse listOpportunities(UserAccount user) {
-        int companyId = requireCompanyId(user);
-        List<Opportunity> rows = opportunityRepository.findForCompany(companyId);
-        List<OpportunityResponseItem> items = rows.stream()
-                .sorted(Comparator.comparing(Opportunity::title, String.CASE_INSENSITIVE_ORDER))
-                .map(this::toItem)
-                .collect(Collectors.toList());
-        return new StudentOpportunitiesResponse(items);
-    }
-
-    public CompanyOpportunityDetailResponse getOpportunity(UserAccount user, Integer opportunityId) {
-        int companyId = requireCompanyId(user);
-        Opportunity o = opportunityRepository.findByIdAndCompany(opportunityId, companyId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
-        return new CompanyOpportunityDetailResponse(toItem(o), emptyStats());
-    }
-
-    private static OpportunityApplicationStatsDto emptyStats() {
-        return new OpportunityApplicationStatsDto(0, 0, 0, 0);
-    }
-
-    private OpportunityResponseItem toItem(Opportunity o) {
-        String typeStr = o.type() == null ? null : o.type().name();
-        String wm = o.workMode() == null ? null : o.workMode().toApiValue();
-        return new OpportunityResponseItem(
-                o.id(),
-                o.companyId(),
-                o.companyName(),
-                o.title(),
-                o.description(),
-                o.requiredSkills(),
-                o.requiredExperience(),
-                o.deadline(),
-                o.targetUniversityIds(),
-                typeStr,
-                o.location(),
-                o.isPaid(),
-                wm,
-                0
-        );
     }
 
     private static CompanyProfileResponse mapCompany(JsonNode n, int fallbackCompanyId) {

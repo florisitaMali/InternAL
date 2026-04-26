@@ -10,9 +10,10 @@ import StudentDashboard from '@/src/components/StudentDashboard';
 import CompanyDashboard from '@/src/components/CompanyDashboard';
 import LoginPage from '@/src/components/LoginPage';
 import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
-import { toast } from 'sonner'; //used for notifications
+import { toast } from 'sonner';
 import { clearSupabaseAuthStorage, getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
+import { messageFromUnknown, toError } from '@/src/lib/messageFromUnknown';
 
 const GET_SESSION_TIMEOUT_MS = 25_000;
 const ROLE_LABELS: Record<Role, string> = {
@@ -30,15 +31,21 @@ export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
-  const isSigningOutRef = useRef(false); //prevent multiple logout requests
+  const isSigningOutRef = useRef(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const accessTokenRef = useRef<string | null>(null);
+  const [linkedEntityId, setLinkedEntityId] = useState<string | number | null>(null);
   const handleToggleSidebar = () => setSidebarOpen((prev) => !prev);
 
   const resetLocalUserState = () => {
+    accessTokenRef.current = null;
     setIsLoggedIn(false);
     setCurrentUserName('User');
     setCurrentStudent(null);
+    setAccessToken(null);
+    setLinkedEntityId(null);
   };
 
   useEffect(() => {
@@ -74,9 +81,9 @@ export default function Home() {
       if (!appUser || errorMessage) {
         clearSupabaseAuthStorage();
         try {
-          await supabase!.auth.signOut({ scope: 'local' });//sign out from supabase
+          await supabase!.auth.signOut({ scope: 'local' });
         } catch {
-          //ignore
+          /* ignore */
         }
         resetLocalUserState();
         toast.error(errorMessage || 'Could not load your account profile.');
@@ -86,6 +93,9 @@ export default function Home() {
       setRole(appUser.user.role);
       setCurrentUserName(appUser.displayName || 'User');
       setCurrentStudent(appUser.studentProfile);
+      setLinkedEntityId(appUser.user.linkedEntityId);
+      accessTokenRef.current = session.access_token;
+      setAccessToken(session.access_token);
       setIsLoggedIn(true);
     };
 
@@ -93,13 +103,13 @@ export default function Home() {
       try {
         let session: Session | null = null;
         try {
-          const { data } = await Promise.race([
+          const result = await Promise.race([
             supabase.auth.getSession(),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('getSession timed out')), GET_SESSION_TIMEOUT_MS)
             ),
           ]);
-          session = data.session;
+          session = result?.data?.session ?? null;
         } catch (e) {
           if (e instanceof Error && e.message.includes('getSession timed out')) {
             if (!cancelled) {
@@ -117,7 +127,7 @@ export default function Home() {
             }
             return;
           }
-          throw e;
+          throw toError(e);
         }
 
         if (!cancelled) await sync(session);
@@ -125,7 +135,7 @@ export default function Home() {
         console.error('[auth] initial session failed', e);
         if (!cancelled) {
           resetLocalUserState();
-          toast.error('Could not restore your session. Please sign in again.');
+          toast.error(messageFromUnknown(e) || 'Could not restore your session. Please sign in again.');
         }
       } finally {
         if (!cancelled) {
@@ -144,6 +154,7 @@ export default function Home() {
         console.error('[auth] auth state sync failed', e);
         if (!cancelled) {
           resetLocalUserState();
+          toast.error(messageFromUnknown(e) || 'Session sync failed. Please sign in again.');
         }
       } finally {
         if (!cancelled) {
@@ -159,17 +170,31 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (isLoggedIn && role === 'STUDENT' && activeTab === 'dashboard') {
+    if (!isLoggedIn) return;
+    if ((role === 'STUDENT' || role === 'COMPANY') && activeTab === 'dashboard') {
       setActiveTab('opportunities');
     }
   }, [isLoggedIn, role, activeTab]);
 
-  const handleLogin = (selectedRole: Role, name: string, studentProfile: Student | null) => {
+  const handleLogin = (
+    selectedRole: Role,
+    name: string,
+    studentProfile: Student | null,
+    entityId?: string | number,
+    token?: string
+  ) => {
     setRole(selectedRole);
     setCurrentUserName(name);
     setCurrentStudent(studentProfile);
+    if (entityId !== undefined) setLinkedEntityId(entityId);
+    if (token) {
+      accessTokenRef.current = token;
+      setAccessToken(token);
+    }
     setIsLoggedIn(true);
-    setActiveTab(selectedRole === 'STUDENT' ? 'opportunities' : 'dashboard'); 
+    setActiveTab(
+      selectedRole === 'STUDENT' || selectedRole === 'COMPANY' ? 'opportunities' : 'dashboard'
+    );
   };
 
   const handleLogout = () => {
@@ -248,6 +273,9 @@ export default function Home() {
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
             onNavigateTab={setActiveTab}
+            accessToken={accessToken}
+            accessTokenRef={accessTokenRef}
+            linkedEntityId={linkedEntityId}
           />
         );
       default:

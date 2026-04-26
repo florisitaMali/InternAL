@@ -1,4 +1,5 @@
 import type { Opportunity } from '@/src/types';
+import { normalizePostedAtFromApi } from '@/src/lib/opportunityFormat';
 
 type StudentOpportunityResponseItem = {
   id: number;
@@ -9,12 +10,21 @@ type StudentOpportunityResponseItem = {
   requiredSkills: string[] | null;
   requiredExperience: string | null;
   deadline: string | null;
+  startDate?: string | null;
   targetUniversityIds: number[] | null;
+  targetUniversities?: { universityId: number; name: string }[] | null;
   type: string | null;
   location: string | null;
   isPaid: boolean | null;
   workMode: string | null;
   skillMatchCount: number | null;
+  positionCount?: number | null;
+  workType?: string | null;
+  duration?: string | null;
+  salaryMonthly?: number | null;
+  niceToHave?: string | null;
+  draft?: boolean | null;
+  postedAt?: string | null;
 };
 
 type StudentOpportunitiesResponse = {
@@ -42,12 +52,24 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
     requiredSkills: item.requiredSkills || [],
     requiredExperience: item.requiredExperience || undefined,
     deadline: item.deadline || undefined,
-    targetUniversityIds: (item.targetUniversityIds || []).map(String),
+    startDate: item.startDate || undefined,
+    targetUniversities: item.targetUniversities ?? undefined,
+    targetUniversityIds:
+      item.targetUniversities?.length
+        ? item.targetUniversities.map((t) => String(t.universityId))
+        : (item.targetUniversityIds || []).map(String),
     type: item.type || undefined,
     location: item.location || undefined,
     isPaid: item.isPaid,
     workMode: item.workMode || undefined,
     skillMatchCount: item.skillMatchCount ?? 0,
+    positionCount: item.positionCount ?? undefined,
+    workType: item.workType ?? undefined,
+    duration: item.duration ?? undefined,
+    salaryMonthly: item.salaryMonthly ?? undefined,
+    niceToHave: item.niceToHave ?? undefined,
+    draft: item.draft === true,
+    postedAt: normalizePostedAtFromApi(item.postedAt),
   };
 }
 

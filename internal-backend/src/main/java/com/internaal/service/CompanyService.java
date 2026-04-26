@@ -10,6 +10,8 @@ import com.internaal.dto.StudentOpportunitiesResponse;
 import com.internaal.entity.Opportunity;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
+import com.internaal.dto.ApplicationResponse;
+import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyRepository;
 import com.internaal.repository.OpportunityRepository;
 import org.springframework.http.HttpStatus;
@@ -28,10 +30,15 @@ public class CompanyService {
 
     private final CompanyRepository companyRepository;
     private final OpportunityRepository opportunityRepository;
+    private final ApplicationRepository applicationRepository;
 
-    public CompanyService(CompanyRepository companyRepository, OpportunityRepository opportunityRepository) {
+    public CompanyService(
+            CompanyRepository companyRepository,
+            OpportunityRepository opportunityRepository,
+            ApplicationRepository applicationRepository) {
         this.companyRepository = companyRepository;
         this.opportunityRepository = opportunityRepository;
+        this.applicationRepository = applicationRepository;
     }
 
     public CompanyProfileResponse getProfile(UserAccount user) {
@@ -89,15 +96,46 @@ public class CompanyService {
         int companyId = requireCompanyId(user);
         Opportunity o = opportunityRepository.findByIdAndCompany(opportunityId, companyId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
-        return new CompanyOpportunityDetailResponse(toItem(o), emptyStats());
+        return new CompanyOpportunityDetailResponse(toItem(o), statsForOpportunity(companyId, opportunityId));
     }
 
-    private static OpportunityApplicationStatsDto emptyStats() {
-        return new OpportunityApplicationStatsDto(0, 0, 0, 0);
+    public List<ApplicationResponse> listApplications(UserAccount user) {
+        int companyId = requireCompanyId(user);
+        return applicationRepository.findByCompanyId(companyId);
+    }
+
+    private OpportunityApplicationStatsDto statsForOpportunity(int companyId, int opportunityId) {
+        List<ApplicationResponse> apps = applicationRepository.findByCompanyId(companyId);
+        int total = 0;
+        int inReview = 0;
+        int approved = 0;
+        int rejected = 0;
+        for (ApplicationResponse a : apps) {
+            if (a.getOpportunityId() == null || a.getOpportunityId() != opportunityId) {
+                continue;
+            }
+            total++;
+            Boolean c = a.getIsApprovedByCompany();
+            if (Boolean.TRUE.equals(c)) {
+                approved++;
+            } else if (Boolean.FALSE.equals(c)) {
+                rejected++;
+            } else {
+                inReview++;
+            }
+        }
+        return new OpportunityApplicationStatsDto(total, inReview, approved, rejected);
+    }
+
+    private static String resolveTypeDisplay(Opportunity o) {
+        if (o.typeRaw() != null && !o.typeRaw().isBlank()) {
+            return o.typeRaw().trim();
+        }
+        return o.type() != null ? o.type().name() : null;
     }
 
     private OpportunityResponseItem toItem(Opportunity o) {
-        String typeStr = o.type() == null ? null : o.type().name();
+        String typeStr = resolveTypeDisplay(o);
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
         return new OpportunityResponseItem(
                 o.id(),
@@ -113,6 +151,15 @@ public class CompanyService {
                 o.location(),
                 o.isPaid(),
                 wm,
+                0,
+                o.workType(),
+                o.duration(),
+                o.code(),
+                o.positionCount(),
+                o.salaryMonthly(),
+                o.niceToHave(),
+                o.startDate(),
+                o.createdAt(),
                 0
         );
     }

@@ -1,5 +1,6 @@
 package com.internaal.controller;
 
+import com.internaal.dto.ApplicationResponse;
 import com.internaal.dto.CompanyOpportunityDetailResponse;
 import com.internaal.dto.CompanyProfileResponse;
 import com.internaal.dto.CompanyProfileUpdateRequest;
@@ -15,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/company")
@@ -45,6 +48,14 @@ public class CompanyController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
         }
         return companyService.updateProfile(user, body);
+    }
+
+    @GetMapping("/applications")
+    public List<ApplicationResponse> listApplications(@AuthenticationPrincipal UserAccount user) {
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        return companyService.listApplications(user);
     }
 
     @GetMapping("/opportunities")

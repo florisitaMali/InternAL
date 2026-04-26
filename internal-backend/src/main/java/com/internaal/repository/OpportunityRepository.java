@@ -60,7 +60,8 @@ public class OpportunityRepository {
         try {
             StringBuilder url = new StringBuilder(supabaseUrl);
             url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
-               .append("required_skills,required_experience,deadline,type,")
+               .append("required_skills,required_experience,deadline,type,is_paid,work_mode,job_location,work_type,duration,")
+               .append("position_count,salary_monthly,nice_to_have,start_date,created_at,")
                .append("company(name,location),")
                .append("opportunitytarget(university_id)");
 
@@ -125,7 +126,8 @@ public class OpportunityRepository {
         try {
             StringBuilder url = new StringBuilder(supabaseUrl);
             url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
-               .append("required_skills,required_experience,deadline,type,")
+               .append("required_skills,required_experience,deadline,type,is_paid,work_mode,job_location,work_type,duration,")
+               .append("position_count,salary_monthly,nice_to_have,start_date,created_at,")
                .append("company(name,location),")
                .append("opportunitytarget(university_id)")
                .append("&opportunity_id=eq.").append(opportunityId)
@@ -237,13 +239,7 @@ public class OpportunityRepository {
         List<String> requiredSkills = splitCsv(str(node, "required_skills"));
         String requiredExperience = str(node, "required_experience");
 
-        LocalDate deadline = null;
-        String deadlineStr = str(node, "deadline");
-        if (deadlineStr != null) {
-            try {
-                deadline = LocalDate.parse(deadlineStr);
-            } catch (Exception ignored) {}
-        }
+        LocalDate deadline = parseDateField(str(node, "deadline"));
 
         List<Integer> targetUniversities = new ArrayList<>();
         JsonNode targets = node.get("opportunitytarget");
@@ -256,21 +252,51 @@ public class OpportunityRepository {
             }
         }
 
-        Opportunity.InternshipType type = null;
         String typeStr = str(node, "type");
+        String typeRaw = (typeStr != null && !typeStr.isBlank()) ? typeStr.trim() : null;
+        Opportunity.InternshipType type = null;
         if (typeStr != null && !typeStr.isBlank()) {
+            String normalized = typeStr.trim().toUpperCase(Locale.ROOT).replace(' ', '_');
             try {
-                type = Opportunity.InternshipType.valueOf(typeStr.trim().toUpperCase());
-            } catch (IllegalArgumentException ignored) {}
+                type = Opportunity.InternshipType.valueOf(normalized);
+            } catch (IllegalArgumentException ignored) {
+            }
         }
 
-        Boolean isPaid = null;     // column does not exist in live DB schema
-        Opportunity.WorkMode workMode = null; // column does not exist in live DB schema
+        Boolean isPaid = (node != null && node.has("is_paid") && !node.get("is_paid").isNull())
+                ? node.get("is_paid").asBoolean()
+                : null;
+        Opportunity.WorkMode workMode = Opportunity.WorkMode.fromDb(str(node, "work_mode"));
+        String jobLocation = str(node, "job_location");
+        if (jobLocation != null && !jobLocation.isBlank()) {
+            location = jobLocation;
+        }
+        String workType = str(node, "work_type");
+        String duration = str(node, "duration");
+        String code = str(node, "code");
+        Integer positionCount = intVal(node, "position_count");
+        Integer salaryMonthly = intVal(node, "salary_monthly");
+        String niceToHave = str(node, "nice_to_have");
+        LocalDate startDate = parseDateField(str(node, "start_date"));
+        String createdAt = str(node, "created_at");
 
         return new Opportunity(
                 id, companyId, companyName, title, description,
                 requiredSkills, requiredExperience, deadline,
-                targetUniversities, type, location, isPaid, workMode);
+                targetUniversities, type, location, isPaid, workMode, workType, duration,
+                typeRaw, code, positionCount, salaryMonthly, niceToHave, startDate, createdAt);
+    }
+
+    private static LocalDate parseDateField(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            String day = raw.length() >= 10 ? raw.substring(0, 10) : raw;
+            return LocalDate.parse(day);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private static String str(JsonNode node, String field) {

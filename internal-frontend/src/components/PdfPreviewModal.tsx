@@ -43,7 +43,7 @@ const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain bg-slate-900/60 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="pdf-preview-title"
@@ -51,7 +51,8 @@ const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white rounded-xl shadow-xl w-[80vw] h-[80vh] max-w-none max-h-none flex flex-col overflow-hidden border border-slate-200">
+      <div className="flex min-h-full items-start justify-center px-4 py-6 pt-[max(1rem,env(safe-area-inset-top,0px))] pb-12 sm:px-6 sm:py-10">
+      <div className="bg-white rounded-xl shadow-xl w-[min(100%,80vw)] h-[min(80vh,calc(100dvh-5rem))] max-h-[calc(100dvh-5rem)] flex flex-col overflow-hidden border border-slate-200">
         <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-slate-200 shrink-0">
           <h2 id="pdf-preview-title" className="text-sm font-bold text-slate-900 truncate pr-4">
             {title}
@@ -67,10 +68,10 @@ const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
               aria-label="Close preview"
             >
-              <X size={20} />
+              <X size={22} strokeWidth={2.25} />
             </button>
           </div>
         </div>
@@ -96,6 +97,7 @@ const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

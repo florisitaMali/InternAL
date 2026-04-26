@@ -25,7 +25,16 @@ class StudentOpportunityServiceTest {
                 Opportunity.InternshipType.PROFESSIONAL_PRACTICE,
                 null,
                 null,
-                Opportunity.WorkMode.Remote
+                Opportunity.WorkMode.Remote,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
         );
         List<String> studentSkills = List.of("react", "SQL");
         assertThat(StudentOpportunityService.skillMatchCount(o, studentSkills)).isEqualTo(2);
@@ -43,6 +52,15 @@ class StudentOpportunityServiceTest {
                 "",
                 LocalDate.now(),
                 List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,

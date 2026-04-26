@@ -12,14 +12,15 @@ import {
   uploadCompanyProfilePhoto,
 } from '@/src/lib/supabase/companyProfilePhotos';
 import {
+  fetchCompanyApplications,
   fetchCompanyProfile,
   fetchCompanyOpportunities,
   fetchCompanyOpportunityDetail,
   updateCompanyProfile,
   type CompanyProfileUpdatePayload,
 } from '@/src/lib/auth/company';
+import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
-import { mockCompanies, mockApplications } from '@/src/lib/mockData';
 import { 
   Briefcase, 
   Building2, 
@@ -74,6 +75,8 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [coverObjectUrl, setCoverObjectUrl] = useState<string | null>(null);
   /** Bumped after saving new logo/cover so <img> / CSS url() refetch even if the base path is unchanged. */
   const [profileMediaDisplayRev, setProfileMediaDisplayRev] = useState(0);
+  const [companyApplications, setCompanyApplications] = useState<ApplicationResponse[]>([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
   const logoFileInputRef = useRef<HTMLInputElement>(null);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
   const isEditingProfileRef = useRef(isEditingProfile);
@@ -99,11 +102,33 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     return () => URL.revokeObjectURL(u);
   }, [profileCoverFile]);
 
-  const fallbackCompany = mockCompanies[0];
-  const companyIdStr = companyProfile ? String(companyProfile.companyId) : fallbackCompany.id;
-  const displayName = companyProfile?.name ?? fallbackCompany.name;
-  const displayIndustry = companyProfile?.industry ?? fallbackCompany.industry;
-  const displayDescription = companyProfile?.description ?? fallbackCompany.description;
+  const companyIdStr = companyProfile ? String(companyProfile.companyId) : '';
+  const displayName = companyProfile?.name ?? 'Company';
+  const displayIndustry = companyProfile?.industry ?? '';
+  const displayDescription = companyProfile?.description ?? '';
+
+  const loadCompanyApplications = useCallback(async () => {
+    setApplicationsLoading(true);
+    try {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
+        setApplicationsLoading(false);
+        return;
+      }
+      const { data, errorMessage } = await fetchCompanyApplications(accessToken);
+      if (errorMessage) {
+        toast.error(errorMessage);
+        setCompanyApplications([]);
+      } else {
+        setCompanyApplications(data || []);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not load applications');
+      setCompanyApplications([]);
+    } finally {
+      setApplicationsLoading(false);
+    }
+  }, []);
 
   const loadCompanyOpportunities = useCallback(async () => {
     setOppListLoading(true);
@@ -198,6 +223,12 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       void loadCompanyOpportunities();
     }
   }, [activeTab, profileSection, loadCompanyOpportunities]);
+
+  useEffect(() => {
+    if (activeTab === 'dashboard' || activeTab === 'opportunities' || activeTab === 'applications') {
+      void loadCompanyApplications();
+    }
+  }, [activeTab, loadCompanyApplications]);
 
   const openOpportunityDetail = async (opportunity: Opportunity, from: 'profile' | 'manage' | 'dashboard') => {
     setDetailOpenedFrom(from);
@@ -299,13 +330,31 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     toast.success(`${decision}d application for ${studentName}!`);
   };
 
+  const formatApplicationTypeLabel = (t: string | null) => {
+    if (!t) return '—';
+    if (t === 'PROFESSIONAL_PRACTICE') return 'Professional Practice';
+    if (t === 'INDIVIDUAL_GROWTH') return 'Individual Growth';
+    return t.replace(/_/g, ' ');
+  };
+
+  const totalApplicants = companyApplications.length;
+  const pendingCompany = companyApplications.filter((a) => a.isApprovedByCompany == null).length;
+  const hiredCompany = companyApplications.filter((a) => a.isApprovedByCompany === true).length;
+
+  const filteredCompanyApplications = companyApplications.filter((a) => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return true;
+    const hay = `${a.studentName ?? ''} ${a.opportunityTitle ?? ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
   const renderStats = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
       {[
         { label: 'My Opportunities', value: opportunities.length, icon: Briefcase, color: 'bg-[#002B5B]' },
-        { label: 'Total Applicants', value: mockApplications.filter(a => a.companyId === fallbackCompany.id).length, icon: Users, color: 'bg-blue-500' },
-        { label: 'Pending Decisions', value: mockApplications.filter(a => a.companyId === fallbackCompany.id && a.isApprovedByCompany === undefined).length, icon: Clock, color: 'bg-amber-500' },
-        { label: 'Hired Interns', value: mockApplications.filter(a => a.companyId === fallbackCompany.id && a.isApprovedByCompany === true).length, icon: CheckCircle, color: 'bg-emerald-500' },
+        { label: 'Total Applicants', value: totalApplicants, icon: Users, color: 'bg-blue-500' },
+        { label: 'Pending Decisions', value: pendingCompany, icon: Clock, color: 'bg-amber-500' },
+        { label: 'Hired Interns', value: hiredCompany, icon: CheckCircle, color: 'bg-emerald-500' },
       ].map((stat, i) => (
         <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-4">
@@ -376,11 +425,6 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       return opportunityForm;
     }
 
-    const companyApps = mockApplications.filter((a) => String(a.companyId) === String(companyIdStr));
-    const totalApplicants = companyApps.length;
-    const pendingReview = companyApps.filter((a) => a.isApprovedByCompany === undefined).length;
-    const hired = companyApps.filter((a) => a.isApprovedByCompany === true).length;
-
     const statCards = [
       {
         value: opportunities.length,
@@ -397,14 +441,14 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         icon: Users,
       },
       {
-        value: pendingReview,
+        value: pendingCompany,
         label: 'Pending Review',
         sub: 'Awaiting decision',
         subClass: 'text-slate-500',
         icon: Clock,
       },
       {
-        value: hired,
+        value: hiredCompany,
         label: 'Hired',
         sub: 'Successfully placed',
         subClass: 'text-slate-500',
@@ -505,56 +549,76 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {mockApplications.filter(a => a.companyId === fallbackCompany.id).map((app) => (
-              <tr key={app.id} className="hover:bg-slate-50 transition-all group">
-                <td className="px-6 py-4">
-                  <div className="font-bold text-slate-900">{app.studentName}</div>
-                  <div className="text-xs text-slate-500">ID: {app.studentId}</div>
-                </td>
-                <td className="px-6 py-4 text-sm font-medium text-slate-700">{app.opportunityTitle}</td>
-                <td className="px-6 py-4">
-                  <span className={cn(
-                    "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
-                    app.type === 'PROFESSIONAL_PRACTICE' ? "bg-[#002B5B]/10 text-[#002B5B]" : "bg-slate-100 text-slate-700"
-                  )}>
-                    {app.type.replace('_', ' ')}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-sm text-slate-600">
-                  <div className="flex items-center gap-2">
-                    <Calendar size={14} className="text-slate-400" />
-                    {app.createdAt}
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  {app.isApprovedByCompany === undefined ? (
-                    <div className="flex justify-end gap-2">
-                      <button 
-                        onClick={() => handleDecision(app.studentName, 'Approve')}
-                        suppressHydrationWarning
-                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20"
-                      >
-                        Approve
-                      </button>
-                      <button 
-                        onClick={() => handleDecision(app.studentName, 'Reject')}
-                        suppressHydrationWarning
-                        className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-500/20"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  ) : (
-                    <span className={cn(
-                      "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                      app.isApprovedByCompany === true ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-                    )}>
-                      {app.isApprovedByCompany ? "Approved" : "Rejected"}
-                    </span>
-                  )}
+            {applicationsLoading ? (
+              <tr>
+                <td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-500">
+                  Loading applications…
                 </td>
               </tr>
-            ))}
+            ) : filteredCompanyApplications.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-500">
+                  No applications yet.
+                </td>
+              </tr>
+            ) : (
+              filteredCompanyApplications.map((app) => (
+                <tr key={app.applicationId ?? `${app.studentId}-${app.opportunityId}`} className="hover:bg-slate-50 transition-all group">
+                  <td className="px-6 py-4">
+                    <div className="font-bold text-slate-900">{app.studentName || '—'}</div>
+                    <div className="text-xs text-slate-500">ID: {app.studentId ?? '—'}</div>
+                  </td>
+                  <td className="px-6 py-4 text-sm font-medium text-slate-700">{app.opportunityTitle || '—'}</td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={cn(
+                        'px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider',
+                        app.applicationType === 'PROFESSIONAL_PRACTICE'
+                          ? 'bg-[#002B5B]/10 text-[#002B5B]'
+                          : 'bg-slate-100 text-slate-700'
+                      )}
+                    >
+                      {formatApplicationTypeLabel(app.applicationType)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-600">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={14} className="text-slate-400" />
+                      {app.createdAt || '—'}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {app.isApprovedByCompany == null ? (
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => handleDecision(app.studentName || 'Applicant', 'Approve')}
+                          suppressHydrationWarning
+                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleDecision(app.studentName || 'Applicant', 'Reject')}
+                          suppressHydrationWarning
+                          className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-500/20"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <span
+                        className={cn(
+                          'px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider',
+                          app.isApprovedByCompany === true ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                        )}
+                      >
+                        {app.isApprovedByCompany ? 'Approved' : 'Rejected'}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

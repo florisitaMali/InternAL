@@ -1,13 +1,13 @@
 'use client';
 
 import React from 'react';
+
 import { Bell, Search, User } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import Logo from './Logo';
 
 interface DashboardProps {
   title: string;
-  /** Omit or leave undefined for default tagline; pass null to hide. */
   subtitle?: string | null;
   children: React.ReactNode;
   actions?: React.ReactNode;
@@ -20,8 +20,6 @@ interface DashboardProps {
   hidePageIntro?: boolean;
 }
 
-const DEFAULT_SUBTITLE = 'Manage your internship lifecycle and track progress.';
-
 const Dashboard: React.FC<DashboardProps> = ({
   title,
   subtitle,
@@ -32,9 +30,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   topBarVariant = 'default',
   hidePageIntro = false,
 }) => {
-  const resolvedSubtitle = subtitle === undefined ? DEFAULT_SUBTITLE : subtitle;
   const showTitle = Boolean(title?.trim());
-  const showSubtitle = resolvedSubtitle != null && resolvedSubtitle !== '';
+  const showSubtitle = subtitle != null && subtitle !== '';
   const showPageHeader = showTitle || showSubtitle;
   return (
     <div className="flex-1 min-h-screen flex flex-col bg-[#F4F6F8]">
@@ -46,18 +43,10 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Logo size="md" className="shrink-0" />
             </div>
           ) : (
-            <div className="hidden md:flex relative max-w-md w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                type="text"
-                placeholder="Search anything..."
-                suppressHydrationWarning
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none transition-all"
-              />
-            </div>
+            <div className="hidden md:flex items-center mr-4 scale-75 origin-left"><Logo /></div>
           )}
         </div>
-        
+
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <button 
@@ -74,16 +63,17 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="text-sm font-bold text-slate-900">{userName}</div>
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{userRole}</div>
             </div>
-            <div
-              className={cn(
-                'w-10 h-10 flex items-center justify-center border',
-                topBarVariant === 'brand'
-                  ? 'rounded-full bg-[#0f2744] text-white border-[#0f2744]'
-                  : 'rounded-xl bg-slate-100 text-slate-400 border-slate-200'
-              )}
-            >
-              <User size={20} />
-            </div>
+          </div>
+
+          <div
+            className={cn(
+              'w-10 h-10 flex items-center justify-center border',
+              topBarVariant === 'brand'
+                ? 'rounded-full bg-[#0f2744] text-white border-[#0f2744]'
+                : 'rounded-xl bg-slate-100 text-slate-400 border-slate-200'
+            )}
+          >
+            <User size={20} />
           </div>
           {actions && <div className="ml-4">{actions}</div>}
         </div>
@@ -96,7 +86,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <h1 className="text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>
             )}
             {showSubtitle && (
-              <p className="text-slate-500 mt-2 text-sm font-medium">{resolvedSubtitle}</p>
+              <p className="text-slate-500 mt-2 text-sm font-medium">{subtitle}</p>
             )}
           </header>
         )}

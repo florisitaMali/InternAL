@@ -15,6 +15,8 @@ public class ApplicationResponse {
     private Boolean isApprovedByCompany;
     private String opportunityTitle;
     private String companyName;
+    /** Present when application is loaded with a {@code student} embed (company / admin / PPA views). */
+    private String studentName;
 
     public Integer getApplicationId() { return applicationId; }
     public void setApplicationId(Integer applicationId) { this.applicationId = applicationId; }
@@ -54,4 +56,7 @@ public class ApplicationResponse {
 
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }
+
+    public String getStudentName() { return studentName; }
+    public void setStudentName(String studentName) { this.studentName = studentName; }
 }

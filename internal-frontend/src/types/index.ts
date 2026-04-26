@@ -188,4 +188,6 @@ export interface DashboardStats {
   totalStudents: number;
   totalDepartments: number;
   totalStudyFields: number;
+  /** From GET `/api/admin/dashboard/stats` when available */
+  ppaApprovers?: number;
 }

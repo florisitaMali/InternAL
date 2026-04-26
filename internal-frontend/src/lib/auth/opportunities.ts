@@ -148,6 +148,7 @@ export type ApplicationResponse = {
   isApprovedByCompany: boolean | null;
   opportunityTitle: string | null;
   companyName: string | null;
+  studentName?: string | null;
   createdAt: string | null;
 };
 

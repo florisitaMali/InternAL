@@ -14,7 +14,6 @@ import StudentProfileView from './StudentProfileView';
 import UnderDevelopment from './UnderDevelopment';
 import SubmitApplicationModal from './SubmitApplicationModal';
 import { ApplicationFormData } from './SubmitApplicationModal';
-import { mockApplications, mockStudents } from '@/src/lib/mockData';
 import {
   Briefcase,
   Building2,
@@ -243,6 +242,19 @@ function formatApplicationIdDisplay(id: number | null): string {
   return id != null ? `APP${String(id).padStart(3, '0')}` : '—';
 }
 
+function createPlaceholderStudent(): Student {
+  return {
+    id: '',
+    fullName: '',
+    email: '',
+    role: 'STUDENT',
+    university: '',
+    studyYear: 1,
+    cgpa: 0,
+    hasCompletedPP: false,
+  };
+}
+
 function buildOpportunityFilters(filters: OpportunityFilterState): StudentOpportunityFilters {
   let location: string | undefined;
   if (filters.locationPresets.length === 1 && !filters.locationOther.trim()) {
@@ -275,7 +287,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onToggleSidebar,
 }) => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [student, setStudent] = useState<Student>(currentStudent ?? mockStudents[0]);
+  const [student, setStudent] = useState<Student>(currentStudent ?? createPlaceholderStudent());
   const [opportunityFilters, setOpportunityFilters] = useState<OpportunityFilterState>(EMPTY_FILTERS);
   const [discoveredLocations, setDiscoveredLocations] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
@@ -477,12 +489,20 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             accuracyConfirmed: data.confirmed,
           }),
         });
+        const errText = response.ok ? '' : await response.text().catch(() => '');
         if (response.ok) {
           toast.success('Application submitted successfully!');
           setApplicationOpportunity(null);
           void loadApplications();
         } else {
-          toast.error('Failed to submit application.');
+          let msg = 'Failed to submit application.';
+          try {
+            const j = JSON.parse(errText) as { error?: string };
+            if (typeof j?.error === 'string' && j.error.trim()) msg = j.error.trim();
+          } catch {
+            /* ignore */
+          }
+          toast.error(msg);
         }
       });
     } catch {
@@ -518,7 +538,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     return list.filter((app) => {
       const id = app.opportunityId != null ? String(app.opportunityId) : '';
       const opp = opportunityById.get(id);
-      if (!opp) return false;
+      if (!opp) return true;
       return applyClientOpportunityFilters([opp], dim).length > 0;
     });
   }, [applications, applicationSearch, opportunityFilters, opportunityById]);
@@ -932,7 +952,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     if (!opp) {
       return (
         <p className="text-sm text-gray-600 rounded-md bg-gray-50 px-3 py-2">
-          Open Opportunities to load listings; listing details appear when this role is included in your latest results.
+          Full listing details are unavailable for this application.
         </p>
       );
     }

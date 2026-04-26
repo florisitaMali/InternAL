@@ -38,3 +38,12 @@ jobs:
             cd ../internal-backend
             mvn package -DskipTests
             pm2 restart test-internalbania-bac
+      - name: Debug secrets
+        run: |
+          echo "Host length: ${#VPS_HOST}"
+          echo "User length: ${#VPS_USER}"
+          echo "Password length: ${#VPS_PASSWORD}"
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}

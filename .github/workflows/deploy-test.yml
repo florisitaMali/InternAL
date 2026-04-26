@@ -1,9 +1,7 @@
 name: Deploy to Test
-
 on:
   push:
     branches: [develop]
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -22,7 +20,17 @@ jobs:
           cd internal-frontend
           npm ci
           npm run build
-          
+
+      - name: Debug secrets
+        run: |
+          echo "Host length: ${#VPS_HOST}"
+          echo "User length: ${#VPS_USER}"
+          echo "Password length: ${#VPS_PASSWORD}"
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+
       - name: Deploy to VPS (test)
         uses: appleboy/ssh-action@v1
         with:
@@ -38,12 +46,3 @@ jobs:
             cd ../internal-backend
             mvn package -DskipTests
             pm2 restart test-internalbania-bac
-      - name: Debug secrets
-        run: |
-          echo "Host length: ${#VPS_HOST}"
-          echo "User length: ${#VPS_USER}"
-          echo "Password length: ${#VPS_PASSWORD}"
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}

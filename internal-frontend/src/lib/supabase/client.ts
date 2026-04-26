@@ -10,7 +10,7 @@ export function getSupabaseBrowserClient(): SupabaseClient {
 
   if (!url || !key) {
     throw new Error(
-      'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. Copy .env.local.example to .env.local.'
+      'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. For local dev, set them in internal-frontend/.env.local. For production, set them in the build environment (hosting CI, Docker build args, etc.) and run npm run build again — Next.js bakes these into the client bundle.'
     );
   }
 

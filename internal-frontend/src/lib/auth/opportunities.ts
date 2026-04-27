@@ -1,4 +1,5 @@
 import type { Opportunity } from '@/src/types';
+import { normalizePostedAtFromApi } from '@/src/lib/opportunityFormat';
 
 type StudentOpportunityResponseItem = {
   id: number;
@@ -9,7 +10,9 @@ type StudentOpportunityResponseItem = {
   requiredSkills: string[] | null;
   requiredExperience: string | null;
   deadline: string | null;
+  startDate?: string | null;
   targetUniversityIds: number[] | null;
+  targetUniversities?: { universityId: number; name: string }[] | null;
   type: string | null;
   location: string | null;
   isPaid: boolean | null;
@@ -21,9 +24,10 @@ type StudentOpportunityResponseItem = {
   positionCount?: number | null;
   salaryMonthly?: number | null;
   niceToHave?: string | null;
-  startDate?: string | null;
   createdAt?: string | null;
   applicantCount?: number | null;
+  draft?: boolean | null;
+  postedAt?: string | null;
 };
 
 type StudentOpportunitiesResponse = {
@@ -65,21 +69,27 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
     requiredSkills: item.requiredSkills || [],
     requiredExperience: item.requiredExperience || undefined,
     deadline: item.deadline || undefined,
-    targetUniversityIds: (item.targetUniversityIds || []).map(String),
+    targetUniversities: item.targetUniversities ?? undefined,
+    targetUniversityIds:
+      item.targetUniversities?.length
+        ? item.targetUniversities.map((t) => String(t.universityId))
+        : (item.targetUniversityIds || []).map(String),
     type: item.type || undefined,
     location: item.location || undefined,
     isPaid: item.isPaid,
     workMode: item.workMode || undefined,
     skillMatchCount: item.skillMatchCount ?? 0,
-    workType: item.workType || undefined,
-    duration: item.duration || undefined,
+    workType: item.workType ?? undefined,
+    duration: item.duration ?? undefined,
     code: item.code ?? undefined,
     positionCount: item.positionCount ?? undefined,
     salaryMonthly: item.salaryMonthly ?? undefined,
     niceToHave: item.niceToHave ?? undefined,
-    startDate: mapApiDateField(item.startDate as unknown) ?? undefined,
+    startDate: mapApiDateField(item.startDate as unknown) ?? item.startDate ?? undefined,
     createdAt: item.createdAt ?? undefined,
     applicantCount: item.applicantCount ?? 0,
+    draft: item.draft === true,
+    postedAt: normalizePostedAtFromApi(item.postedAt),
   };
 }
 

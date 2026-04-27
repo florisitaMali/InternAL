@@ -1,43 +1,94 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Calendar, MapPin, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  fetchTargetUniversities,
+  type CompanyOpportunityCreateBody,
+  type TargetUniversityOption,
+} from '@/src/lib/auth/companyOpportunities';
+import { messageFromUnknown } from '@/src/lib/messageFromUnknown';
 
 interface AddOpportunityFormProps {
-  onSave: (opportunity: Record<string, unknown>) => void;
+  getAccessToken: () => Promise<string | null>;
+  onSave: (payload: CompanyOpportunityCreateBody) => Promise<void>;
   onCancel: () => void;
-  companyName: string;
-  companyId: string;
 }
 
-const inputClass =
-  'mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition-shadow placeholder:text-slate-400 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/20';
-const labelClass = 'block text-xs font-bold uppercase tracking-wider text-slate-600';
-const sectionTitleClass = 'text-base font-bold text-[#0E2A50]';
+function Req({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-sm font-semibold text-slate-800 mb-2 block">
+      {children} <span className="text-red-500">*</span>
+    </span>
+  );
+}
 
-const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({
-  onSave,
-  onCancel,
-  companyName,
-  companyId,
-}) => {
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-base font-bold text-slate-900 pb-2 mb-4 border-b border-slate-200">{children}</h3>
+  );
+}
+
+const DURATION_OPTIONS: { value: string; label: string }[] = [
+  { value: '3_MONTHS', label: '3 months' },
+  { value: '6_MONTHS', label: '6 months' },
+  { value: '12_MONTHS', label: '12 months' },
+];
+
+const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken, onSave, onCancel }) => {
   const [title, setTitle] = useState('');
-  const [positions, setPositions] = useState('1');
+  const [positionCount, setPositionCount] = useState('1');
   const [deadline, setDeadline] = useState('');
-  const [location, setLocation] = useState('');
-  const [workplaceType, setWorkplaceType] = useState('');
-  const [workType, setWorkType] = useState('');
-  const [duration, setDuration] = useState('');
-  const [paidStatus, setPaidStatus] = useState('');
-  const [salary, setSalary] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [jobLocation, setJobLocation] = useState('');
+  const [workplaceType, setWorkplaceType] = useState<CompanyOpportunityCreateBody['workplaceType']>('Hybrid');
+  const [workType, setWorkType] = useState<CompanyOpportunityCreateBody['workType']>('FULL_TIME');
+  const [duration, setDuration] = useState('3_MONTHS');
+  const [paid, setPaid] = useState<boolean | null>(null);
+  const [salaryMonthly, setSalaryMonthly] = useState('');
   const [description, setDescription] = useState('');
   const [requirements, setRequirements] = useState('');
   const [niceToHave, setNiceToHave] = useState('');
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState('');
-  const [applicationPP, setApplicationPP] = useState(true);
-  const [applicationIG, setApplicationIG] = useState(false);
+  const [targetUniversities, setTargetUniversities] = useState<TargetUniversityOption[]>([]);
+  const [targetUniversitiesLoading, setTargetUniversitiesLoading] = useState(true);
+  /** Empty string = all universities; otherwise one university id. */
+  const [targetUniversityId, setTargetUniversityId] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setTargetUniversitiesLoading(true);
+      try {
+        const token = await getAccessToken();
+        if (!token || cancelled) {
+          if (!cancelled) setTargetUniversitiesLoading(false);
+          return;
+        }
+        const { data, errorMessage } = await fetchTargetUniversities(token);
+        if (cancelled) return;
+        if (errorMessage) {
+          toast.error(errorMessage);
+          setTargetUniversities([]);
+        } else {
+          setTargetUniversities(data ?? []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          toast.error(messageFromUnknown(e));
+          setTargetUniversities([]);
+        }
+      } finally {
+        if (!cancelled) setTargetUniversitiesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getAccessToken]);
 
   const addSkill = () => {
     const s = skillInput.trim();
@@ -48,290 +99,306 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({
 
   const removeSkill = (s: string) => setSkills((prev) => prev.filter((x) => x !== s));
 
-  const buildPayload = (draft: boolean) => ({
-    id: `opp${Math.floor(Math.random() * 100000)}`,
-    companyId,
-    companyName,
-    title,
-    description,
-    location,
-    deadline,
-    type: workType || 'INTERNSHIP',
-    positions,
-    workplaceType,
-    workType,
-    duration,
-    paidStatus,
-    salary,
-    requirementsText: requirements,
-    niceToHave,
-    requiredSkills: skills,
-    applicationTypes: { professionalPractice: applicationPP, individualGrowth: applicationIG },
-    draft,
-  });
-
-  const validateRequired = () => {
+  const validate = (): string | null => {
     if (!title.trim()) return 'Job title is required.';
+    const pc = Number(positionCount);
+    if (!Number.isFinite(pc) || pc < 1) return 'Number of positions must be at least 1.';
     if (!deadline) return 'Application deadline is required.';
-    if (!location.trim()) return 'Location is required.';
-    if (!workplaceType) return 'Workplace type is required.';
-    if (!workType) return 'Work type is required.';
-    if (!duration) return 'Duration is required.';
-    if (!paidStatus) return 'Paid status is required.';
+    if (!startDate) return 'Expected start date is required.';
+    if (!jobLocation.trim()) return 'Location is required.';
+    if (paid === null) return 'Select paid status.';
     if (!description.trim()) return 'Job description is required.';
     if (!requirements.trim()) return 'Requirements are required.';
+    if (skills.length === 0) return 'Add at least one required skill.';
+    if (paid && salaryMonthly.trim()) {
+      const sal = Number(salaryMonthly);
+      if (!Number.isFinite(sal) || sal < 0) return 'Enter a valid salary amount.';
+    }
     return null;
   };
 
-  const handlePublish = (e: React.FormEvent) => {
-    e.preventDefault();
-    const err = validateRequired();
+  const buildPayload = (draft: boolean): CompanyOpportunityCreateBody => {
+    const salTrim = salaryMonthly.trim();
+    const tid = targetUniversityId.trim();
+    const targetUniversityIds =
+      tid === '' ? [] : [Number(tid)].filter((n) => Number.isFinite(n));
+    return {
+      title: title.trim(),
+      description: description.trim(),
+      requiredSkills: skills,
+      requirements: requirements.trim(),
+      deadline,
+      startDate,
+      targetUniversityIds,
+      positionCount: Math.max(1, Number(positionCount) || 1),
+      jobLocation: jobLocation.trim(),
+      workplaceType,
+      workType,
+      duration,
+      paid: paid === true,
+      salaryMonthly: paid && salTrim ? Number(salTrim) : null,
+      niceToHave: niceToHave.trim() || null,
+      draft,
+    };
+  };
+
+  const runSave = async (draft: boolean) => {
+    const err = validate();
     if (err) {
       toast.error(err);
       return;
     }
-    onSave(buildPayload(false));
-    toast.success('Opportunity published.');
-  };
-
-  const handleSaveDraft = () => {
-    if (!title.trim()) {
-      toast.error('Add at least a job title to save a draft.');
-      return;
+    setIsSubmitting(true);
+    try {
+      await onSave(buildPayload(draft));
+      toast.success(draft ? 'Draft saved.' : 'Opportunity published.');
+    } catch (e) {
+      toast.error(messageFromUnknown(e));
+    } finally {
+      setIsSubmitting(false);
     }
-    onSave(buildPayload(true));
-    toast.success('Draft saved.');
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 md:p-10">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-[#0E2A50] md:text-3xl">Create New Opportunity</h2>
-        <p className="mt-2 text-sm text-slate-500">Post a new internship opportunity for students</p>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden max-w-4xl mx-auto">
+      <div className="px-8 pt-8 pb-4 border-b border-slate-100 flex justify-between items-start gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Create New Opportunity</h2>
+          <p className="text-sm text-slate-500 mt-1">Post a new internship opportunity for students</p>
+        </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all shrink-0"
+          aria-label="Close"
+        >
+          <X size={22} />
+        </button>
       </div>
 
-      <form onSubmit={handlePublish} className="space-y-10">
-        <section className="space-y-4">
-          <h3 className={sectionTitleClass}>Basic Information</h3>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <label className="md:col-span-2">
-              <span className={labelClass}>
-                Job title <span className="text-red-500">*</span>
-              </span>
+      <div className="p-8 space-y-10">
+        <section>
+          <SectionTitle>Basic Information</SectionTitle>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <label className="block md:col-span-2">
+              <Req>Job Title</Req>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Frontend Developer Intern"
-                className={inputClass}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
               />
             </label>
-            <label>
-              <span className={labelClass}>
-                Number of positions <span className="text-red-500">*</span>
-              </span>
+            <label className="block">
+              <Req>Number of Positions</Req>
               <input
                 type="number"
                 min={1}
-                value={positions}
-                onChange={(e) => setPositions(e.target.value)}
-                className={inputClass}
+                value={positionCount}
+                onChange={(e) => setPositionCount(e.target.value)}
+                placeholder="1"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
               />
             </label>
-            <label>
-              <span className={labelClass}>
-                Application deadline <span className="text-red-500">*</span>
-              </span>
-              <input
-                type="date"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                className={inputClass}
-              />
+            <label className="block">
+              <Req>Application Deadline</Req>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <input
+                  type="date"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-1">Stored as YYYY-MM-DD; shown in your locale elsewhere.</p>
+            </label>
+            <label className="block">
+              <Req>Expected start date</Req>
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-1">When the internship or role is expected to begin.</p>
             </label>
           </div>
         </section>
 
-        <section className="space-y-4">
-          <h3 className={sectionTitleClass}>Job Details</h3>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <label>
-              <span className={labelClass}>
-                Location <span className="text-red-500">*</span>
-              </span>
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="e.g. San Francisco, CA"
-                className={inputClass}
-              />
+        <section>
+          <SectionTitle>Job Details</SectionTitle>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <label className="block">
+              <Req>Location</Req>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <input
+                  type="text"
+                  value={jobLocation}
+                  onChange={(e) => setJobLocation(e.target.value)}
+                  placeholder="e.g. San Francisco, CA"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                />
+              </div>
             </label>
-            <label>
-              <span className={labelClass}>
-                Workplace type <span className="text-red-500">*</span>
-              </span>
+            <label className="block">
+              <Req>Workplace Type</Req>
               <select
                 value={workplaceType}
-                onChange={(e) => setWorkplaceType(e.target.value)}
-                className={`${inputClass} appearance-none bg-[length:1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`}
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
-                }}
+                onChange={(e) => setWorkplaceType(e.target.value as CompanyOpportunityCreateBody['workplaceType'])}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
               >
-                <option value="">Select workplace type</option>
-                <option value="On-site">On-site</option>
                 <option value="Remote">Remote</option>
                 <option value="Hybrid">Hybrid</option>
+                <option value="On-site">On-site</option>
               </select>
             </label>
-            <label>
-              <span className={labelClass}>
-                Work type <span className="text-red-500">*</span>
-              </span>
+            <label className="block">
+              <Req>Work Type</Req>
               <select
                 value={workType}
-                onChange={(e) => setWorkType(e.target.value)}
-                className={`${inputClass} appearance-none bg-[length:1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`}
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
-                }}
+                onChange={(e) => setWorkType(e.target.value as CompanyOpportunityCreateBody['workType'])}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
               >
-                <option value="">Select work type</option>
-                <option value="INTERNSHIP">Internship</option>
-                <option value="PROFESSIONAL_PRACTICE">Professional practice</option>
+                <option value="FULL_TIME">Full-time</option>
                 <option value="PART_TIME">Part-time</option>
               </select>
             </label>
-            <label>
-              <span className={labelClass}>
-                Duration <span className="text-red-500">*</span>
-              </span>
+            <label className="block">
+              <Req>Duration</Req>
               <select
                 value={duration}
                 onChange={(e) => setDuration(e.target.value)}
-                className={`${inputClass} appearance-none bg-[length:1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`}
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
-                }}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
               >
-                <option value="">Select duration</option>
-                <option value="1-3 months">1-3 months</option>
-                <option value="3-6 months">3-6 months</option>
-                <option value="6-12 months">6-12 months</option>
+                {DURATION_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
         </section>
 
-        <section className="space-y-4">
-          <h3 className={sectionTitleClass}>Compensation</h3>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <label>
-              <span className={labelClass}>
-                Paid status <span className="text-red-500">*</span>
-              </span>
+        <section>
+          <SectionTitle>Compensation</SectionTitle>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <label className="block">
+              <Req>Paid Status</Req>
               <select
-                value={paidStatus}
-                onChange={(e) => setPaidStatus(e.target.value)}
-                className={`${inputClass} appearance-none bg-[length:1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`}
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
+                value={paid === null ? '' : paid ? 'paid' : 'unpaid'}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === 'paid') setPaid(true);
+                  else if (v === 'unpaid') {
+                    setPaid(false);
+                    setSalaryMonthly('');
+                  } else setPaid(null);
                 }}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
               >
-                <option value="">Select status</option>
-                <option value="Paid">Paid</option>
-                <option value="Unpaid">Unpaid</option>
-                <option value="Stipend">Stipend</option>
+                <option value="" disabled>
+                  Select…
+                </option>
+                <option value="paid">Paid</option>
+                <option value="unpaid">Unpaid</option>
               </select>
             </label>
-            <label>
-              <span className={labelClass}>Salary ($/month)</span>
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-800 mb-2 block">Salary ($ / month)</span>
               <input
-                type="text"
-                value={salary}
-                onChange={(e) => setSalary(e.target.value)}
+                type="number"
+                min={0}
+                value={salaryMonthly}
+                onChange={(e) => setSalaryMonthly(e.target.value)}
                 placeholder="e.g. 2500"
-                className={inputClass}
+                disabled={!paid}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none disabled:opacity-50"
               />
             </label>
           </div>
         </section>
 
-        <section className="space-y-4">
-          <h3 className={sectionTitleClass}>Description &amp; requirements</h3>
-          <label className="block">
-            <span className={labelClass}>
-              Job description <span className="text-red-500">*</span>
-            </span>
-            <textarea
-              rows={5}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe the role, responsibilities, and what the intern will learn..."
-              className={`${inputClass} resize-none`}
-            />
-          </label>
-          <label className="block">
-            <span className={labelClass}>
-              Requirements <span className="text-red-500">*</span>
-            </span>
-            <textarea
-              rows={4}
-              value={requirements}
-              onChange={(e) => setRequirements(e.target.value)}
-              placeholder="List the required qualifications, skills, and experience..."
-              className={`${inputClass} resize-none`}
-            />
-          </label>
-          <label className="block">
-            <span className={labelClass}>Nice to have</span>
-            <textarea
-              rows={3}
-              value={niceToHave}
-              onChange={(e) => setNiceToHave(e.target.value)}
-              placeholder="Optional skills or qualifications that are beneficial..."
-              className={`${inputClass} resize-none`}
-            />
-          </label>
+        <section>
+          <SectionTitle>Description &amp; Requirements</SectionTitle>
+          <div className="space-y-4">
+            <label className="block">
+              <Req>Job Description</Req>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={5}
+                placeholder="Describe the role, responsibilities, and what the intern will learn…"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none resize-y min-h-[120px]"
+              />
+            </label>
+            <label className="block">
+              <Req>Requirements</Req>
+              <textarea
+                value={requirements}
+                onChange={(e) => setRequirements(e.target.value)}
+                rows={4}
+                placeholder="List the required qualifications, skills, and experience…"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none resize-y min-h-[100px]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-800 mb-2 block">Nice to Have</span>
+              <textarea
+                value={niceToHave}
+                onChange={(e) => setNiceToHave(e.target.value)}
+                rows={3}
+                placeholder="Optional skills or qualifications that are beneficial…"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none resize-y min-h-[80px]"
+              />
+            </label>
+          </div>
         </section>
 
-        <section className="space-y-4">
-          <h3 className={sectionTitleClass}>Required skills</h3>
-          <div className="flex flex-wrap gap-2">
+        <section>
+          <SectionTitle>Required Skills</SectionTitle>
+          <div className="flex flex-wrap gap-2 mb-3 min-h-[2rem]">
             {skills.map((s) => (
               <span
                 key={s}
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#002B5B] px-3 py-1 text-xs font-semibold text-white"
+                className="inline-flex items-center gap-1.5 pl-3 pr-1 py-1 rounded-full bg-[#002B5B] text-white text-sm font-medium"
               >
                 {s}
                 <button
                   type="button"
                   onClick={() => removeSkill(s)}
-                  className="rounded-full p-0.5 hover:bg-white/20"
+                  className="p-0.5 rounded-full hover:bg-white/20"
                   aria-label={`Remove ${s}`}
                 >
-                  <X size={12} />
+                  <X size={14} />
                 </button>
               </span>
             ))}
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <label className="min-w-0 flex-1">
-              <span className={labelClass}>Add skill</span>
-              <input
-                type="text"
-                value={skillInput}
-                onChange={(e) => setSkillInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
-                placeholder="Add a skill (e.g. JavaScript, Python, etc...)"
-                className={inputClass}
-              />
-            </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={skillInput}
+              onChange={(e) => setSkillInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addSkill();
+                }
+              }}
+              placeholder="Add a skill (e.g. JavaScript, Python…)"
+              className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+            />
             <button
               type="button"
               onClick={addSkill}
-              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#002B5B] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#001F42] sm:mb-0.5"
+              className="px-5 py-3 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-colors inline-flex items-center gap-2 shrink-0"
             >
               <Plus size={18} />
               Add Skill
@@ -339,51 +406,56 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({
           </div>
         </section>
 
-        <section className="space-y-3">
-          <h3 className={sectionTitleClass}>Application type</h3>
-          <label className="flex cursor-pointer items-center gap-3">
-            <input
-              type="checkbox"
-              checked={applicationPP}
-              onChange={(e) => setApplicationPP(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-[#002B5B]"
-            />
-            <span className="text-sm font-medium text-slate-800">Professional Practice</span>
-          </label>
-          <label className="flex cursor-pointer items-center gap-3">
-            <input
-              type="checkbox"
-              checked={applicationIG}
-              onChange={(e) => setApplicationIG(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-[#002B5B]"
-            />
-            <span className="text-sm font-medium text-slate-800">Individual Growth</span>
+        <section>
+          <SectionTitle>Target university</SectionTitle>
+          <label className="block max-w-xl">
+            <span className="text-sm font-semibold text-slate-800 mb-2 block">University</span>
+            <select
+              value={targetUniversityId}
+              onChange={(e) => setTargetUniversityId(e.target.value)}
+              disabled={targetUniversitiesLoading}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none disabled:opacity-60"
+            >
+              <option value="">
+                {targetUniversitiesLoading ? 'Loading universities…' : 'All universities'}
+              </option>
+              {!targetUniversitiesLoading &&
+                targetUniversities.map((u) => (
+                  <option key={u.universityId} value={String(u.universityId)}>
+                    {u.name}
+                  </option>
+                ))}
+            </select>
           </label>
         </section>
 
-        <div className="flex flex-col gap-3 border-t border-slate-100 pt-8 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">
           <button
-            type="submit"
-            className="order-1 w-full rounded-full bg-[#002B5B] px-6 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#001F42] sm:order-none sm:w-auto sm:min-w-[200px]"
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => void runSave(false)}
+            className="flex-1 py-3.5 px-6 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-colors disabled:opacity-50"
           >
-            Publish Opportunity
+            {isSubmitting ? 'Saving…' : 'Publish Opportunity'}
           </button>
           <button
             type="button"
-            onClick={handleSaveDraft}
-            className="order-2 w-full rounded-full border-2 border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:order-none sm:w-auto"
+            disabled={isSubmitting}
+            onClick={() => void runSave(true)}
+            className="sm:w-44 py-3.5 px-6 bg-white border border-slate-200 text-slate-800 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
             Save as Draft
           </button>
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={onCancel}
-            className="order-3 w-full rounded-full border-2 border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:order-none sm:ml-auto sm:w-auto"
+            className="sm:w-36 py-3.5 px-6 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 };

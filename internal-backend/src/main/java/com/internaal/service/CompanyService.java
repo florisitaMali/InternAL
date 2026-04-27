@@ -2,13 +2,13 @@ package com.internaal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.internaal.dto.CompanyOpportunityDetailResponse;
-import com.internaal.dto.CompanyProfileResponse;
-import com.internaal.dto.CompanyProfileUpdateRequest;
 import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.StudentOpportunitiesResponse;
-import com.internaal.entity.Opportunity;
+import com.internaal.dto.CompanyProfileResponse;
+import com.internaal.dto.CompanyProfileUpdateRequest;
 import com.internaal.entity.Role;
+import com.internaal.entity.Opportunity;
 import com.internaal.entity.UserAccount;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.repository.ApplicationRepository;
@@ -84,7 +84,7 @@ public class CompanyService {
 
     public StudentOpportunitiesResponse listOpportunities(UserAccount user) {
         int companyId = requireCompanyId(user);
-        List<Opportunity> rows = opportunityRepository.findForCompany(companyId);
+        List<Opportunity> rows = opportunityRepository.findForCompanyId(companyId);
         List<OpportunityResponseItem> items = rows.stream()
                 .sorted(Comparator.comparing(Opportunity::title, String.CASE_INSENSITIVE_ORDER))
                 .map(this::toItem)
@@ -94,7 +94,7 @@ public class CompanyService {
 
     public CompanyOpportunityDetailResponse getOpportunity(UserAccount user, Integer opportunityId) {
         int companyId = requireCompanyId(user);
-        Opportunity o = opportunityRepository.findByIdAndCompany(opportunityId, companyId)
+        Opportunity o = opportunityRepository.findByIdAndCompanyId(opportunityId, companyId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
         return new CompanyOpportunityDetailResponse(toItem(o), statsForOpportunity(companyId, opportunityId));
     }
@@ -131,12 +131,13 @@ public class CompanyService {
         if (o.typeRaw() != null && !o.typeRaw().isBlank()) {
             return o.typeRaw().trim();
         }
-        return o.type() != null ? o.type().name() : null;
+        return o.type();
     }
 
     private OpportunityResponseItem toItem(Opportunity o) {
         String typeStr = resolveTypeDisplay(o);
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
+        String wt = o.workType();
         return new OpportunityResponseItem(
                 o.id(),
                 o.companyId(),
@@ -146,19 +147,22 @@ public class CompanyService {
                 o.requiredSkills(),
                 o.requiredExperience(),
                 o.deadline(),
-                o.targetUniversityIds(),
+                o.startDate(),
+                List.of(),
+                List.of(),
                 typeStr,
                 o.location(),
                 o.isPaid(),
                 wm,
-                0,
-                o.workType(),
-                o.duration(),
-                o.code(),
                 o.positionCount(),
+                wt,
+                o.duration(),
                 o.salaryMonthly(),
                 o.niceToHave(),
-                o.startDate(),
+                o.draft(),
+                o.postedAt(),
+                0,
+                o.code(),
                 o.createdAt(),
                 0
         );

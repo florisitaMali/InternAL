@@ -6,6 +6,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
+import java.net.http.HttpClient;
+
 @Configuration
 public class DatabaseConfig {
 
@@ -31,6 +33,8 @@ public class DatabaseConfig {
      */
     @Bean
     public RestTemplate restTemplate() {
-        return new RestTemplate(new JdkClientHttpRequestFactory());
+        HttpClient httpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        return new RestTemplate(factory);
     }
 }

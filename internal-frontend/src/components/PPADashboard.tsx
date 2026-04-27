@@ -8,6 +8,8 @@ import { mapAdminStudentToStudent } from '@/src/lib/auth/admin';
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import type { Student } from '@/src/types';
+import type { Application, PPA } from '@/src/types';
+
 import {
   Users,
   CheckCircle,

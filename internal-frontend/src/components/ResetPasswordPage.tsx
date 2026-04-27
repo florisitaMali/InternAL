@@ -39,10 +39,16 @@ const ResetPasswordPage: React.FC = () => {
     let cancelled = false;
 
     const trySession = () => {
-      void supabase.auth.getSession().then(({ data: { session } }) => {
-        if (cancelled || !session) return;
-        setStatus('ready');
-      });
+      void supabase.auth
+        .getSession()
+        .then((res) => {
+          const session = res?.data?.session ?? null;
+          if (cancelled || !session) return;
+          setStatus('ready');
+        })
+        .catch((err) => {
+          console.error('[reset-password] getSession failed', err);
+        });
     };
 
     trySession();
@@ -63,14 +69,21 @@ const ResetPasswordPage: React.FC = () => {
     );
 
     const final = window.setTimeout(() => {
-      void supabase.auth.getSession().then(({ data: { session } }) => {
-        if (cancelled) return;
-        if (!session) {
-          setStatus((prev) => (prev === 'loading' ? 'invalid' : prev));
-        } else {
-          setStatus('ready');
-        }
-      });
+      void supabase.auth
+        .getSession()
+        .then((res) => {
+          const session = res?.data?.session ?? null;
+          if (cancelled) return;
+          if (!session) {
+            setStatus((prev) => (prev === 'loading' ? 'invalid' : prev));
+          } else {
+            setStatus('ready');
+          }
+        })
+        .catch((err) => {
+          console.error('[reset-password] getSession failed', err);
+          if (!cancelled) setStatus((prev) => (prev === 'loading' ? 'invalid' : prev));
+        });
     }, 6000);
 
     return () => {

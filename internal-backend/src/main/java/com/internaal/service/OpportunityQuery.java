@@ -10,7 +10,8 @@ import java.util.List;
 public record OpportunityQuery(
         String q,
         List<String> skills,
-        Opportunity.InternshipType type,
+        /** Filter: opportunities whose {@code type} equals this value (case-insensitive). */
+        String type,
         String location,
         Boolean paid,
         String workMode

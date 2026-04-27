@@ -11,5 +11,4 @@ public class InternalBackendApplication {
         RepoRootDotenv.loadIfPresent();
         SpringApplication.run(InternalBackendApplication.class, args);
     }
-
 }

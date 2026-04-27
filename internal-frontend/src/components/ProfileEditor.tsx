@@ -340,84 +340,8 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
           <p className="text-slate-500 text-sm mt-1">Update your profile information and settings.</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,260px)_1fr] lg:gap-12 items-start">
-          <div className="space-y-6 lg:sticky lg:top-6">
-            <div className="flex flex-col items-center text-center pt-1">
-              <div
-                className="w-[7.5rem] h-[7.5rem] rounded-xl border-4 border-white shadow-lg overflow-hidden flex items-center justify-center shrink-0 ring-1 ring-slate-200"
-                style={photoUrl ? { backgroundColor: '#f1f5f9' } : { backgroundColor: NAVY }}
-              >
-                {photoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={photoUrl} alt="" className="max-h-full max-w-full object-contain" />
-                ) : (
-                  <span className="text-3xl font-bold text-white tracking-tight">{getTwoInitials(student.fullName)}</span>
-                )}
-              </div>
-              {onUploadProfilePhoto ? (
-                <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
-                  style={{ backgroundColor: NAVY }}>
-                  <Upload size={16} />
-                  {isUploadingPhoto ? 'Uploading…' : 'Upload Photo'}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/gif,image/webp"
-                    className="hidden"
-                    disabled={isUploadingPhoto}
-                    onChange={handleProfilePhotoSelected}
-                  />
-                </label>
-              ) : null}
-              <p className="text-xs text-slate-500 mt-2">JPG, PNG or GIF (max 5MB)</p>
-
-              <label className="mt-6 block w-full max-w-[16rem] text-left">
-                <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                  Study Field (Banner)
-                </span>
-                <input
-                  type="text"
-                  name="studyFieldName"
-                  value={formData.studyFieldName || ''}
-                  onChange={handleChange}
-                  placeholder="e.g. Software Engineer PROFILE"
-                  className="w-full rounded-xl border-2 border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
-                />
-                <p className="mt-1.5 text-xs text-slate-500">
-                  End with <span className="font-semibold">PROFILE</span> for the mint highlight.
-                </p>
-              </label>
-            </div>
-          </div>
-
-          <div className="space-y-8 min-w-0">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 mb-4">Personal information</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-500">Email</span>
-                  <input type="text" readOnly value={formData.email} className={readonlyInput} />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-500">Phone number</span>
-                  <input type="text" readOnly value={formData.phone || ''} className={readonlyInput} placeholder="—" />
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-500">Faculty</span>
-                  <input
-                    type="text"
-                    readOnly
-                    value={formData.departmentName || ''}
-                    className={readonlyInput}
-                    placeholder="—"
-                  />
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-500">University</span>
-                  <input type="text" readOnly value={formData.university} className={readonlyInput} />
-                </label>
-              </div>
-            </div>
-
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_minmax(0,260px)] lg:gap-12 items-start">
+          <div className="space-y-8 min-w-0 lg:order-1">
             <label className="block">
               <span className="mb-2 block text-sm font-bold text-slate-900">Introduction</span>
               <textarea
@@ -495,6 +419,84 @@ const ProfileEditor: React.FC<ProfileEditorProps> = ({
                 </button>
               </div>
               {renderChipList(formData.extendedProfile?.hobbies || [], handleRemoveHobby)}
+            </div>
+          </div>
+
+          <div className="space-y-6 min-w-0 lg:sticky lg:top-6 lg:order-2">
+            <div className="flex flex-col items-center text-center pt-1">
+              <div
+                className="w-[7.5rem] h-[7.5rem] rounded-xl border-4 border-white shadow-lg overflow-hidden flex items-center justify-center shrink-0 ring-1 ring-slate-200"
+                style={photoUrl ? { backgroundColor: '#f1f5f9' } : { backgroundColor: NAVY }}
+              >
+                {photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={photoUrl} alt="" className="max-h-full max-w-full object-contain" />
+                ) : (
+                  <span className="text-3xl font-bold text-white tracking-tight">{getTwoInitials(student.fullName)}</span>
+                )}
+              </div>
+              {onUploadProfilePhoto ? (
+                <label
+                  className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+                  style={{ backgroundColor: NAVY }}
+                >
+                  <Upload size={16} />
+                  {isUploadingPhoto ? 'Uploading…' : 'Upload Photo'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    disabled={isUploadingPhoto}
+                    onChange={handleProfilePhotoSelected}
+                  />
+                </label>
+              ) : null}
+              <p className="text-xs text-slate-500 mt-2">JPG, PNG or GIF (max 5MB)</p>
+
+              <label className="mt-6 block w-full text-left">
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Study Field (Banner)
+                </span>
+                <input
+                  type="text"
+                  name="studyFieldName"
+                  value={formData.studyFieldName || ''}
+                  onChange={handleChange}
+                  placeholder="e.g. Software Engineer PROFILE"
+                  className="w-full rounded-xl border-2 border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+                />
+                <p className="mt-1.5 text-xs text-slate-500">
+                  End with <span className="font-semibold">PROFILE</span> for the mint highlight.
+                </p>
+              </label>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 mb-4">Personal information</h3>
+              <div className="grid grid-cols-1 gap-4">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-500">Email</span>
+                  <input type="text" readOnly value={formData.email} className={readonlyInput} />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-500">Phone number</span>
+                  <input type="text" readOnly value={formData.phone || ''} className={readonlyInput} placeholder="—" />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-500">Faculty</span>
+                  <input
+                    type="text"
+                    readOnly
+                    value={formData.departmentName || ''}
+                    className={readonlyInput}
+                    placeholder="—"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-500">University</span>
+                  <input type="text" readOnly value={formData.university} className={readonlyInput} />
+                </label>
+              </div>
             </div>
 
             <div className="space-y-3 w-full min-w-0">

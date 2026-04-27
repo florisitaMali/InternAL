@@ -58,7 +58,10 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ onBack }) => {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Something went wrong.';
         if (message.includes('NEXT_PUBLIC_SUPABASE')) {
-          toast.error('Server configuration is incomplete. Add Supabase keys to .env.local.');
+          toast.error(
+            'Supabase URL/key are missing in this build. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY when you run npm run build, then redeploy the frontend.',
+            { duration: 10000 }
+          );
         } else {
           toast.error(message);
         }

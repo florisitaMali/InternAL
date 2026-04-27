@@ -151,6 +151,15 @@ public class OpportunityRepository {
         try {
             StringBuilder url = new StringBuilder(supabaseUrl);
             url.append("/rest/v1/opportunity?select=").append(selectClause());
+            url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
+               .append("required_skills,required_experience,deadline,type,is_paid,work_mode,job_location,work_type,duration,")
+               .append("position_count,salary_monthly,nice_to_have,start_date,created_at,")
+               .append("company(name,location),")
+               .append("opportunitytarget(university_id)");
+
+            if (query.type() != null && !query.type().isBlank()) {
+                url.append("&type=eq.").append(query.type().trim());
+            }
 
             ResponseEntity<String> response = restTemplate.exchange(
                     url.toString(), HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);

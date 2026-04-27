@@ -5,12 +5,23 @@ import Dashboard from './Dashboard';
 import AddStudentForm from './AddStudentForm';
 import ImportCSVForm from './ImportCSVForm';
 import UnderDevelopment from './UnderDevelopment';
-import { api } from '@/src/lib/api';
-import type { Application, Company, DashboardStats, Department, Opportunity, Student, StudyField } from '@/src/types';
+import {
+  createAdminStudent,
+  fetchAdminApplications,
+  fetchAdminCompanies,
+  fetchAdminDashboardStats,
+  fetchAdminDepartments,
+  fetchAdminOpportunities,
+  fetchAdminStudents,
+  fetchAdminStudyFields,
+  mapApplicationResponseToApplication,
+} from '@/src/lib/auth/admin';
+import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
+import type { Application, Company, Opportunity,DashboardStats, Department, Student, StudyField } from '@/src/types';
+import { toast } from 'sonner';
 import { 
   Users, 
   GraduationCap, 
-  BookOpen, 
   Briefcase, 
   FileText, 
   Plus, 
@@ -44,35 +55,65 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   const [stats, setStats] = useState<DashboardStats>({
     totalStudents: 0,
     totalDepartments: 0,
-    totalStudyFields: 0
+    totalStudyFields: 0,
+    ppaApprovers: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const ppasCount = 0;
-  const applications: Application[] = [];
-  const opportunities: Opportunity[] = [];
-  const companies: Company[] = [];
+  const [adminOpportunities, setAdminOpportunities] = useState<
+    { opportunityId: number; title: string | null; companyName: string | null; deadline: string | null; type: string | null }[]
+  >([]);
+  const [adminApplications, setAdminApplications] = useState<Application[]>([]);
+  const [adminCompanies, setAdminCompanies] = useState<{ companyId: number; name: string; industry: string | null }[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
+      setIsLoading(true);
       try {
-        const [studentsData, departmentsData, fieldsData, statsData] = await Promise.all([
-          api.getStudents(),
-          api.getDepartments(),
-          api.getStudyFields(),
-          api.getDashboardStats()
+        const accessToken = await getSessionAccessToken();
+        if (!accessToken) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const [
+          studentsRes,
+          departmentsRes,
+          fieldsRes,
+          statsRes,
+          oppsRes,
+          appsRes,
+          companiesRes,
+        ] = await Promise.all([
+          fetchAdminStudents(accessToken),
+          fetchAdminDepartments(accessToken),
+          fetchAdminStudyFields(accessToken),
+          fetchAdminDashboardStats(accessToken),
+          fetchAdminOpportunities(accessToken, 100),
+          fetchAdminApplications(accessToken),
+          fetchAdminCompanies(accessToken, 10),
         ]);
-        setStudents(studentsData);
-        setDepartments(departmentsData);
-        setStudyFields(fieldsData);
-        setStats(statsData);
+        if (studentsRes.errorMessage) toast.error(studentsRes.errorMessage);
+        else if (studentsRes.data) setStudents(studentsRes.data);
+        if (departmentsRes.errorMessage) toast.error(departmentsRes.errorMessage);
+        else if (departmentsRes.data) setDepartments(departmentsRes.data);
+        if (fieldsRes.errorMessage) toast.error(fieldsRes.errorMessage);
+        else if (fieldsRes.data) setStudyFields(fieldsRes.data);
+        if (statsRes.errorMessage) toast.error(statsRes.errorMessage);
+        else if (statsRes.data) setStats(statsRes.data);
+        if (oppsRes.errorMessage) toast.error(oppsRes.errorMessage);
+        else if (oppsRes.data) setAdminOpportunities(oppsRes.data);
+        if (appsRes.errorMessage) toast.error(appsRes.errorMessage);
+        else if (appsRes.data) setAdminApplications(appsRes.data.map(mapApplicationResponseToApplication));
+        if (companiesRes.errorMessage) toast.error(companiesRes.errorMessage);
+        else if (companiesRes.data) setAdminCompanies(companiesRes.data);
       } catch (error) {
-        console.error('Failed to load backend data', error);
+        console.error('Failed to load admin data', error);
+        toast.error('Could not load dashboard data.');
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadData();
+    void loadData();
   }, []);
 
   const filteredStudents = useMemo(
@@ -83,11 +124,31 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     [students, searchTerm]
   );
 
+  const filteredAdminOpportunities = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return adminOpportunities;
+    return adminOpportunities.filter(
+      (o) =>
+        (o.title || '').toLowerCase().includes(q) ||
+        (o.companyName || '').toLowerCase().includes(q) ||
+        (o.type || '').toLowerCase().includes(q)
+    );
+  }, [adminOpportunities, searchTerm]);
+
+  const filteredAdminApplications = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return adminApplications;
+    return adminApplications.filter(
+      (a) =>
+        `${a.studentName} ${a.opportunityTitle} ${a.companyName}`.toLowerCase().includes(q)
+    );
+  }, [adminApplications, searchTerm]);
+
   const renderStats = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
       {[
         { label: 'Total Students', value: stats.totalStudents, icon: Users, color: 'bg-blue-50 text-blue-600', trend: '+12%' },
-        { label: 'PP Approvers', value: ppasCount, icon: GraduationCap, color: 'bg-[#002B5B]/10 text-[#002B5B]', trend: '+5%' },
+        { label: 'PP Approvers', value: stats.ppaApprovers ?? 0, icon: GraduationCap, color: 'bg-[#002B5B]/10 text-[#002B5B]', trend: '+5%' },
         { label: 'Departments', value: stats.totalDepartments, icon: Briefcase, color: 'bg-emerald-50 text-emerald-600', trend: '+2' },
         { label: 'Study Fields', value: stats.totalStudyFields, icon: FileText, color: 'bg-amber-50 text-amber-600', trend: '-3%' },
       ].map((stat, i) => (
@@ -115,9 +176,31 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       return (
         <AddStudentForm 
           onSave={async (newStudent) => {
-            const created = await api.createStudent(newStudent);
-            setStudents(prev => [created, ...prev]);
-            setStats(prev => ({ ...prev, totalStudents: prev.totalStudents + 1 }));
+            const accessToken = await getSessionAccessToken();
+            if (!accessToken) {
+              toast.error('Not signed in.');
+              return;
+            }
+            const deptId = parseInt(String(newStudent.departmentId), 10);
+            const fieldId = parseInt(String(newStudent.studyFieldId), 10);
+            if (Number.isNaN(deptId) || Number.isNaN(fieldId)) {
+              toast.error('Invalid department or study field.');
+              return;
+            }
+            const { data: created, errorMessage } = await createAdminStudent(accessToken, {
+              fullName: newStudent.fullName,
+              email: newStudent.email,
+              departmentId: deptId,
+              studyFieldId: fieldId,
+              studyYear: newStudent.studyYear,
+              cgpa: newStudent.cgpa,
+            });
+            if (!created || errorMessage) {
+              toast.error(errorMessage || 'Could not create student.');
+              return;
+            }
+            setStudents((prev) => [created, ...prev]);
+            setStats((prev) => ({ ...prev, totalStudents: prev.totalStudents + 1 }));
             setIsAddingStudent(false);
           }} 
           onCancel={() => setIsAddingStudent(false)} 
@@ -290,25 +373,31 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         </div>
       </div>
       <div className="divide-y divide-slate-100">
-        {opportunities.map((opp) => (
-          <div key={opp.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-[#002B5B]/10 text-[#002B5B] rounded-lg flex items-center justify-center font-bold">
-                {opp.title[0]}
+        {filteredAdminOpportunities.length === 0 ? (
+          <div className="p-8 text-sm text-slate-500">No opportunities found.</div>
+        ) : (
+          filteredAdminOpportunities.map((opp) => (
+            <div key={opp.opportunityId} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-[#002B5B]/10 text-[#002B5B] rounded-lg flex items-center justify-center font-bold">
+                  {(opp.title || '?')[0]}
+                </div>
+                <div>
+                  <div className="font-bold text-slate-900">{opp.title || '—'}</div>
+                  <div className="text-xs text-slate-500">
+                    {opp.companyName || '—'} • Deadline: {opp.deadline || '—'}
+                  </div>
+                </div>
               </div>
-              <div>
-                <div className="font-bold text-slate-900">{opp.title}</div>
-                <div className="text-xs text-slate-500">{opp.companyName} • Deadline: {opp.deadline}</div>
+              <div className="flex items-center gap-4">
+                <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                  {opp.type || '—'}
+                </span>
+                <button suppressHydrationWarning className="text-[#002B5B] text-xs font-bold hover:underline">View Details</button>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
-                {opp.type}
-              </span>
-              <button suppressHydrationWarning className="text-[#002B5B] text-xs font-bold hover:underline">View Details</button>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
@@ -343,37 +432,45 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {applications.map((app) => (
-              <tr key={app.id} className="hover:bg-slate-50 transition-all">
-                <td className="px-6 py-4">
-                  <div className="font-bold text-slate-900">{app.studentName}</div>
-                  <div className="text-xs text-slate-500">ID: {app.studentId}</div>
+            {filteredAdminApplications.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-500">
+                  No applications yet.
                 </td>
-                <td className="px-6 py-4">
-                  <div className="text-sm font-bold text-slate-900">{app.opportunityTitle}</div>
-                  <div className="text-xs text-slate-500">{app.companyName}</div>
-                </td>
-                <td className="px-6 py-4">
-                  <span className={cn(
-                    "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
-                    app.type === 'PROFESSIONAL_PRACTICE' ? "bg-[#002B5B]/10 text-[#002B5B]" : "bg-slate-100 text-slate-700"
-                  )}>
-                    {app.type.replace('_', ' ')}
-                  </span>
-                </td>
-                <td className="px-6 py-4">
-                  <span className={cn(
-                    "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                    app.status === 'APPROVED' ? "bg-emerald-50 text-emerald-700" :
-                    app.status === 'REJECTED' ? "bg-red-50 text-red-700" :
-                    "bg-amber-50 text-amber-700"
-                  )}>
-                    {app.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-xs text-slate-500">{app.createdAt}</td>
               </tr>
-            ))}
+            ) : (
+              filteredAdminApplications.map((app) => (
+                <tr key={app.id} className="hover:bg-slate-50 transition-all">
+                  <td className="px-6 py-4">
+                    <div className="font-bold text-slate-900">{app.studentName}</div>
+                    <div className="text-xs text-slate-500">ID: {app.studentId}</div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-bold text-slate-900">{app.opportunityTitle}</div>
+                    <div className="text-xs text-slate-500">{app.companyName}</div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={cn(
+                      "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
+                      app.type === 'PROFESSIONAL_PRACTICE' ? "bg-[#002B5B]/10 text-[#002B5B]" : "bg-slate-100 text-slate-700"
+                    )}>
+                      {app.type.replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={cn(
+                      "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                      app.status === 'APPROVED' ? "bg-emerald-50 text-emerald-700" :
+                      app.status === 'REJECTED' ? "bg-red-50 text-red-700" :
+                      "bg-amber-50 text-amber-700"
+                    )}>
+                      {app.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-xs text-slate-500">{app.createdAt}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -385,6 +482,9 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       case 'dashboard':
         return (
           <>
+            {isLoading ? (
+              <p className="text-sm text-slate-500 mb-4">Loading dashboard data…</p>
+            ) : null}
             {renderStats()}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2">
@@ -397,14 +497,14 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
                     Top Companies
                   </h3>
                   <div className="space-y-4">
-                    {companies.slice(0, 3).map((company) => (
-                      <div key={company.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-all cursor-pointer">
+                    {adminCompanies.slice(0, 3).map((company) => (
+                      <div key={company.companyId} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-all cursor-pointer">
                         <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">
                           {company.name[0]}
                         </div>
                         <div>
                           <div className="text-sm font-bold text-slate-900">{company.name}</div>
-                          <div className="text-xs text-slate-500">{company.industry}</div>
+                          <div className="text-xs text-slate-500">{company.industry || '—'}</div>
                         </div>
                       </div>
                     ))}

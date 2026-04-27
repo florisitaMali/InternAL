@@ -30,6 +30,9 @@ public record OpportunityResponseItem(
         String niceToHave,
         Boolean draft,
         Instant postedAt,
-        int skillMatchCount
+        int skillMatchCount,
+        String code,
+        String createdAt,
+        Integer applicantCount
 ) {
 }

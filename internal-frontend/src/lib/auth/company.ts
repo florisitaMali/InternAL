@@ -1,3 +1,4 @@
+import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
 import type { CompanyProfileFromApi, Opportunity, OpportunityApplicationStats } from '@/src/types';
 import {
   formatDeadline,
@@ -195,6 +196,12 @@ export async function updateCompanyProfile(
   body: CompanyProfileUpdatePayload
 ): Promise<{ data: CompanyProfileFromApi | null; errorMessage: string | null }> {
   return sendBackendJson<CompanyProfileFromApi>('/api/company/profile', accessToken, 'PUT', body);
+}
+
+export async function fetchCompanyApplications(
+  accessToken: string
+): Promise<{ data: ApplicationResponse[] | null; errorMessage: string | null }> {
+  return fetchBackendJson<ApplicationResponse[]>('/api/company/applications', accessToken);
 }
 
 export async function fetchCompanyOpportunities(

@@ -1,26 +1,44 @@
 package com.internaal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.internaal.dto.CompanyOpportunityDetailResponse;
+import com.internaal.dto.OpportunityApplicationStatsDto;
+import com.internaal.dto.OpportunityResponseItem;
+import com.internaal.dto.StudentOpportunitiesResponse;
 import com.internaal.dto.CompanyProfileResponse;
 import com.internaal.dto.CompanyProfileUpdateRequest;
 import com.internaal.entity.Role;
+import com.internaal.entity.Opportunity;
 import com.internaal.entity.UserAccount;
+import com.internaal.dto.ApplicationResponse;
+import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyRepository;
+import com.internaal.repository.OpportunityRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class CompanyService {
 
     private final CompanyRepository companyRepository;
+    private final OpportunityRepository opportunityRepository;
+    private final ApplicationRepository applicationRepository;
 
-    public CompanyService(CompanyRepository companyRepository) {
+    public CompanyService(
+            CompanyRepository companyRepository,
+            OpportunityRepository opportunityRepository,
+            ApplicationRepository applicationRepository) {
         this.companyRepository = companyRepository;
+        this.opportunityRepository = opportunityRepository;
+        this.applicationRepository = applicationRepository;
     }
 
     public CompanyProfileResponse getProfile(UserAccount user) {
@@ -62,6 +80,92 @@ public class CompanyService {
                                 + "or add an RLS UPDATE policy on `company`. Ensure linked_entity_id matches company.company_id (or id)."
                 ));
         return mapCompany(updated, companyId);
+    }
+
+    public StudentOpportunitiesResponse listOpportunities(UserAccount user) {
+        int companyId = requireCompanyId(user);
+        List<Opportunity> rows = opportunityRepository.findForCompanyId(companyId);
+        List<OpportunityResponseItem> items = rows.stream()
+                .sorted(Comparator.comparing(Opportunity::title, String.CASE_INSENSITIVE_ORDER))
+                .map(this::toItem)
+                .collect(Collectors.toList());
+        return new StudentOpportunitiesResponse(items);
+    }
+
+    public CompanyOpportunityDetailResponse getOpportunity(UserAccount user, Integer opportunityId) {
+        int companyId = requireCompanyId(user);
+        Opportunity o = opportunityRepository.findByIdAndCompanyId(opportunityId, companyId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
+        return new CompanyOpportunityDetailResponse(toItem(o), statsForOpportunity(companyId, opportunityId));
+    }
+
+    public List<ApplicationResponse> listApplications(UserAccount user) {
+        int companyId = requireCompanyId(user);
+        return applicationRepository.findByCompanyId(companyId);
+    }
+
+    private OpportunityApplicationStatsDto statsForOpportunity(int companyId, int opportunityId) {
+        List<ApplicationResponse> apps = applicationRepository.findByCompanyId(companyId);
+        int total = 0;
+        int inReview = 0;
+        int approved = 0;
+        int rejected = 0;
+        for (ApplicationResponse a : apps) {
+            if (a.getOpportunityId() == null || a.getOpportunityId() != opportunityId) {
+                continue;
+            }
+            total++;
+            Boolean c = a.getIsApprovedByCompany();
+            if (Boolean.TRUE.equals(c)) {
+                approved++;
+            } else if (Boolean.FALSE.equals(c)) {
+                rejected++;
+            } else {
+                inReview++;
+            }
+        }
+        return new OpportunityApplicationStatsDto(total, inReview, approved, rejected);
+    }
+
+    private static String resolveTypeDisplay(Opportunity o) {
+        if (o.typeRaw() != null && !o.typeRaw().isBlank()) {
+            return o.typeRaw().trim();
+        }
+        return o.type();
+    }
+
+    private OpportunityResponseItem toItem(Opportunity o) {
+        String typeStr = resolveTypeDisplay(o);
+        String wm = o.workMode() == null ? null : o.workMode().toApiValue();
+        String wt = o.workType();
+        return new OpportunityResponseItem(
+                o.id(),
+                o.companyId(),
+                o.companyName(),
+                o.title(),
+                o.description(),
+                o.requiredSkills(),
+                o.requiredExperience(),
+                o.deadline(),
+                o.startDate(),
+                List.of(),
+                List.of(),
+                typeStr,
+                o.location(),
+                o.isPaid(),
+                wm,
+                o.positionCount(),
+                wt,
+                o.duration(),
+                o.salaryMonthly(),
+                o.niceToHave(),
+                o.draft(),
+                o.postedAt(),
+                0,
+                o.code(),
+                o.createdAt(),
+                0
+        );
     }
 
     private static CompanyProfileResponse mapCompany(JsonNode n, int fallbackCompanyId) {

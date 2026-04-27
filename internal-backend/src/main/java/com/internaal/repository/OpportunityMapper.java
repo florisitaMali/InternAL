@@ -91,16 +91,10 @@ public final class OpportunityMapper {
             positionCount = 1;
         }
 
-        Opportunity.WorkType workType = null;
-        String wt = str(node, "work_type");
-        if (wt != null && !wt.isBlank()) {
-            try {
-                workType = Opportunity.WorkType.valueOf(wt.trim().toUpperCase());
-            } catch (IllegalArgumentException ignored) {
-                workType = null;
-            }
-        }
+        String workType = str(node, "work_type");
 
+        String code = str(node, "code");
+        String createdAt = str(node, "created_at");
         String duration = str(node, "duration");
         Integer salaryMonthly = intVal(node, "salary_monthly");
         String niceToHave = str(node, "nice_to_have");
@@ -117,17 +111,20 @@ public final class OpportunityMapper {
                 requiredSkills,
                 requiredExperience,
                 deadline,
-                startDate,
                 targetUniversities,
                 type,
                 displayLocation,
                 isPaid,
                 workMode,
-                positionCount,
                 workType,
                 duration,
+                type,
+                code,
+                positionCount,
                 salaryMonthly,
                 niceToHave,
+                startDate,
+                createdAt,
                 isDraft,
                 postedAt);
     }
@@ -238,17 +235,20 @@ public final class OpportunityMapper {
                 o.requiredSkills(),
                 o.requiredExperience(),
                 o.deadline(),
-                o.startDate(),
                 nu,
                 o.type(),
                 o.location(),
                 o.isPaid(),
                 o.workMode(),
-                o.positionCount(),
                 o.workType(),
                 o.duration(),
+                o.typeRaw(),
+                o.code(),
+                o.positionCount(),
                 o.salaryMonthly(),
                 o.niceToHave(),
+                o.startDate(),
+                o.createdAt(),
                 o.draft(),
                 o.postedAt());
     }

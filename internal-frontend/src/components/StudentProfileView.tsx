@@ -267,8 +267,8 @@ const StudentProfileView: React.FC<StudentProfileViewProps> = ({
         </div>
       </div>
 
-      <div className="px-6 sm:px-8 pb-10 grid grid-cols-1 lg:grid-cols-[minmax(0,280px)_1fr] gap-8 mt-8 items-start">
-        <div className="space-y-5">
+      <div className="px-6 sm:px-8 pb-10 grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,280px)] gap-8 mt-8 items-start">
+        <div className="space-y-5 lg:order-2">
           <div
             className="rounded-xl px-5 py-5 text-white shadow-sm"
             style={{ backgroundColor: NAVY_CARD }}
@@ -330,7 +330,7 @@ const StudentProfileView: React.FC<StudentProfileViewProps> = ({
           </div>
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 lg:order-1">
           {section === 'about' ? (
             <div className="space-y-8">
               <div>

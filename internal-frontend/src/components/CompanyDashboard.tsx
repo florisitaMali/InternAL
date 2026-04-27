@@ -12,12 +12,14 @@ import {
   uploadCompanyProfilePhoto,
 } from '@/src/lib/supabase/companyProfilePhotos';
 import {
+  fetchCompanyApplications,
   fetchCompanyProfile,
   fetchCompanyOpportunities,
   fetchCompanyOpportunityDetail,
   updateCompanyProfile,
   type CompanyProfileUpdatePayload,
 } from '@/src/lib/auth/company';
+import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import {
   createCompanyOpportunity,
@@ -93,6 +95,8 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [coverObjectUrl, setCoverObjectUrl] = useState<string | null>(null);
   /** Bumped after saving new logo/cover so <img> / CSS url() refetch even if the base path is unchanged. */
   const [profileMediaDisplayRev, setProfileMediaDisplayRev] = useState(0);
+  const [companyApplications, setCompanyApplications] = useState<ApplicationResponse[]>([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
   const logoFileInputRef = useRef<HTMLInputElement>(null);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
   const isEditingProfileRef = useRef(isEditingProfile);
@@ -118,9 +122,33 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     return () => URL.revokeObjectURL(u);
   }, [profileCoverFile]);
 
-  const displayName = companyProfile?.name ?? currentUserName ?? 'Company';
-  const displayIndustry = companyProfile?.industry ?? 'Not specified';
+  const companyIdStr = companyProfile ? String(companyProfile.companyId) : '';
+  const displayName = companyProfile?.name ?? 'Company';
+  const displayIndustry = companyProfile?.industry ?? '';
   const displayDescription = companyProfile?.description ?? '';
+
+  const loadCompanyApplications = useCallback(async () => {
+    setApplicationsLoading(true);
+    try {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
+        setApplicationsLoading(false);
+        return;
+      }
+      const { data, errorMessage } = await fetchCompanyApplications(accessToken);
+      if (errorMessage) {
+        toast.error(errorMessage);
+        setCompanyApplications([]);
+      } else {
+        setCompanyApplications(data || []);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not load applications');
+      setCompanyApplications([]);
+    } finally {
+      setApplicationsLoading(false);
+    }
+  }, []);
 
   const loadCompanyOpportunities = useCallback(async () => {
     setOppListLoading(true);
@@ -245,9 +273,17 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   }, [activeTab, profileSection, loadCompanyOpportunities]);
 
   useEffect(() => {
-    if (selectedOpportunityDetail == null) return;
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  }, [selectedOpportunityDetail?.id]);
+    if (activeTab === 'dashboard' || activeTab === 'opportunities' || activeTab === 'applications') {
+      void loadCompanyApplications();
+    }
+  }, [activeTab, loadCompanyApplications]);
+
+  useEffect(() => {
+    if (activeTab === 'dashboard' || activeTab === 'opportunities' || activeTab === 'applications') {
+      void loadCompanyApplications();
+    }
+  }, [activeTab, loadCompanyApplications]);
+
 
   const openOpportunityDetail = async (opportunity: Opportunity, from: 'profile' | 'manage') => {
     setDetailOpenedFrom(from);
@@ -349,6 +385,45 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     toast.success(`${decision}d application for ${studentName}!`);
   };
 
+  const formatApplicationTypeLabel = (t: string | null) => {
+    if (!t) return '—';
+    if (t === 'PROFESSIONAL_PRACTICE') return 'Professional Practice';
+    if (t === 'INDIVIDUAL_GROWTH') return 'Individual Growth';
+    return t.replace(/_/g, ' ');
+  };
+
+  const totalApplicants = companyApplications.length;
+  const pendingCompany = companyApplications.filter((a) => a.isApprovedByCompany == null).length;
+  const hiredCompany = companyApplications.filter((a) => a.isApprovedByCompany === true).length;
+
+  const filteredCompanyApplications = companyApplications.filter((a) => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return true;
+    const hay = `${a.studentName ?? ''} ${a.opportunityTitle ?? ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  const renderStats = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {[
+        { label: 'My Opportunities', value: opportunities.length, icon: Briefcase, color: 'bg-[#002B5B]' },
+        { label: 'Total Applicants', value: totalApplicants, icon: Users, color: 'bg-blue-500' },
+        { label: 'Pending Decisions', value: pendingCompany, icon: Clock, color: 'bg-amber-500' },
+        { label: 'Hired Interns', value: hiredCompany, icon: CheckCircle, color: 'bg-emerald-500' },
+      ].map((stat, i) => (
+        <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className={cn("p-3 rounded-xl text-white", stat.color)}>
+              <stat.icon size={20} />
+            </div>
+            <span className="text-2xl font-bold text-slate-900">{stat.value}</span>
+          </div>
+          <p className="text-slate-500 text-sm font-medium">{stat.label}</p>
+        </div>
+      ))}
+    </div>
+  );
+
   const opportunityForm = isAddingOpportunity ? (
     <AddOpportunityForm
       getAccessToken={async () => {
@@ -401,14 +476,14 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         icon: Users,
       },
       {
-        value: pendingReview,
+        value: pendingCompany,
         label: 'Pending Review',
         sub: 'Awaiting decision',
         subClass: 'text-slate-500',
         icon: Clock,
       },
       {
-        value: hired,
+        value: hiredCompany,
         label: 'Hired',
         sub: 'Successfully placed',
         subClass: 'text-slate-500',

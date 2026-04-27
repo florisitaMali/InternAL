@@ -1,0 +1,41 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: internal-frontend/package-lock.json
+
+      - name: Install & Build Frontend
+        run: |
+          cd internal-frontend
+          npm ci
+          npm run build
+
+      - name: Deploy to VPS (prod)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /var/www/internalbania
+            rm -rf internal-frontend/dist
+            git pull origin main
+            cd internal-frontend
+            npm ci
+            NEXT_PUBLIC_API_BASE_URL=https://internalbania.com npm run build
+            cd ../internal-backend
+            mvn package -DskipTests
+            pm2 restart internalbania-backend

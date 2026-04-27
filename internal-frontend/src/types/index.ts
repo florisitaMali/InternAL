@@ -148,6 +148,14 @@ export interface Opportunity {
   isPaid?: boolean | null;
   workMode?: string | null;
   skillMatchCount?: number;
+  workType?: string;
+  duration?: string;
+  code?: string;
+  positionCount?: number | null;
+  salaryMonthly?: number | null;
+  niceToHave?: string | null;
+  createdAt?: string | null;
+  applicantCount?: number;
   positionCount?: number;
   workType?: string | null;
   duration?: string | null;
@@ -203,4 +211,6 @@ export interface DashboardStats {
   totalStudents: number;
   totalDepartments: number;
   totalStudyFields: number;
+  /** From GET `/api/admin/dashboard/stats` when available */
+  ppaApprovers?: number;
 }

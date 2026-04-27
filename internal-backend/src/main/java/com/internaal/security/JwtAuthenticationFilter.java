@@ -33,7 +33,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
-    private final JWKSet jwkSet;
+    private volatile JWKSet jwkSet;
     private final UserAccountRepository userAccountRepository;
 
     @Value("${supabase.url}")
@@ -41,8 +41,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     public JwtAuthenticationFilter(@Value("${supabase.url}") String supabaseUrl,
                                    UserAccountRepository userAccountRepository) throws Exception {
-        // Load JWKS from Supabase
-        this.jwkSet = JWKSet.load(new URL(supabaseUrl + "/auth/v1/.well-known/jwks.json"));
+        // Best-effort load at startup; auth requests can retry later.
+        this.jwkSet = loadJwkSet(supabaseUrl);
         this.userAccountRepository = userAccountRepository;
     }
 
@@ -65,6 +65,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         UserAccount user;
 
         try {
+            if (jwkSet == null) {
+                jwkSet = loadJwkSet(supabaseUrl);
+            }
+            if (jwkSet == null) {
+                sendError(response, HttpStatus.SERVICE_UNAVAILABLE, "Authentication provider unavailable");
+                return;
+            }
+
             SignedJWT signedJWT = SignedJWT.parse(token);
 
             // ✅ Step 1: Get the kid from token header
@@ -157,5 +165,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         response.setStatus(status.value());
         response.setContentType("application/json");
         response.getWriter().write("{\"error\": \"" + message + "\"}");
+    }
+
+    private JWKSet loadJwkSet(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            log.warn("supabase.url is empty; JWT validation cannot be initialized");
+            return null;
+        }
+        try {
+            return JWKSet.load(new URL(baseUrl + "/auth/v1/.well-known/jwks.json"));
+        } catch (Exception ex) {
+            log.warn("Could not load Supabase JWKS during startup: {}", ex.getMessage());
+            return null;
+        }
     }
 }

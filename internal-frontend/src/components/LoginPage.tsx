@@ -126,7 +126,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
       } catch (err) {
         const message = messageFromUnknown(err);
         if (message.includes('NEXT_PUBLIC_SUPABASE')) {
-          toast.error('Server configuration is incomplete. Add Supabase keys to .env.local.');
+          toast.error(
+            'Supabase URL/key are missing in this build. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY when you run npm run build, then redeploy the frontend.',
+            { duration: 10000 }
+          );
         } else if (message.includes('timed out')) {
           toast.error(
             'Login is taking too long. Check your network, or clear site data for this app and try again.',

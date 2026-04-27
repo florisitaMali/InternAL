@@ -14,7 +14,6 @@ public record Opportunity(
         String requiredExperience,
         LocalDate deadline,
         /** Expected role / internship start (optional). */
-        LocalDate startDate,
         /** Empty = open to all universities. */
         List<TargetUniversity> targetUniversities,
         /** Stored as plain text in the database; not limited to specific enum values. */
@@ -22,11 +21,15 @@ public record Opportunity(
         String location,
         Boolean isPaid,
         WorkMode workMode,
-        Integer positionCount,
-        WorkType workType,
+        String workType,
         String duration,
+        String typeRaw,
+        String code,
+        Integer positionCount,
         Integer salaryMonthly,
         String niceToHave,
+        LocalDate startDate,
+        String createdAt,
         boolean draft,
         /** From {@code opportunity.created_at}; when the listing was created. */
         Instant postedAt
@@ -46,7 +49,8 @@ public record Opportunity(
                 return null;
             }
             String v = value.trim();
-            if ("On-site".equalsIgnoreCase(v) || "ON_SITE".equalsIgnoreCase(v) || "onsite".equalsIgnoreCase(v)) {
+            if ("On-site".equalsIgnoreCase(v) || "ON_SITE".equalsIgnoreCase(v) || "onsite".equalsIgnoreCase(v)
+                    || "IN-PERSON".equalsIgnoreCase(v) || "IN_PERSON".equalsIgnoreCase(v)) {
                 return On_site;
             }
             if ("remote".equalsIgnoreCase(v)) {

@@ -451,9 +451,7 @@ public class CompanyOpportunityService {
     private static OpportunityResponseItem toItem(Opportunity o) {
         String typeStr = o.type();
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
-        String wt = o.workType() == null ? null : o.workType().name();
-        Boolean draft = o.draft();
-        Instant postedAt = o.postedAt();
+        String wt = o.workType();
         int skillMatchCount = 0;
         return new OpportunityResponseItem(
                 o.id(),
@@ -476,8 +474,11 @@ public class CompanyOpportunityService {
                 o.duration(),
                 o.salaryMonthly(),
                 o.niceToHave(),
-                draft,
-                postedAt,
-                skillMatchCount);
+                o.draft(),
+                o.postedAt(),
+                skillMatchCount,
+                o.code(),
+                o.createdAt(),
+                0);
     }
 }

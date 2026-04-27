@@ -148,19 +148,14 @@ export interface Opportunity {
   isPaid?: boolean | null;
   workMode?: string | null;
   skillMatchCount?: number;
-  workType?: string;
-  duration?: string;
+  workType?: string | null;
+  duration?: string | null;
   code?: string;
   positionCount?: number | null;
   salaryMonthly?: number | null;
   niceToHave?: string | null;
   createdAt?: string | null;
   applicantCount?: number;
-  positionCount?: number;
-  workType?: string | null;
-  duration?: string | null;
-  salaryMonthly?: number | null;
-  niceToHave?: string | null;
   draft?: boolean;
   /** API-shaped optional fields for company detail view */
   durationLabel?: string;

@@ -44,6 +44,7 @@ import {
   Star,
   Eye,
   Rocket,
+  CheckCircle,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import {

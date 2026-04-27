@@ -157,12 +157,12 @@ function durationMatchesBucket(duration: string, bucket: string): boolean {
   return false;
 }
 
-function normalizeWorkTypeKey(wt: string | undefined): string | null {
+function normalizeWorkTypeKey(wt: string | null | undefined): string | null {
   if (!wt?.trim()) return null;
   return wt.trim().toUpperCase().replace(/-/g, '_');
 }
 
-function matchesFlexibleWorkType(workType: string | undefined): boolean {
+function matchesFlexibleWorkType(workType: string | null | undefined): boolean {
   const w = (workType || '').toLowerCase();
   return w.includes('flex') || w.includes('part');
 }

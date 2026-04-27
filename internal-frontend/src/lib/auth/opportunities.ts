@@ -26,11 +26,6 @@ type StudentOpportunityResponseItem = {
   niceToHave?: string | null;
   createdAt?: string | null;
   applicantCount?: number | null;
-  positionCount?: number | null;
-  workType?: string | null;
-  duration?: string | null;
-  salaryMonthly?: number | null;
-  niceToHave?: string | null;
   draft?: boolean | null;
   postedAt?: string | null;
 };
@@ -74,7 +69,6 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
     requiredSkills: item.requiredSkills || [],
     requiredExperience: item.requiredExperience || undefined,
     deadline: item.deadline || undefined,
-    startDate: item.startDate || undefined,
     targetUniversities: item.targetUniversities ?? undefined,
     targetUniversityIds:
       item.targetUniversities?.length
@@ -85,20 +79,15 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
     isPaid: item.isPaid,
     workMode: item.workMode || undefined,
     skillMatchCount: item.skillMatchCount ?? 0,
-    workType: item.workType || undefined,
-    duration: item.duration || undefined,
+    workType: item.workType ?? undefined,
+    duration: item.duration ?? undefined,
     code: item.code ?? undefined,
     positionCount: item.positionCount ?? undefined,
     salaryMonthly: item.salaryMonthly ?? undefined,
     niceToHave: item.niceToHave ?? undefined,
-    startDate: mapApiDateField(item.startDate as unknown) ?? undefined,
+    startDate: mapApiDateField(item.startDate as unknown) ?? item.startDate ?? undefined,
     createdAt: item.createdAt ?? undefined,
     applicantCount: item.applicantCount ?? 0,
-    positionCount: item.positionCount ?? undefined,
-    workType: item.workType ?? undefined,
-    duration: item.duration ?? undefined,
-    salaryMonthly: item.salaryMonthly ?? undefined,
-    niceToHave: item.niceToHave ?? undefined,
     draft: item.draft === true,
     postedAt: normalizePostedAtFromApi(item.postedAt),
   };

@@ -138,21 +138,25 @@ export interface Opportunity {
   requiredSkills: string[];
   requiredExperience?: string;
   deadline?: string;
+  /** ISO date; expected role / internship start */
+  startDate?: string;
   targetUniversityIds: string[];
+  /** From API embed `university(name)`; empty list with no ids means all universities. */
+  targetUniversities?: { universityId: number; name: string }[];
   type?: 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH' | string;
   location?: string;
   isPaid?: boolean | null;
   workMode?: string | null;
   skillMatchCount?: number;
-  workType?: string;
-  duration?: string;
+  workType?: string | null;
+  duration?: string | null;
   code?: string;
   positionCount?: number | null;
   salaryMonthly?: number | null;
   niceToHave?: string | null;
-  startDate?: string | null;
   createdAt?: string | null;
   applicantCount?: number;
+  draft?: boolean;
   /** API-shaped optional fields for company detail view */
   durationLabel?: string;
   jobTypeLabel?: string;
@@ -182,6 +186,20 @@ export interface Application {
   isApprovedByCompany?: boolean;
   createdAt: string;
   status: ApplicationStatus;
+  /** Enriched for company “view application” (mock today; wire from API later) */
+  studentEmail?: string;
+  opportunityDescription?: string;
+  opportunityDeadline?: string;
+  opportunityStartDate?: string;
+  opportunityLocation?: string;
+  opportunityWorkMode?: string;
+  opportunityJobTypeLabel?: string;
+  opportunityDurationLabel?: string;
+  opportunityIsPaid?: boolean;
+  opportunitySalaryMonthly?: number | null;
+  opportunityTypeLabel?: string;
+  opportunityNiceToHave?: string;
+  opportunityRequiredSkills?: string[];
 }
 
 export interface DashboardStats {

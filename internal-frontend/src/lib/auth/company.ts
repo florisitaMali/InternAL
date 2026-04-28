@@ -1,5 +1,12 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
 import type { CompanyProfileFromApi, Opportunity, OpportunityApplicationStats } from '@/src/types';
+import {
+  formatDeadline,
+  formatDurationCodeLabel,
+  normalizePostedAtFromApi,
+  formatWorkTypeLabel,
+  responsibilitiesFromNiceToHave,
+} from '@/src/lib/opportunityFormat';
 
 type ApiOpportunityItem = {
   id: number;
@@ -10,12 +17,21 @@ type ApiOpportunityItem = {
   requiredSkills: string[] | null;
   requiredExperience: string | null;
   deadline: string | null;
+  startDate?: string | null;
   targetUniversityIds: number[] | null;
+  targetUniversities?: { universityId: number; name: string }[] | null;
   type: string | null;
   location: string | null;
   isPaid: boolean | null;
   workMode: string | null;
   skillMatchCount: number | null;
+  positionCount?: number | null;
+  workType?: string | null;
+  duration?: string | null;
+  salaryMonthly?: number | null;
+  niceToHave?: string | null;
+  draft?: boolean | null;
+  postedAt?: string | null;
 };
 
 type CompanyOpportunitiesResponse = {
@@ -56,6 +72,9 @@ function parseBackendErrorMessage(
 
 
 function mapOpportunity(item: ApiOpportunityItem): Opportunity {
+  const workType = item.workType ?? undefined;
+  const duration = item.duration ?? undefined;
+  const niceToHave = item.niceToHave ?? undefined;
   return {
     id: String(item.id),
     companyId: String(item.companyId),
@@ -65,12 +84,28 @@ function mapOpportunity(item: ApiOpportunityItem): Opportunity {
     requiredSkills: item.requiredSkills || [],
     requiredExperience: item.requiredExperience || undefined,
     deadline: item.deadline || undefined,
-    targetUniversityIds: (item.targetUniversityIds || []).map(String),
+    startDate: item.startDate || undefined,
+    targetUniversities: item.targetUniversities ?? undefined,
+    targetUniversityIds:
+      item.targetUniversities?.length
+        ? item.targetUniversities.map((t) => String(t.universityId))
+        : (item.targetUniversityIds || []).map(String),
     type: item.type || undefined,
     location: item.location || undefined,
     isPaid: item.isPaid,
     workMode: item.workMode || undefined,
     skillMatchCount: item.skillMatchCount ?? 0,
+    positionCount: item.positionCount ?? undefined,
+    workType,
+    duration,
+    salaryMonthly: item.salaryMonthly ?? undefined,
+    niceToHave,
+    draft: item.draft === true,
+    jobTypeLabel: formatWorkTypeLabel(workType),
+    durationLabel: formatDurationCodeLabel(duration),
+    startDateLabel: item.startDate ? formatDeadline(item.startDate) : undefined,
+    responsibilities: responsibilitiesFromNiceToHave(niceToHave),
+    postedAt: normalizePostedAtFromApi(item.postedAt),
   };
 }
 

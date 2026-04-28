@@ -17,7 +17,7 @@ import {
   mapApplicationResponseToApplication,
 } from '@/src/lib/auth/admin';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
-import type { Application, DashboardStats, Department, Student, StudyField } from '@/src/types';
+import type { Application, Company, Opportunity,DashboardStats, Department, Student, StudyField } from '@/src/types';
 import { toast } from 'sonner';
 import { 
   Users, 

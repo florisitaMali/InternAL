@@ -34,7 +34,14 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
-import type { Opportunity, Student, StudentExperience, StudentProfileFile, StudentProject } from '../types';
+import type {
+  Application,
+  Opportunity,
+  Student,
+  StudentExperience,
+  StudentProfileFile,
+  StudentProject,
+} from '../types';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import {
   createStudentExperience,
@@ -64,6 +71,7 @@ import {
   formatDeadline,
   formatOpportunityType,
   formatRelativePosted,
+  formatTargetUniversitiesDisplay,
 } from '@/src/lib/opportunityFormat';
 
 interface StudentDashboardProps {
@@ -151,12 +159,12 @@ function durationMatchesBucket(duration: string, bucket: string): boolean {
   return false;
 }
 
-function normalizeWorkTypeKey(wt: string | undefined): string | null {
+function normalizeWorkTypeKey(wt: string | null | undefined): string | null {
   if (!wt?.trim()) return null;
   return wt.trim().toUpperCase().replace(/-/g, '_');
 }
 
-function matchesFlexibleWorkType(workType: string | undefined): boolean {
+function matchesFlexibleWorkType(workType: string | null | undefined): boolean {
   const w = (workType || '').toLowerCase();
   return w.includes('flex') || w.includes('part');
 }
@@ -846,6 +854,14 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 {selectedOpportunity.salaryMonthly != null && selectedOpportunity.salaryMonthly > 0
                   ? `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(selectedOpportunity.salaryMonthly)} / month`
                   : '—'}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4 md:col-span-1">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+                Target universities
+              </div>
+              <div className="text-sm font-semibold text-slate-900">
+                {formatTargetUniversitiesDisplay(selectedOpportunity)}
               </div>
             </div>
           </div>

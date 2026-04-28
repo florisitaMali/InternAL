@@ -2,7 +2,9 @@ package com.internaal.repository;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.internaal.dto.TargetUniversityOption;
 import com.internaal.entity.Opportunity;
+import com.internaal.entity.TargetUniversity;
 import com.internaal.service.OpportunityQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,13 +16,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
-
-import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Repository
 public class OpportunityRepository {
@@ -40,6 +48,9 @@ public class OpportunityRepository {
     @Value("${supabase.anon.key}")
     private String supabaseAnonKey;
 
+    @Value("${supabase.service.role.key:}")
+    private String supabaseServiceRoleKey;
+
     private HttpHeaders authHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.set("apikey", supabaseAnonKey);
@@ -52,6 +63,86 @@ public class OpportunityRepository {
     }
 
     /**
+     * Prefer service role so RLS on {@code university} does not block name resolution when embeds are empty.
+     */
+    private HttpHeaders universityLookupHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Content-Type", "application/json");
+        if (supabaseServiceRoleKey != null && !supabaseServiceRoleKey.isBlank()) {
+            headers.set("apikey", supabaseServiceRoleKey);
+            headers.set("Authorization", "Bearer " + supabaseServiceRoleKey);
+            return headers;
+        }
+        return authHeaders();
+    }
+
+    private static String selectClause() {
+        return "opportunity_id,company_id,code,title,description,"
+                + "required_skills,required_experience,deadline,start_date,type,"
+                + "position_count,job_location,work_mode,work_type,duration,salary_monthly,nice_to_have,"
+                + "is_draft,is_paid,created_at,"
+                + "company(name,location),"
+                + "opportunitytarget(university_id,university(name))";
+    }
+
+    /**
+     * All opportunities for a company (sidebar / company dashboard).
+     */
+    public List<Opportunity> findForCompanyId(int companyId) {
+        try {
+            String url = supabaseUrl + "/rest/v1/opportunity?select=" + selectClause()
+                    + "&company_id=eq." + companyId;
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || !array.isArray()) {
+                return List.of();
+            }
+            List<Opportunity> result = new ArrayList<>();
+            for (JsonNode node : array) {
+                result.add(OpportunityMapper.fromJsonNode(node));
+            }
+            return enrichTargetUniversities(result);
+        } catch (HttpStatusCodeException e) {
+            String body = e.getResponseBodyAsString();
+            String hint = body != null && body.length() > 500 ? body.substring(0, 500) + "…" : body;
+            log.error("findForCompanyId HTTP {}: {}", e.getStatusCode().value(), hint);
+            return List.of();
+        } catch (Exception e) {
+            log.error("findForCompanyId failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Single opportunity for a company if it exists and belongs to {@code companyId}.
+     */
+    public Optional<Opportunity> findByIdAndCompanyId(int opportunityId, int companyId) {
+        try {
+            String url = supabaseUrl + "/rest/v1/opportunity?select=" + selectClause()
+                    + "&opportunity_id=eq." + opportunityId
+                    + "&company_id=eq." + companyId
+                    + "&limit=1";
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || !array.isArray() || array.isEmpty()) {
+                return Optional.empty();
+            }
+            Opportunity o = OpportunityMapper.fromJsonNode(array.get(0));
+            return Optional.of(enrichTargetUniversities(List.of(o)).get(0));
+        } catch (HttpStatusCodeException e) {
+            String body = e.getResponseBodyAsString();
+            String hint = body != null && body.length() > 500 ? body.substring(0, 500) + "…" : body;
+            log.error("findByIdAndCompanyId HTTP {}: {}", e.getStatusCode().value(), hint);
+            return Optional.empty();
+        } catch (Exception e) {
+            log.error("findByIdAndCompanyId failed: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Fetches opportunities visible to the student's university using Supabase REST API.
      * Embeds company (name + location) and opportunitytarget (university_id) via PostgREST.
      * Filtering by university, type, location, skills, and text search is done in Java.
@@ -59,14 +150,15 @@ public class OpportunityRepository {
     public List<Opportunity> findForStudent(Integer studentUniversityId, OpportunityQuery query) {
         try {
             StringBuilder url = new StringBuilder(supabaseUrl);
+            url.append("/rest/v1/opportunity?select=").append(selectClause());
             url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
                .append("required_skills,required_experience,deadline,type,is_paid,work_mode,job_location,work_type,duration,")
                .append("position_count,salary_monthly,nice_to_have,start_date,created_at,")
                .append("company(name,location),")
                .append("opportunitytarget(university_id)");
 
-            if (query.type() != null) {
-                url.append("&type=eq.").append(query.type().name());
+            if (query.type() != null && !query.type().isBlank()) {
+                url.append("&type=eq.").append(query.type().trim());
             }
 
             ResponseEntity<String> response = restTemplate.exchange(
@@ -82,12 +174,18 @@ public class OpportunityRepository {
                 if (!matchesUniversity(node, studentUniversityId)) {
                     continue;
                 }
-                Opportunity opp = mapOpportunity(node);
+                Opportunity opp = OpportunityMapper.fromJsonNode(node);
+                if (opp.draft()) {
+                    continue;
+                }
+                if (query.type() != null && !query.type().isBlank() && !matchesApplicationType(opp, query.type())) {
+                    continue;
+                }
                 if (matchesQuery(opp, node, query)) {
                     result.add(opp);
                 }
             }
-            return result;
+            return enrichTargetUniversities(result);
 
         } catch (Exception e) {
             log.error("findForStudent failed: {}", e.getMessage());
@@ -95,56 +193,229 @@ public class OpportunityRepository {
         }
     }
 
-    public List<Opportunity> findForCompany(Integer companyId) {
+    private List<Opportunity> enrichTargetUniversities(List<Opportunity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return rows;
+        }
+        Set<Integer> missing = new LinkedHashSet<>();
+        for (Opportunity o : rows) {
+            if (o.targetUniversities() == null) {
+                continue;
+            }
+            for (TargetUniversity t : o.targetUniversities()) {
+                if (t.name() == null || t.name().isBlank()) {
+                    missing.add(t.id());
+                }
+            }
+        }
+        if (missing.isEmpty()) {
+            return rows;
+        }
+        Map<Integer, String> names = fetchUniversityNames(missing);
+        if (names.isEmpty()) {
+            log.warn(
+                    "University name lookup returned no rows for ids {}. "
+                            + "Verify PostgREST resource (university vs universities), PK column, and that "
+                            + "SUPABASE_SERVICE_ROLE_KEY is set if RLS blocks reads. Service role configured: {}",
+                    missing,
+                    supabaseServiceRoleKey != null && !supabaseServiceRoleKey.isBlank());
+            return rows;
+        }
+        List<Opportunity> out = new ArrayList<>(rows.size());
+        for (Opportunity o : rows) {
+            out.add(OpportunityMapper.enrichTargetUniversityNames(o, names));
+        }
+        return out;
+    }
+
+    private String restV1Root() {
+        String base = supabaseUrl == null ? "" : supabaseUrl.trim();
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base + "/rest/v1";
+    }
+
+    private Map<Integer, String> fetchUniversityNames(Collection<Integer> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        List<Integer> idList = ids.stream().distinct().sorted().toList();
+        Map<Integer, String> merged = new LinkedHashMap<>();
+        int chunkSize = 80;
+        for (int i = 0; i < idList.size(); i += chunkSize) {
+            List<Integer> chunk = idList.subList(i, Math.min(i + chunkSize, idList.size()));
+            String inList = chunk.stream().map(String::valueOf).collect(Collectors.joining(","));
+            merged.putAll(fetchUniversityNamesChunk(inList, chunk.size()));
+        }
+        return merged;
+    }
+
+    /**
+     * Resolves names in order: (1) {@code opportunitytarget} + embedded {@code university(name)} — same path as
+     * {@link #findDistinctUniversitiesFromOpportunityTargets()} which already works with your JWT; (2) direct
+     * {@code university} GET with raw query strings (avoids PostgREST breaking on encoded {@code select}).
+     */
+    private Map<Integer, String> fetchUniversityNamesChunk(String inList, int expectedMax) {
+        Map<Integer, String> merged = new LinkedHashMap<>();
+        merged.putAll(queryUniversityNamesViaOpportunityTarget(inList, universityLookupHeaders()));
+        if (merged.size() >= expectedMax) {
+            return merged;
+        }
+        merged.putAll(queryUniversityNamesViaOpportunityTarget(inList, authHeaders()));
+        if (merged.size() >= expectedMax) {
+            return merged;
+        }
+        String[] tables = {"university", "universities"};
+        String[] filterColumns = {"university_id", "id"};
+        for (String table : tables) {
+            for (String col : filterColumns) {
+                merged.putAll(queryUniversityTableRaw(table, col, inList, universityLookupHeaders()));
+                if (merged.size() >= expectedMax) {
+                    return merged;
+                }
+                merged.putAll(queryUniversityTableRaw(table, col, inList, authHeaders()));
+                if (merged.size() >= expectedMax) {
+                    return merged;
+                }
+            }
+        }
+        return merged;
+    }
+
+    /**
+     * Uses FK embed from {@code opportunitytarget} → {@code university}; often allowed by RLS when direct
+     * {@code GET /university} is not.
+     */
+    private Map<Integer, String> queryUniversityNamesViaOpportunityTarget(String inList, HttpHeaders headers) {
+        Map<Integer, String> out = new LinkedHashMap<>();
+        if (inList.isBlank()) {
+            return out;
+        }
         try {
-            StringBuilder url = new StringBuilder(supabaseUrl);
-            url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
-               .append("required_skills,required_experience,deadline,type,")
-               .append("company(name,location),")
-               .append("opportunitytarget(university_id)")
-               .append("&company_id=eq.").append(companyId);
-
+            String url = restV1Root() + "/opportunitytarget?select=university_id,university(name)&university_id=in.("
+                    + inList + ")";
             ResponseEntity<String> response = restTemplate.exchange(
-                    url.toString(), HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
-
+                    url,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    String.class);
             JsonNode array = objectMapper.readTree(response.getBody());
-            if (array == null || !array.isArray()) {
-                return List.of();
+            if (array != null && array.isArray()) {
+                for (JsonNode row : array) {
+                    putUniversityNameFromOpportunityTargetRow(row, out);
+                }
             }
-            List<Opportunity> result = new ArrayList<>();
-            for (JsonNode node : array) {
-                result.add(mapOpportunity(node));
-            }
-            return result;
+        } catch (HttpStatusCodeException e) {
+            log.debug(
+                    "opportunitytarget university embed lookup -> {}: {}",
+                    e.getStatusCode(),
+                    truncateForLog(e.getResponseBodyAsString()));
         } catch (Exception e) {
-            log.error("findForCompany failed: {}", e.getMessage());
-            return List.of();
+            log.debug("opportunitytarget university embed lookup: {}", e.getMessage());
+        }
+        return out;
+    }
+
+    private static void putUniversityNameFromOpportunityTargetRow(JsonNode row, Map<Integer, String> out) {
+        if (!row.has("university_id") || row.get("university_id").isNull()) {
+            return;
+        }
+        int uid = row.get("university_id").asInt();
+        JsonNode u = row.get("university");
+        if (u == null || u.isNull()) {
+            return;
+        }
+        JsonNode uni = u.isArray() && !u.isEmpty() ? u.get(0) : u;
+        if (uni == null || uni.isNull()) {
+            return;
+        }
+        String name = pickUniversityDisplayName(uni);
+        if (name != null && !name.isBlank()) {
+            out.putIfAbsent(uid, name.trim());
         }
     }
 
-    public Optional<Opportunity> findByIdAndCompany(Integer opportunityId, Integer companyId) {
-        try {
-            StringBuilder url = new StringBuilder(supabaseUrl);
-            url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
-               .append("required_skills,required_experience,deadline,type,is_paid,work_mode,job_location,work_type,duration,")
-               .append("position_count,salary_monthly,nice_to_have,start_date,created_at,")
-               .append("company(name,location),")
-               .append("opportunitytarget(university_id)")
-               .append("&opportunity_id=eq.").append(opportunityId)
-               .append("&company_id=eq.").append(companyId);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url.toString(), HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
-
-            JsonNode array = objectMapper.readTree(response.getBody());
-            if (array == null || !array.isArray() || array.isEmpty()) {
-                return Optional.empty();
-            }
-            return Optional.of(mapOpportunity(array.get(0)));
-        } catch (Exception e) {
-            log.error("findByIdAndCompany failed: {}", e.getMessage());
-            return Optional.empty();
+    private Map<Integer, String> queryUniversityTableRaw(String table, String filterColumn, String inList, HttpHeaders headers) {
+        if (inList.isBlank()) {
+            return Map.of();
         }
+        String select = "university_id".equals(filterColumn) ? "university_id,name" : "id,name";
+        try {
+            String url = restV1Root() + "/" + table + "?select=" + select + "&" + filterColumn + "=in.(" + inList + ")";
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    String.class);
+            JsonNode array = objectMapper.readTree(response.getBody());
+            return parseUniversityNameRows(array);
+        } catch (HttpStatusCodeException e) {
+            log.debug(
+                    "GET {}/{} -> {}: {}",
+                    table,
+                    filterColumn,
+                    e.getStatusCode(),
+                    truncateForLog(e.getResponseBodyAsString()));
+            return Map.of();
+        } catch (Exception e) {
+            log.debug("GET {}/{}: {}", table, filterColumn, e.getMessage());
+            return Map.of();
+        }
+    }
+
+    private static String truncateForLog(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        return body.length() > 280 ? body.substring(0, 280) + "…" : body;
+    }
+
+    private static Map<Integer, String> parseUniversityNameRows(JsonNode array) {
+        Map<Integer, String> out = new LinkedHashMap<>();
+        if (array == null || !array.isArray()) {
+            return out;
+        }
+        for (JsonNode row : array) {
+            Integer pk = OpportunityMapper.intVal(row, "university_id");
+            if (pk == null) {
+                pk = OpportunityMapper.intVal(row, "id");
+            }
+            if (pk == null) {
+                continue;
+            }
+            String nm = pickUniversityDisplayName(row);
+            if (nm != null && !nm.isBlank()) {
+                out.putIfAbsent(pk, nm.trim());
+            }
+        }
+        return out;
+    }
+
+    private static String pickUniversityDisplayName(JsonNode row) {
+        for (String key : List.of(
+                "name",
+                "university_name",
+                "school_name",
+                "institution_name",
+                "title",
+                "label",
+                "full_name",
+                "display_name",
+                "legal_name")) {
+            String s = OpportunityMapper.str(row, key);
+            if (s != null && !s.isBlank()) {
+                return s.trim();
+            }
+        }
+        return null;
+    }
+
+    /** Student filter: when {@code type} query param is set, require equal {@code opportunity.type} (case-insensitive). */
+    private static boolean matchesApplicationType(Opportunity opp, String filterType) {
+        String f = filterType.trim();
+        String ot = opp.type();
+        return ot != null && !ot.isBlank() && ot.trim().equalsIgnoreCase(f);
     }
 
     /**
@@ -208,13 +479,15 @@ public class OpportunityRepository {
             String location = opp.location() != null ? opp.location().toLowerCase(Locale.ROOT) : "";
             String companyName = opp.companyName() != null ? opp.companyName().toLowerCase(Locale.ROOT) : "";
             String experience = opp.requiredExperience() != null ? opp.requiredExperience().toLowerCase(Locale.ROOT) : "";
+            String nice = opp.niceToHave() != null ? opp.niceToHave().toLowerCase(Locale.ROOT) : "";
             String skillsLower = String.join(" ", opp.requiredSkills()).toLowerCase(Locale.ROOT);
             if (!title.contains(term)
                     && !desc.contains(term)
                     && !skillsLower.contains(term)
                     && !location.contains(term)
                     && !companyName.contains(term)
-                    && !experience.contains(term)) {
+                    && !experience.contains(term)
+                    && !nice.contains(term)) {
                 return false;
             }
         }
@@ -222,101 +495,139 @@ public class OpportunityRepository {
         return true;
     }
 
-    private Opportunity mapOpportunity(JsonNode node) {
-        Integer id = intVal(node, "opportunity_id");
-        Integer companyId = intVal(node, "company_id");
+    /**
+     * Returns universities directly from the university table (not filtered by opportunitytarget).
+     */
+    public List<TargetUniversityOption> findUniversitiesFromUniversityTable() {
+        String[] tables = {"university", "universities"};
+        String[] idColumns = {"university_id", "id"};
+        HttpHeaders[] headers = {universityLookupHeaders(), authHeaders()};
+        String[] nameColumns = {
+                "name",
+                "university_name",
+                "school_name",
+                "institution_name",
+                "title",
+                "label",
+                "full_name",
+                "display_name",
+                "legal_name"
+        };
 
-        JsonNode company = node.get("company");
-        String companyName = null;
-        String location = null;
-        if (company != null && !company.isNull()) {
-            companyName = str(company, "name");
-            location = str(company, "location");
-        }
-
-        String title = str(node, "title");
-        String description = str(node, "description");
-        List<String> requiredSkills = splitCsv(str(node, "required_skills"));
-        String requiredExperience = str(node, "required_experience");
-
-        LocalDate deadline = parseDateField(str(node, "deadline"));
-
-        List<Integer> targetUniversities = new ArrayList<>();
-        JsonNode targets = node.get("opportunitytarget");
-        if (targets != null && targets.isArray()) {
-            for (JsonNode t : targets) {
-                Integer uid = intVal(t, "university_id");
-                if (uid != null) {
-                    targetUniversities.add(uid);
+        Map<Integer, String> merged = new LinkedHashMap<>();
+        for (String table : tables) {
+            for (String idColumn : idColumns) {
+                for (HttpHeaders h : headers) {
+                    for (String nameColumn : nameColumns) {
+                        try {
+                            String select = idColumn + "," + nameColumn;
+                            String url = restV1Root() + "/" + table + "?select=" + select + "&order=" + idColumn + ".asc";
+                            ResponseEntity<String> response = restTemplate.exchange(
+                                    url,
+                                    HttpMethod.GET,
+                                    new HttpEntity<>(h),
+                                    String.class);
+                            JsonNode array = objectMapper.readTree(response.getBody());
+                            if (array == null || !array.isArray()) {
+                                break;
+                            }
+                            // No rows: same for any name column with this table/id/auth — stop inner loop.
+                            if (array.isEmpty()) {
+                                break;
+                            }
+                            Map<Integer, String> parsed = parseUniversityNameRows(array);
+                            if (!parsed.isEmpty()) {
+                                parsed.forEach(merged::putIfAbsent);
+                                // Columns exist and we got id+name pairs; other name columns won't add more.
+                                break;
+                            }
+                            // 200 with rows but no usable id+name (e.g. name column empty, name lives in another field).
+                            log.debug(
+                                    "GET all universities returned {} rows but none parsed for {}/{} (try next name column)",
+                                    array.size(),
+                                    table,
+                                    idColumn);
+                        } catch (HttpStatusCodeException e) {
+                            log.debug(
+                                    "GET all universities {}/{}/{} -> {}: {}",
+                                    table,
+                                    idColumn,
+                                    nameColumn,
+                                    e.getStatusCode(),
+                                    truncateForLog(e.getResponseBodyAsString()));
+                        } catch (Exception e) {
+                            log.debug("GET all universities {}/{}/{}: {}", table, idColumn, nameColumn, e.getMessage());
+                        }
+                    }
                 }
             }
         }
 
-        String typeStr = str(node, "type");
-        String typeRaw = (typeStr != null && !typeStr.isBlank()) ? typeStr.trim() : null;
-        Opportunity.InternshipType type = null;
-        if (typeStr != null && !typeStr.isBlank()) {
-            String normalized = typeStr.trim().toUpperCase(Locale.ROOT).replace(' ', '_');
-            try {
-                type = Opportunity.InternshipType.valueOf(normalized);
-            } catch (IllegalArgumentException ignored) {
-            }
+        if (merged.isEmpty()) {
+            log.warn(
+                    "findUniversitiesFromUniversityTable: no rows parsed. If universities exist in the DB, check "
+                            + "RLS policies on public.university and set supabase.service.role.key so the backend can read them.");
         }
 
-        Boolean isPaid = (node != null && node.has("is_paid") && !node.get("is_paid").isNull())
-                ? node.get("is_paid").asBoolean()
-                : null;
-        Opportunity.WorkMode workMode = Opportunity.WorkMode.fromDb(str(node, "work_mode"));
-        String jobLocation = str(node, "job_location");
-        if (jobLocation != null && !jobLocation.isBlank()) {
-            location = jobLocation;
-        }
-        String workType = str(node, "work_type");
-        String duration = str(node, "duration");
-        String code = str(node, "code");
-        Integer positionCount = intVal(node, "position_count");
-        Integer salaryMonthly = intVal(node, "salary_monthly");
-        String niceToHave = str(node, "nice_to_have");
-        LocalDate startDate = parseDateField(str(node, "start_date"));
-        String createdAt = str(node, "created_at");
-
-        return new Opportunity(
-                id, companyId, companyName, title, description,
-                requiredSkills, requiredExperience, deadline,
-                targetUniversities, type, location, isPaid, workMode, workType, duration,
-                typeRaw, code, positionCount, salaryMonthly, niceToHave, startDate, createdAt);
+        return merged.entrySet().stream()
+                .map(e -> new TargetUniversityOption(e.getKey(), e.getValue()))
+                .sorted(Comparator.comparing(TargetUniversityOption::name, String.CASE_INSENSITIVE_ORDER))
+                .toList();
     }
 
-    private static LocalDate parseDateField(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
+    /**
+     * Distinct {@code university_id} values in {@code opportunitytarget}, with optional embedded {@code university.name}.
+     */
+    public List<TargetUniversityOption> findDistinctUniversitiesFromOpportunityTargets() {
         try {
-            String day = raw.length() >= 10 ? raw.substring(0, 10) : raw;
-            return LocalDate.parse(day);
-        } catch (Exception ignored) {
-            return null;
+            String url = restV1Root() + "/opportunitytarget?select=university_id,university(name)";
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || !array.isArray()) {
+                return List.of();
+            }
+            Set<Integer> allUids = new LinkedHashSet<>();
+            Map<Integer, String> byId = new LinkedHashMap<>();
+            for (JsonNode row : array) {
+                if (!row.has("university_id") || row.get("university_id").isNull()) {
+                    continue;
+                }
+                int uid = row.get("university_id").asInt();
+                allUids.add(uid);
+                String name = null;
+                JsonNode u = row.get("university");
+                if (u != null && !u.isNull()) {
+                    JsonNode uni = u.isArray() && !u.isEmpty() ? u.get(0) : u;
+                    if (uni != null && !uni.isNull()) {
+                        name = pickUniversityDisplayName(uni);
+                    }
+                }
+                if (name != null && !name.isBlank()) {
+                    byId.putIfAbsent(uid, name.trim());
+                }
+            }
+            Set<Integer> missingNames = new LinkedHashSet<>();
+            for (Integer uid : allUids) {
+                String v = byId.get(uid);
+                if (v == null || v.isBlank()) {
+                    missingNames.add(uid);
+                }
+            }
+            if (!missingNames.isEmpty()) {
+                Map<Integer, String> fetched = fetchUniversityNames(missingNames);
+                for (Integer uid : missingNames) {
+                    String r = fetched.get(uid);
+                    byId.put(uid, (r != null && !r.isBlank()) ? r : ("University " + uid));
+                }
+            }
+            return byId.entrySet().stream()
+                    .map(e -> new TargetUniversityOption(e.getKey(), e.getValue()))
+                    .sorted(Comparator.comparing(TargetUniversityOption::name, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        } catch (Exception e) {
+            log.error("findDistinctUniversitiesFromOpportunityTargets failed: {}", e.getMessage());
+            return List.of();
         }
-    }
-
-    private static String str(JsonNode node, String field) {
-        return (node != null && node.has(field) && !node.get(field).isNull())
-                ? node.get(field).asText()
-                : null;
-    }
-
-    private static Integer intVal(JsonNode node, String field) {
-        return (node != null && node.has(field) && !node.get(field).isNull())
-                ? node.get(field).asInt()
-                : null;
-    }
-
-    private static List<String> splitCsv(String raw) {
-        if (raw == null || raw.isBlank()) return List.of();
-        List<String> out = new ArrayList<>();
-        for (String s : raw.split(",")) {
-            if (s != null && !s.isBlank()) out.add(s.trim());
-        }
-        return out;
     }
 }

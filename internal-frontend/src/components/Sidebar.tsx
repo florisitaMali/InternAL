@@ -46,7 +46,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'applications', label: 'My Applications', icon: FileText },
     ],
     COMPANY: [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'opportunities', label: 'My Opportunities', icon: Briefcase },
       { id: 'applications', label: 'Applications', icon: FileText },
       { id: 'profile', label: 'Company Profile', icon: Building2 },

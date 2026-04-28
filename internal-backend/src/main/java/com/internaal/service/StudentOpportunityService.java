@@ -2,7 +2,9 @@ package com.internaal.service;
 
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.StudentOpportunitiesResponse;
+import com.internaal.dto.TargetUniversityOption;
 import com.internaal.entity.Opportunity;
+import com.internaal.entity.TargetUniversity;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.OpportunityRepository;
@@ -70,10 +72,30 @@ public class StudentOpportunityService {
         return new StudentOpportunitiesResponse(items);
     }
 
+    private static List<Integer> targetUniversityIds(Opportunity o) {
+        if (o.targetUniversities() == null) {
+            return List.of();
+        }
+        return o.targetUniversities().stream().map(TargetUniversity::id).toList();
+    }
+
+    private static List<TargetUniversityOption> targetUniversityOptions(Opportunity o) {
+        if (o.targetUniversities() == null || o.targetUniversities().isEmpty()) {
+            return List.of();
+        }
+        return o.targetUniversities().stream()
+                .map(t -> new TargetUniversityOption(
+                        t.id(),
+                        t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id())))
+                .toList();
+    }
+
+     
     private static OpportunityResponseItem toDto(Opportunity o, List<String> studentSkills, int applicantCount) {
         int matches = skillMatchCount(o, studentSkills);
         String typeStr = resolveTypeDisplay(o);
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
+        String wt = o.workType();
         return new OpportunityResponseItem(
                 o.id(),
                 o.companyId(),
@@ -83,19 +105,22 @@ public class StudentOpportunityService {
                 o.requiredSkills(),
                 o.requiredExperience(),
                 o.deadline(),
-                o.targetUniversityIds(),
+                o.startDate(),
+                targetUniversityIds(o),
+                targetUniversityOptions(o),
                 typeStr,
                 o.location(),
                 o.isPaid(),
                 wm,
-                matches,
-                o.workType(),
-                o.duration(),
-                o.code(),
                 o.positionCount(),
+                wt,
+                o.duration(),
                 o.salaryMonthly(),
                 o.niceToHave(),
-                o.startDate(),
+                o.draft(),
+                o.postedAt(),
+                matches,
+                o.code(),
                 o.createdAt(),
                 applicantCount
         );
@@ -105,7 +130,7 @@ public class StudentOpportunityService {
         if (o.typeRaw() != null && !o.typeRaw().isBlank()) {
             return o.typeRaw().trim();
         }
-        return o.type() != null ? o.type().name() : null;
+        return o.type();
     }
 
     /**

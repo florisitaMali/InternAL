@@ -1,0 +1,33 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: internal-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd internal-frontend
+          npm ci
+
+      - name: Lint
+        run: |
+          cd internal-frontend
+          npm run lint
+
+      - name: Build check
+        run: |
+          cd internal-frontend
+          npm run build

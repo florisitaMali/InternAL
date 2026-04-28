@@ -17,6 +17,7 @@ target/
 node_modules/
 .next/
 out/
+internal-frontend/dist/
 
 # Logs
 *.log

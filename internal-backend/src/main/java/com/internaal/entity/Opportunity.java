@@ -1,5 +1,6 @@
 package com.internaal.entity;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -12,8 +13,11 @@ public record Opportunity(
         List<String> requiredSkills,
         String requiredExperience,
         LocalDate deadline,
-        List<Integer> targetUniversityIds,
-        InternshipType type,
+        /** Expected role / internship start (optional). */
+        /** Empty = open to all universities. */
+        List<TargetUniversity> targetUniversities,
+        /** Stored as plain text in the database; not limited to specific enum values. */
+        String type,
         String location,
         Boolean isPaid,
         WorkMode workMode,
@@ -25,11 +29,14 @@ public record Opportunity(
         Integer salaryMonthly,
         String niceToHave,
         LocalDate startDate,
-        String createdAt
+        String createdAt,
+        boolean draft,
+        /** From {@code opportunity.created_at}; when the listing was created. */
+        Instant postedAt
 ) {
-    public enum InternshipType {
-        PROFESSIONAL_PRACTICE,
-        INDIVIDUAL_GROWTH
+    public enum WorkType {
+        FULL_TIME,
+        PART_TIME
     }
 
     public enum WorkMode {
@@ -55,8 +62,21 @@ public record Opportunity(
             return null;
         }
 
+        /** Human-readable strings returned in JSON to clients (matches frontend). */
         public String toApiValue() {
             return this == On_site ? "On-site" : name();
+        }
+
+        /**
+         * Values stored in Postgres; many schemas use {@code work_mode_enum} with uppercase labels
+         * ({@code REMOTE}, {@code HYBRID}, {@code ON_SITE}) instead of API-style strings.
+         */
+        public String toDbValue() {
+            return switch (this) {
+                case Remote -> "REMOTE";
+                case Hybrid -> "HYBRID";
+                case On_site -> "ON_SITE";
+            };
         }
     }
 }

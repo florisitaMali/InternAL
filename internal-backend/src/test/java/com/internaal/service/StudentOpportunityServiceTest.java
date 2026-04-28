@@ -1,6 +1,7 @@
 package com.internaal.service;
 
 import com.internaal.entity.Opportunity;
+import com.internaal.entity.TargetUniversity;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -10,19 +11,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class StudentOpportunityServiceTest {
 
-    @Test
-    void skillMatchCount_isCaseInsensitiveOverlap() {
-        Opportunity o = new Opportunity(
+    private static Opportunity baseOpportunity(List<String> requiredSkills) {
+        return new Opportunity(
                 1,
                 2,
                 "Co",
                 "T",
                 "D",
-                List.of("React", "TypeScript", "SQL"),
+                requiredSkills,
                 "",
                 LocalDate.now(),
-                List.of(),
-                Opportunity.InternshipType.PROFESSIONAL_PRACTICE,
+                List.<TargetUniversity>of(),
+                null,
                 null,
                 null,
                 Opportunity.WorkMode.Remote,
@@ -34,38 +34,21 @@ class StudentOpportunityServiceTest {
                 null,
                 null,
                 null,
-                null
-        );
+                null,
+                false,
+                null);
+    }
+
+    @Test
+    void skillMatchCount_isCaseInsensitiveOverlap() {
+        Opportunity o = baseOpportunity(List.of("React", "TypeScript", "SQL"));
         List<String> studentSkills = List.of("react", "SQL");
         assertThat(StudentOpportunityService.skillMatchCount(o, studentSkills)).isEqualTo(2);
     }
 
     @Test
     void skillMatchCount_emptyStudentSkills_returnsZero() {
-        Opportunity o = new Opportunity(
-                1,
-                2,
-                "Co",
-                "T",
-                "D",
-                List.of("React"),
-                "",
-                LocalDate.now(),
-                List.of(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-        );
-        assertThat(StudentOpportunityService.skillMatchCount(o, List.of())).isZero();
+        Opportunity o = baseOpportunity(List.of("React"));
+        assertThat(StudentOpportunityService.skillMatchCount(o, List.of())).isEqualTo(0);
     }
 }

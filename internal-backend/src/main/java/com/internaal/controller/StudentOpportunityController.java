@@ -1,7 +1,6 @@
 package com.internaal.controller;
 
 import com.internaal.dto.StudentOpportunitiesResponse;
-import com.internaal.entity.Opportunity;
 import com.internaal.entity.UserAccount;
 import com.internaal.service.OpportunityQuery;
 import com.internaal.service.StudentOpportunityService;
@@ -46,23 +45,14 @@ public class StudentOpportunityController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Student access required");
         }
 
-        Opportunity.InternshipType internshipType = parseType(type);
-
-        OpportunityQuery query = new OpportunityQuery(q, skills, internshipType, location, paid, workMode);
+        OpportunityQuery query = new OpportunityQuery(q, skills, normalizeTypeParam(type), location, paid, workMode);
         return studentOpportunityService.listForStudent(user, query);
     }
 
-    private static Opportunity.InternshipType parseType(String type) {
+    private static String normalizeTypeParam(String type) {
         if (type == null || type.isBlank()) {
             return null;
         }
-        try {
-            return Opportunity.InternshipType.valueOf(type.trim());
-        } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "type must be PROFESSIONAL_PRACTICE or INDIVIDUAL_GROWTH"
-            );
-        }
+        return type.trim();
     }
 }

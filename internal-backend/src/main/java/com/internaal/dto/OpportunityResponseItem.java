@@ -2,6 +2,7 @@ package com.internaal.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -15,19 +16,22 @@ public record OpportunityResponseItem(
         List<String> requiredSkills,
         String requiredExperience,
         LocalDate deadline,
+        LocalDate startDate,
         List<Integer> targetUniversityIds,
+        List<TargetUniversityOption> targetUniversities,
         String type,
         String location,
         Boolean isPaid,
         String workMode,
-        int skillMatchCount,
+        Integer positionCount,
         String workType,
         String duration,
-        String code,
-        Integer positionCount,
         Integer salaryMonthly,
         String niceToHave,
-        LocalDate startDate,
+        Boolean draft,
+        Instant postedAt,
+        int skillMatchCount,
+        String code,
         String createdAt,
         Integer applicantCount
 ) {

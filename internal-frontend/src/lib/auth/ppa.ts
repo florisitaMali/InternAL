@@ -43,3 +43,9 @@ export async function fetchPpaStudents(
 ): Promise<{ data: AdminStudentRow[] | null; errorMessage: string | null }> {
   return fetchJson<AdminStudentRow[]>('/api/ppa/students', accessToken);
 }
+
+export async function fetchPpaMyStudents(
+  accessToken: string
+): Promise<{ data: AdminStudentRow[] | null; errorMessage: string | null }> {
+  return fetchJson<AdminStudentRow[]>('/api/ppa/my-students', accessToken);
+}

@@ -5,22 +5,29 @@ import com.internaal.dto.ApplicationResponse;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.ApplicationRepository;
+import com.internaal.repository.PpaRepository;
 import com.internaal.repository.UniversityAdminRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class PpaService {
 
     private final ApplicationRepository applicationRepository;
     private final UniversityAdminRepository universityAdminRepository;
+    private final PpaRepository ppaRepository;
 
-    public PpaService(ApplicationRepository applicationRepository, UniversityAdminRepository universityAdminRepository) {
+    public PpaService(ApplicationRepository applicationRepository,
+                      UniversityAdminRepository universityAdminRepository,
+                      PpaRepository ppaRepository) {
         this.applicationRepository = applicationRepository;
         this.universityAdminRepository = universityAdminRepository;
+        this.ppaRepository = ppaRepository;
     }
 
     public List<ApplicationResponse> listApplications(UserAccount user) {
@@ -31,6 +38,51 @@ public class PpaService {
     public List<AdminStudentResponse> listStudents(UserAccount user) {
         int universityId = requireUniversityScope(user);
         return universityAdminRepository.listStudentsByUniversityId(universityId);
+    }
+
+    public List<AdminStudentResponse> listStudentsByField(UserAccount user) {
+        int ppaId;
+        try {
+            ppaId = Integer.parseInt(user.getLinkedEntityId());
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "linked_entity_id must be a numeric ppa_id for this endpoint");
+        }
+
+        List<Integer> fieldIds = ppaRepository.getPpaFieldIds(ppaId);
+        if (fieldIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<AdminStudentResponse> students = ppaRepository.listStudentsByFieldIds(fieldIds);
+        if (students.isEmpty()) {
+            return students;
+        }
+
+        List<Integer> studentIds = students.stream()
+                .map(AdminStudentResponse::studentId)
+                .collect(Collectors.toList());
+
+        Map<Integer, int[]> stats = ppaRepository.getApplicationStatsByStudentIds(studentIds);
+
+        return students.stream().map(s -> {
+            int[] stat = stats.get(s.studentId());
+            int count = stat != null ? stat[0] : 0;
+            String status = stat != null ? PpaRepository.statusLabel(stat[1]) : "WAITING";
+            return new AdminStudentResponse(
+                    s.studentId(),
+                    s.fullName(),
+                    s.email(),
+                    s.universityName(),
+                    s.departmentId(),
+                    s.studyFieldId(),
+                    s.studyYear(),
+                    s.cgpa(),
+                    s.studyFieldName(),
+                    count,
+                    status
+            );
+        }).collect(Collectors.toList());
     }
 
     /**

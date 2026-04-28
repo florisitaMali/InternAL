@@ -165,7 +165,10 @@ public class UniversityAdminRepository {
                             intVal(n, "department_id"),
                             intVal(n, "field_id"),
                             intVal(n, "study_year"),
-                            cgpa
+                            cgpa,
+                            null,
+                            null,
+                            null
                     ));
                 }
             }
@@ -224,7 +227,10 @@ public class UniversityAdminRepository {
                 intVal(first, "department_id"),
                 intVal(first, "field_id"),
                 intVal(first, "study_year"),
-                cgpa
+                cgpa,
+                null,
+                null,
+                null
         ));
     }
 

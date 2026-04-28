@@ -75,6 +75,9 @@ export type AdminStudentRow = {
   studyFieldId: number | null;
   studyYear: number | null;
   cgpa: number | null;
+  studyFieldName?: string | null;
+  applicationCount?: number | null;
+  applicationStatus?: string | null;
 };
 type AdminStatsRow = { totalStudents: number; totalDepartments: number; totalStudyFields: number; ppaApprovers: number };
 type AdminCompanyRow = { companyId: number; name: string; industry: string | null };

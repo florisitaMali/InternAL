@@ -49,6 +49,10 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
   const [showStudentFilters, setShowStudentFilters] = useState(false);
   const [myStudentsSearch, setMyStudentsSearch] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<AdminStudentRow | null>(null);
+  const [studentYearFilter, setStudentYearFilter] = useState<string[]>([]);
+  const [studentFieldFilter, setStudentFieldFilter] = useState<string[]>([]);
+  const [studentAppFilter, setStudentAppFilter] = useState<string[]>([]);
+  const [studentStatusFilter, setStudentStatusFilter] = useState<string[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -283,9 +287,37 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
 
   const filteredMyStudents = useMemo(() => {
     const q = myStudentsSearch.trim().toLowerCase();
-    if (!q) return myStudents;
-    return myStudents.filter((s) => (s.fullName || '').toLowerCase().includes(q));
-  }, [myStudents, myStudentsSearch]);
+    return myStudents.filter((s) => {
+      if (q && !(s.fullName || '').toLowerCase().includes(q)) return false;
+      if (studentYearFilter.length > 0) {
+        const suffixes: Record<number, string> = { 1: 'st', 2: 'nd', 3: 'rd' };
+        const label = s.studyYear != null ? `${s.studyYear}${suffixes[s.studyYear] ?? 'th'} Year` : '';
+        if (!studentYearFilter.includes(label)) return false;
+      }
+      if (studentFieldFilter.length > 0) {
+        if (!s.studyFieldName || !studentFieldFilter.includes(s.studyFieldName)) return false;
+      }
+      if (studentAppFilter.length > 0) {
+        const count = s.applicationCount ?? 0;
+        const inRange = studentAppFilter.some((r) => {
+          if (r === '0–5') return count >= 0 && count <= 5;
+          if (r === '6–10') return count >= 6 && count <= 10;
+          if (r === '11+') return count >= 11;
+          return false;
+        });
+        if (!inRange) return false;
+      }
+      if (studentStatusFilter.length > 0) {
+        const status = s.applicationStatus;
+        const label =
+          status === 'APPROVED' ? 'Accepted' :
+          status === 'REJECTED' ? 'Rejected' :
+          'Waiting Review';
+        if (!studentStatusFilter.includes(label)) return false;
+      }
+      return true;
+    });
+  }, [myStudents, myStudentsSearch, studentYearFilter, studentFieldFilter, studentAppFilter, studentStatusFilter]);
 
   const uniqueStudyFields = useMemo(
     () => Array.from(new Set(myStudents.map((s) => s.studyFieldName).filter(Boolean))) as string[],
@@ -333,12 +365,24 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
             <div>
               <div className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Study Year</div>
               <div className="space-y-1.5">
-                {[1, 2, 3, 4, 5].map((y) => (
-                  <label key={y} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-                    <input type="checkbox" className="rounded border-slate-300 text-[#002B5B]" />
-                    {studyYearLabel(y)}
-                  </label>
-                ))}
+                {[1, 2, 3, 4, 5].map((y) => {
+                  const label = studyYearLabel(y);
+                  return (
+                    <label key={y} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-[#002B5B]"
+                        checked={studentYearFilter.includes(label)}
+                        onChange={(e) =>
+                          setStudentYearFilter((prev) =>
+                            e.target.checked ? [...prev, label] : prev.filter((v) => v !== label)
+                          )
+                        }
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
               </div>
             </div>
             <div>
@@ -346,7 +390,16 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
               <div className="space-y-1.5">
                 {uniqueStudyFields.map((f) => (
                   <label key={f} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-                    <input type="checkbox" className="rounded border-slate-300 text-[#002B5B]" />
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={studentFieldFilter.includes(f)}
+                      onChange={(e) =>
+                        setStudentFieldFilter((prev) =>
+                          e.target.checked ? [...prev, f] : prev.filter((v) => v !== f)
+                        )
+                      }
+                    />
                     {f}
                   </label>
                 ))}
@@ -358,7 +411,16 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
               <div className="space-y-1.5">
                 {['0–5', '6–10', '11+'].map((r) => (
                   <label key={r} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-                    <input type="checkbox" className="rounded border-slate-300 text-[#002B5B]" />
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={studentAppFilter.includes(r)}
+                      onChange={(e) =>
+                        setStudentAppFilter((prev) =>
+                          e.target.checked ? [...prev, r] : prev.filter((v) => v !== r)
+                        )
+                      }
+                    />
                     {r}
                   </label>
                 ))}
@@ -369,15 +431,37 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
               <div className="space-y-1.5">
                 {['Waiting Review', 'Accepted', 'Rejected'].map((s) => (
                   <label key={s} className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-                    <input type="checkbox" className="rounded border-slate-300 text-[#002B5B]" />
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={studentStatusFilter.includes(s)}
+                      onChange={(e) =>
+                        setStudentStatusFilter((prev) =>
+                          e.target.checked ? [...prev, s] : prev.filter((v) => v !== s)
+                        )
+                      }
+                    />
                     {s}
                   </label>
                 ))}
               </div>
             </div>
-            <div className="col-span-2 md:col-span-4 flex justify-end">
+            <div className="col-span-2 md:col-span-4 flex justify-end gap-3">
               <button
                 suppressHydrationWarning
+                onClick={() => {
+                  setStudentYearFilter([]);
+                  setStudentFieldFilter([]);
+                  setStudentAppFilter([]);
+                  setStudentStatusFilter([]);
+                }}
+                className="px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
+              >
+                Clear All
+              </button>
+              <button
+                suppressHydrationWarning
+                onClick={() => setShowStudentFilters(false)}
                 className="px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#003a7a] transition-all"
               >
                 Apply Filters

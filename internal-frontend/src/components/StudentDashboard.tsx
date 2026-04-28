@@ -13,6 +13,7 @@ import ProfileEditor from './ProfileEditor';
 import StudentProfileView from './StudentProfileView';
 import UnderDevelopment from './UnderDevelopment';
 import SubmitApplicationModal from './SubmitApplicationModal';
+import NotificationsPanel from './NotificationsPanel';
 import { ApplicationFormData } from './SubmitApplicationModal';
 import {
   Briefcase,
@@ -1666,10 +1667,16 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   return (
     <Dashboard
-      title=""
+      title={`Hello, ${currentUserName}`}
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}
+      notificationPanel={(close) => (
+        <NotificationsPanel
+          onClose={close}
+          className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
+        />
+      )}
       topBarVariant={profileBrowseMode ? 'brand' : 'default'}
       hidePageIntro={profileBrowseMode}
     >

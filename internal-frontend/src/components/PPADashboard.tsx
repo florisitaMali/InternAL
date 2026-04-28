@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Dashboard from './Dashboard';
 import UnderDevelopment from './UnderDevelopment';
+import NotificationsPanel from './NotificationsPanel';
 import { fetchPpaApplications, fetchPpaStudents } from '@/src/lib/auth/ppa';
 import { mapAdminStudentToStudent } from '@/src/lib/auth/admin';
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
@@ -386,6 +387,12 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}
+      notificationPanel={(close) => (
+        <NotificationsPanel
+          onClose={close}
+          className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
+        />
+      )}
     >
       {renderContent()}
     </Dashboard>

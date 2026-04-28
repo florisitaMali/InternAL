@@ -19,6 +19,8 @@ interface DashboardProps {
    * (close) => <NotificationsPanel onClose={close} />. Backdrop, Escape, and the panel X close it.
    */
   notificationPanel?: (close: () => void) => React.ReactNode;
+  /** Unread count from GET /api/notifications; red bell badge only when count is greater than zero. */
+  notificationUnreadCount?: number;
   /** When set, top bar shows the InternAL mark on larger screens instead of the search field. */
   topBarVariant?: 'default' | 'brand';
   /** Hide the large page title block below the top bar (e.g. student profile layout). */
@@ -33,6 +35,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   userName,
   userRole,
   notificationPanel,
+  notificationUnreadCount = 0,
   topBarVariant = 'default',
   hidePageIntro = false,
 }) => {
@@ -50,6 +53,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [notifOpen, closeNotifications]);
 
   const hasNotifications = Boolean(notificationPanel);
+  const showUnreadBadge = hasNotifications && notificationUnreadCount > 0;
   const showTitle = Boolean(title?.trim());
   const showSubtitle = subtitle != null && subtitle !== '';
   const showPageHeader = showTitle || showSubtitle;
@@ -77,7 +81,13 @@ const Dashboard: React.FC<DashboardProps> = ({
                 setNotifOpen((o) => !o);
               }}
               disabled={!hasNotifications}
-              aria-label={hasNotifications ? 'Notifications' : 'Notifications unavailable'}
+              aria-label={
+                hasNotifications
+                  ? notificationUnreadCount > 0
+                    ? `Notifications, ${notificationUnreadCount} unread`
+                    : 'Notifications'
+                  : 'Notifications unavailable'
+              }
               aria-expanded={hasNotifications ? notifOpen : undefined}
               aria-haspopup={hasNotifications ? 'dialog' : undefined}
               title={hasNotifications ? 'Notifications' : undefined}
@@ -89,8 +99,11 @@ const Dashboard: React.FC<DashboardProps> = ({
               )}
             >
               <Bell size={20} />
-              {hasNotifications ? (
-                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white pointer-events-none" />
+              {showUnreadBadge ? (
+                <span
+                  className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white pointer-events-none"
+                  aria-hidden
+                />
               ) : null}
             </button>
 

@@ -68,9 +68,15 @@ interface NotificationsPanelProps {
   onClose?: () => void;
   /** Merged onto the root card; use for dropdown layout (e.g. drop max-width centering). */
   className?: string;
+  /** Called after mark read / mark all so the header bell badge can refresh without waiting for poll. */
+  onUnreadMayHaveChanged?: () => void;
 }
 
-const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ onClose, className }) => {
+const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
+  onClose,
+  className,
+  onUnreadMayHaveChanged,
+}) => {
   const [tab, setTab] = useState<TabKey>('unread');
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -135,6 +141,7 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ onClose, classN
         prev.map((x) => (x.notificationId === n.notificationId ? { ...x, isRead: true } : x))
       );
       setUnreadCount((c) => Math.max(0, c - 1));
+      onUnreadMayHaveChanged?.();
     } catch {
       toast.error('Could not mark as read');
     }
@@ -155,6 +162,7 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ onClose, classN
       }
       setItems(data.notifications);
       setUnreadCount(data.unreadCount);
+      onUnreadMayHaveChanged?.();
     } catch {
       toast.error('Could not mark all as read');
     } finally {

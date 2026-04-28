@@ -158,6 +158,50 @@ public class NotificationRepository {
         }
     }
 
+    /**
+     * Inserts a notification (service role). PPA recipients use {@code university_id} as {@code recipient_id}
+     * to match {@code useraccount.linked_entity_id} for PPA accounts.
+     */
+    public boolean insertNotification(
+            Role recipientRole,
+            int recipientId,
+            String message,
+            Role senderRole,
+            int senderId) {
+        if (!serviceRoleConfigured()) {
+            log.warn("insertNotification skipped: SUPABASE_SERVICE_ROLE_KEY is not set");
+            return false;
+        }
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("apikey", supabaseServiceRoleKey);
+            headers.set("Authorization", "Bearer " + supabaseServiceRoleKey);
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Prefer", "return=minimal");
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("recipient_role", recipientRole.name());
+            row.put("recipient_id", recipientId);
+            row.put("message", message);
+            row.put("is_read", false);
+            row.put("sender_role", senderRole.name());
+            row.put("sender_id", senderId);
+
+            String url = supabaseUrl + "/rest/v1/notification";
+            String payload = objectMapper.writeValueAsString(List.of(row));
+            restTemplate.exchange(
+                    url,
+                    HttpMethod.POST,
+                    new HttpEntity<>(payload, headers),
+                    String.class
+            );
+            return true;
+        } catch (Exception e) {
+            log.error("insertNotification failed: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
     private JsonNode fetchNotificationsArray(Role recipientRole, int recipientId, String userJwt) throws Exception {
         String url = UriComponentsBuilder
                 .fromHttpUrl(supabaseUrl + "/rest/v1/notification")

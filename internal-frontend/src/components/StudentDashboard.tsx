@@ -56,6 +56,7 @@ import {
   uploadStudentCv,
 } from '@/src/lib/auth/userAccount';
 import { fetchStudentApplications, fetchStudentOpportunities, getApiBaseUrl, type ApplicationResponse, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
+import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
 import {
   formatDbDuration,
@@ -287,6 +288,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   currentStudent,
   onToggleSidebar,
 }) => {
+  const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [student, setStudent] = useState<Student>(currentStudent ?? createPlaceholderStudent());
   const [opportunityFilters, setOpportunityFilters] = useState<OpportunityFilterState>(EMPTY_FILTERS);
@@ -1671,9 +1673,14 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}
+      notificationUnreadCount={unreadCount}
       notificationPanel={(close) => (
         <NotificationsPanel
-          onClose={close}
+          onClose={() => {
+            void refreshUnreadNotifications();
+            close();
+          }}
+          onUnreadMayHaveChanged={refreshUnreadNotifications}
           className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
         />
       )}

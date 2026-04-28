@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
+import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import { fetchNotifications } from '@/src/lib/auth/notifications';
 
 const DEFAULT_POLL_MS = 30_000;
@@ -14,9 +14,7 @@ export function useNotificationUnreadCount(pollMs: number = DEFAULT_POLL_MS) {
 
   const refresh = useCallback(async () => {
     try {
-      const supabase = getSupabaseBrowserClient();
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
+      const token = await getSessionAccessToken();
       if (!token) {
         setUnreadCount(0);
         return;

@@ -12,6 +12,7 @@ import {
   GraduationCap,
   BookOpen,
   Menu,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Role } from '@/src/types';
@@ -43,6 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
     STUDENT: [
       { id: 'profile', label: 'My Profile', icon: User },
       { id: 'opportunities', label: 'Opportunities', icon: Briefcase },
+      { id: 'best-matches', label: 'Best Matches', icon: Sparkles },
       { id: 'applications', label: 'My Applications', icon: FileText },
     ],
     COMPANY: [
@@ -93,9 +95,13 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
               isOpen
                 ? 'w-[calc(100%-16px)] mx-2 gap-3 px-4 py-3 rounded-xl'
                 : 'w-full justify-center py-3',
-              activeTab === item.id
-                ? 'bg-[#002B5B]/10 text-[#002B5B] shadow-sm'
-                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+              item.id === 'best-matches'
+                ? activeTab === item.id
+                  ? 'bg-amber-100/90 text-amber-950 shadow-sm ring-1 ring-amber-300/80'
+                  : 'text-amber-900/85 hover:bg-amber-50/90 hover:text-amber-950'
+                : activeTab === item.id
+                  ? 'bg-[#002B5B]/10 text-[#002B5B] shadow-sm'
+                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
             )}
           >
             <item.icon size={18} strokeWidth={activeTab === item.id ? 2.5 : 2} className="flex-shrink-0" />

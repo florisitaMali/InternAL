@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Sidebar from '@/src/components/Sidebar';
 import { Role, Student } from '@/src/types';
@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { clearSupabaseAuthStorage, getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
 import { messageFromUnknown, toError } from '@/src/lib/messageFromUnknown';
+import UrlStudentTabSync from '@/src/components/UrlStudentTabSync';
 
 const GET_SESSION_TIMEOUT_MS = 25_000;
 const ROLE_LABELS: Record<Role, string> = {
@@ -183,14 +184,6 @@ export default function Home() {
     else if (role === 'PPA') setActiveTab('dashboard');
   }, [activeTab, role]);
 
-  
-  /** Legacy sidebar tab id removed; migrate old sessions still on "notifications". */
-  useEffect(() => {
-    if (activeTab !== 'notifications') return;
-    if (role === 'STUDENT') setActiveTab('opportunities');
-    else if (role === 'PPA') setActiveTab('dashboard');
-  }, [activeTab, role]);
-
   const handleLogin = (
     selectedRole: Role,
     name: string,
@@ -278,6 +271,7 @@ export default function Home() {
             currentUserRoleLabel={roleLabel}
             currentStudent={currentStudent}
             onToggleSidebar={handleToggleSidebar}
+            onNavigateTab={setActiveTab}
           />
         );
       case 'COMPANY':
@@ -315,6 +309,11 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen bg-[#F9FAFB] relative overflow-hidden">
+      {isLoggedIn && role === 'STUDENT' ? (
+        <Suspense fallback={null}>
+          <UrlStudentTabSync isLoggedIn={isLoggedIn} role={role} setActiveTab={setActiveTab} />
+        </Suspense>
+      ) : null}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0">
         <div className="absolute -top-24 -right-24 w-96 h-96 bg-indigo-50 rounded-full blur-3xl opacity-50"></div>
         <div className="absolute top-1/2 -left-24 w-72 h-72 bg-blue-50 rounded-full blur-3xl opacity-30"></div>

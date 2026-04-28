@@ -176,6 +176,21 @@ export default function Home() {
     }
   }, [isLoggedIn, role, activeTab]);
 
+  /** Legacy sidebar tab id removed; migrate old sessions still on "notifications". */
+  useEffect(() => {
+    if (activeTab !== 'notifications') return;
+    if (role === 'STUDENT') setActiveTab('opportunities');
+    else if (role === 'PPA') setActiveTab('dashboard');
+  }, [activeTab, role]);
+
+  
+  /** Legacy sidebar tab id removed; migrate old sessions still on "notifications". */
+  useEffect(() => {
+    if (activeTab !== 'notifications') return;
+    if (role === 'STUDENT') setActiveTab('opportunities');
+    else if (role === 'PPA') setActiveTab('dashboard');
+  }, [activeTab, role]);
+
   const handleLogin = (
     selectedRole: Role,
     name: string,

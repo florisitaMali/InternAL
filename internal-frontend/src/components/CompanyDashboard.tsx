@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect, useRef, type MutableRefObject 
 import Dashboard from './Dashboard';
 import AddOpportunityForm from './AddOpportunityForm';
 import UnderDevelopment from './UnderDevelopment';
+import NotificationsPanel from './NotificationsPanel';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
 import CompanyOpportunityManageRow from '@/src/components/CompanyOpportunityManageRow';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
@@ -26,6 +27,7 @@ import {
   updateCompanyOpportunity,
   type CompanyOpportunityCreateBody,
 } from '@/src/lib/auth/companyOpportunities';
+import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
 import { 
   Briefcase, 
   Building2, 
@@ -77,6 +79,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   onNavigateTab,
   accessTokenRef,
 }) => {
+  const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingOpportunity, setIsAddingOpportunity] = useState(false);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
@@ -1524,6 +1527,17 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}
+      notificationUnreadCount={unreadCount}
+      notificationPanel={(close) => (
+        <NotificationsPanel
+          onClose={() => {
+            void refreshUnreadNotifications();
+            close();
+          }}
+          onUnreadMayHaveChanged={refreshUnreadNotifications}
+          className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
+        />
+      )}
     >
       {renderContent()}
     </Dashboard>

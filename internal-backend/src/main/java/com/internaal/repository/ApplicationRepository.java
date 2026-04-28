@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.internaal.dto.ApplicationRequest;
 import com.internaal.dto.ApplicationResponse;
+import com.internaal.dto.StudentBrief;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Repository;
@@ -112,6 +113,18 @@ public class ApplicationRepository {
             throw new RuntimeException("Failed to submit application: " + e.getMessage());
         }
         return Optional.empty();
+    }
+
+    /**
+     * Loads {@code university_id} and {@code full_name} for routing university-scoped notifications (e.g. PPA).
+     */
+    public Optional<StudentBrief> findStudentBrief(Integer studentId) {
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId
+                + "&select=university_id,full_name&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        Optional<JsonNode> row = opt.flatMap(arr ->
+                arr.isArray() && arr.size() > 0 ? Optional.of(arr.get(0)) : Optional.empty());
+        return row.map(node -> new StudentBrief(intValue(node, "university_id"), textValue(node, "full_name")));
     }
 
     private Optional<JsonNode> findApplicationRow(Integer studentId, Integer opportunityId) {

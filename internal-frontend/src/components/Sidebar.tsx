@@ -11,7 +11,6 @@ import {
   LogOut,
   GraduationCap,
   BookOpen,
-  Bell,
   Menu,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
@@ -40,7 +39,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'students', label: 'My Students', icon: Users },
       { id: 'applications', label: 'PP Applications', icon: FileText },
-      { id: 'notifications', label: 'Notifications', icon: Bell },
     ],
     STUDENT: [
       { id: 'profile', label: 'My Profile', icon: User },

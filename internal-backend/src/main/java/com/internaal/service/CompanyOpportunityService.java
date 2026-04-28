@@ -45,7 +45,7 @@ public class CompanyOpportunityService {
         requireCompany(user);
         int companyId = parseCompanyId(user);
         List<OpportunityResponseItem> items = opportunityRepository.findForCompanyId(companyId).stream()
-                .map(CompanyOpportunityService::toItem)
+                .map((Opportunity o) -> toItem(o, 0))
                 .toList();
         return new CompanyOpportunitiesResponse(items);
     }
@@ -61,7 +61,14 @@ public class CompanyOpportunityService {
         int companyId = parseCompanyId(user);
         Opportunity o = opportunityRepository.findByIdAndCompanyId(opportunityId, companyId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
-        return new CompanyOpportunityDetailResponse(toItem(o), emptyStats());
+        return new CompanyOpportunityDetailResponse(toItem(o, 0), emptyStats());
+    }
+
+    /**
+     * Maps a loaded opportunity to the public API DTO (e.g. student opportunity detail).
+     */
+    public OpportunityResponseItem toResponseItem(Opportunity o, int skillMatchCount) {
+        return toItem(o, skillMatchCount);
     }
 
     public CompanyOpportunityDetailResponse create(UserAccount user, CompanyOpportunityCreateRequest req) {
@@ -124,7 +131,7 @@ public class CompanyOpportunityService {
                         HttpStatus.BAD_GATEWAY,
                         "Opportunity was created but could not be reloaded."
                 ));
-        return new CompanyOpportunityDetailResponse(toItem(created), emptyStats());
+        return new CompanyOpportunityDetailResponse(toItem(created, 0), emptyStats());
     }
 
     public CompanyOpportunityDetailResponse update(UserAccount user, int opportunityId, CompanyOpportunityUpdateRequest req) {
@@ -226,7 +233,7 @@ public class CompanyOpportunityService {
                         HttpStatus.BAD_GATEWAY,
                         "Opportunity could not be reloaded after update."
                 ));
-        return new CompanyOpportunityDetailResponse(toItem(updated), emptyStats());
+        return new CompanyOpportunityDetailResponse(toItem(updated, 0), emptyStats());
     }
 
     public void delete(UserAccount user, int opportunityId) {
@@ -448,11 +455,10 @@ public class CompanyOpportunityService {
                 .toList();
     }
 
-    private static OpportunityResponseItem toItem(Opportunity o) {
+    private static OpportunityResponseItem toItem(Opportunity o, int skillMatchCount) {
         String typeStr = o.type();
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
         String wt = o.workType();
-        int skillMatchCount = 0;
         return new OpportunityResponseItem(
                 o.id(),
                 o.companyId(),

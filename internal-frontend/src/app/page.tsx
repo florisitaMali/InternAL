@@ -252,6 +252,8 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            accessToken={accessToken}
+            accessTokenRef={accessTokenRef}
           />
         );
       case 'PPA':

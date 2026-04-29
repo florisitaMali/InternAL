@@ -4,6 +4,9 @@ import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
 import com.internaal.dto.AdminDepartmentResponse;
 import com.internaal.dto.AdminOpportunitySummaryResponse;
+import com.internaal.dto.AdminPpaCreateRequest;
+import com.internaal.dto.AdminPpaResponse;
+import com.internaal.dto.AdminPpaUpdateRequest;
 import com.internaal.dto.AdminStudentCreateRequest;
 import com.internaal.dto.AdminStudentResponse;
 import com.internaal.dto.AdminStudyFieldResponse;
@@ -13,7 +16,10 @@ import com.internaal.service.UniversityAdminService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -47,6 +53,39 @@ public class UniversityAdminController {
     @GetMapping("/students")
     public List<AdminStudentResponse> students(@AuthenticationPrincipal UserAccount user) {
         return universityAdminService.listStudents(user);
+    }
+
+    @GetMapping("/ppas")
+    public List<AdminPpaResponse> ppas(@AuthenticationPrincipal UserAccount user) {
+        return universityAdminService.listPpas(user);
+    }
+
+    @PostMapping("/ppas")
+    public AdminPpaResponse createPpa(
+            @AuthenticationPrincipal UserAccount user,
+            @RequestBody AdminPpaCreateRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        return universityAdminService.createPpa(user, body);
+    }
+
+    @PutMapping("/ppas/{ppaId}")
+    public AdminPpaResponse updatePpa(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("ppaId") int ppaId,
+            @RequestBody AdminPpaUpdateRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        return universityAdminService.updatePpa(user, ppaId, body);
+    }
+
+    @DeleteMapping("/ppas/{ppaId}")
+    public void deletePpa(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("ppaId") int ppaId) {
+        universityAdminService.deletePpa(user, ppaId);
     }
 
     @PostMapping("/students")

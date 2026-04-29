@@ -86,6 +86,8 @@ public class SecurityConfig {
         config.setAllowedOriginPatterns(List.of(
             "http://localhost:*",
             "http://127.0.0.1:*",
+            "http://192.168.*:*",
+            "http://10.*:*",
             "https://internalbania.com",
             "https://www.internalbania.com",
             "https://test.internalbania.com"

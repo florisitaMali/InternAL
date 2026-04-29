@@ -4,6 +4,9 @@ import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
 import com.internaal.dto.AdminDepartmentResponse;
 import com.internaal.dto.AdminOpportunitySummaryResponse;
+import com.internaal.dto.AdminPpaCreateRequest;
+import com.internaal.dto.AdminPpaResponse;
+import com.internaal.dto.AdminPpaUpdateRequest;
 import com.internaal.dto.AdminStudentCreateRequest;
 import com.internaal.dto.AdminStudentResponse;
 import com.internaal.dto.AdminStudyFieldResponse;
@@ -44,6 +47,64 @@ public class UniversityAdminService {
     public List<AdminStudentResponse> listStudents(UserAccount user) {
         requireAdmin(user);
         return universityAdminRepository.listStudents();
+    }
+
+    public List<AdminPpaResponse> listPpas(UserAccount user) {
+        requireAdmin(user);
+        return universityAdminRepository.listPpas();
+    }
+
+    public AdminPpaResponse createPpa(UserAccount user, AdminPpaCreateRequest body) {
+        requireAdmin(user);
+        validatePpaPayload(body.fullName(), body.email(), body.departmentId(), body.studyFieldIds());
+        if (universityAdminRepository.findPpaIdByEmail(body.email()).isPresent()
+                || universityAdminRepository.userAccountEmailBelongsToDifferentPpa(body.email(), null)
+                || universityAdminRepository.emailExistsInUserAccount(body.email())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "A user with this email already exists.");
+        }
+        if (!universityAdminRepository.studyFieldsBelongToDepartment(body.departmentId(), body.studyFieldIds())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned study fields must belong to selected department.");
+        }
+        try {
+            return universityAdminRepository.insertPpa(body)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not create PPA."));
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    public AdminPpaResponse updatePpa(UserAccount user, int ppaId, AdminPpaUpdateRequest body) {
+        requireAdmin(user);
+        validatePpaPayload(body.fullName(), body.email(), body.departmentId(), body.studyFieldIds());
+        var ppaWithSameEmail = universityAdminRepository.findPpaIdByEmail(body.email());
+        if (ppaWithSameEmail.isPresent() && ppaWithSameEmail.get() != ppaId) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "A user with this email already exists.");
+        }
+        if (universityAdminRepository.userAccountEmailBelongsToDifferentPpa(body.email(), ppaId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "A user with this email already exists.");
+        }
+        if (!universityAdminRepository.studyFieldsBelongToDepartment(body.departmentId(), body.studyFieldIds())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned study fields must belong to selected department.");
+        }
+        try {
+            return universityAdminRepository.updatePpa(ppaId, body)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PPA not found."));
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    public void deletePpa(UserAccount user, int ppaId) {
+        requireAdmin(user);
+        try {
+            universityAdminRepository.deletePpa(ppaId);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
     }
 
     public AdminStudentResponse createStudent(UserAccount user, AdminStudentCreateRequest body) {
@@ -94,6 +155,21 @@ public class UniversityAdminService {
         }
         if (user.getRole() != Role.UNIVERSITY_ADMIN) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "University admin role required");
+        }
+    }
+
+    private static void validatePpaPayload(String fullName, String email, Integer departmentId, List<Integer> studyFieldIds) {
+        if (fullName == null || fullName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fullName is required");
+        }
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "email is required");
+        }
+        if (departmentId == null || departmentId <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "departmentId is required");
+        }
+        if (studyFieldIds == null || studyFieldIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "studyFieldIds is required");
         }
     }
 }

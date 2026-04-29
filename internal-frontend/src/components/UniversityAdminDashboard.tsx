@@ -1,23 +1,28 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import type { MutableRefObject } from 'react';
 import Dashboard from './Dashboard';
 import AddStudentForm from './AddStudentForm';
 import ImportCSVForm from './ImportCSVForm';
 import UnderDevelopment from './UnderDevelopment';
 import {
+  createAdminPpa,
+  deleteAdminPpa,
   createAdminStudent,
   fetchAdminApplications,
   fetchAdminCompanies,
   fetchAdminDashboardStats,
   fetchAdminDepartments,
   fetchAdminOpportunities,
+  fetchAdminPpas,
   fetchAdminStudents,
   fetchAdminStudyFields,
   mapApplicationResponseToApplication,
+  updateAdminPpa,
 } from '@/src/lib/auth/admin';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
-import type { Application, Company, Opportunity,DashboardStats, Department, Student, StudyField } from '@/src/types';
+import type { Application, DashboardStats, Department, PPAApprover, Student, StudyField } from '@/src/types';
 import { toast } from 'sonner';
 import { 
   Users, 
@@ -29,7 +34,8 @@ import {
   Search,
   Building2,
   Trash2,
-  Edit2
+  Edit2,
+  X,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
@@ -38,6 +44,8 @@ interface UniversityAdminDashboardProps {
   currentUserName: string;
   currentUserRoleLabel: string;
   onToggleSidebar?: () => void;
+  accessToken?: string | null;
+  accessTokenRef?: MutableRefObject<string | null>;
 }
 
 const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
@@ -45,6 +53,8 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   currentUserName,
   currentUserRoleLabel,
   onToggleSidebar,
+  accessToken,
+  accessTokenRef,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingStudent, setIsAddingStudent] = useState(false);
@@ -64,13 +74,32 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   >([]);
   const [adminApplications, setAdminApplications] = useState<Application[]>([]);
   const [adminCompanies, setAdminCompanies] = useState<{ companyId: number; name: string; industry: string | null }[]>([]);
+  const [ppas, setPpas] = useState<PPAApprover[]>([]);
+  const [editingPpa, setEditingPpa] = useState<PPAApprover | null>(null);
+  const [isSavingPpa, setIsSavingPpa] = useState(false);
+  /** Remount the study-field dropdown after each pick so it resets to the placeholder option. */
+  const [studyFieldPickerKey, setStudyFieldPickerKey] = useState(0);
+  const [ppaForm, setPpaForm] = useState({
+    fullName: '',
+    email: '',
+    departmentId: '',
+    studyFieldIds: [] as string[],
+  });
+
+  const resolveAccessToken = async (): Promise<string | null> => {
+    const fromRef = accessTokenRef?.current?.trim();
+    if (fromRef) return fromRef;
+    const fromProp = accessToken?.trim();
+    if (fromProp) return fromProp;
+    return getSessionAccessToken();
+  };
 
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
       try {
-        const accessToken = await getSessionAccessToken();
-        if (!accessToken) {
+        const token = await resolveAccessToken();
+        if (!token) {
           toast.error('Not signed in.');
           return;
         }
@@ -82,14 +111,16 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           oppsRes,
           appsRes,
           companiesRes,
+          ppasRes,
         ] = await Promise.all([
-          fetchAdminStudents(accessToken),
-          fetchAdminDepartments(accessToken),
-          fetchAdminStudyFields(accessToken),
-          fetchAdminDashboardStats(accessToken),
-          fetchAdminOpportunities(accessToken, 100),
-          fetchAdminApplications(accessToken),
-          fetchAdminCompanies(accessToken, 10),
+          fetchAdminStudents(token),
+          fetchAdminDepartments(token),
+          fetchAdminStudyFields(token),
+          fetchAdminDashboardStats(token),
+          fetchAdminOpportunities(token, 100),
+          fetchAdminApplications(token),
+          fetchAdminCompanies(token, 10),
+          fetchAdminPpas(token),
         ]);
         if (studentsRes.errorMessage) toast.error(studentsRes.errorMessage);
         else if (studentsRes.data) setStudents(studentsRes.data);
@@ -105,6 +136,8 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         else if (appsRes.data) setAdminApplications(appsRes.data.map(mapApplicationResponseToApplication));
         if (companiesRes.errorMessage) toast.error(companiesRes.errorMessage);
         else if (companiesRes.data) setAdminCompanies(companiesRes.data);
+        if (ppasRes.errorMessage) toast.error(ppasRes.errorMessage);
+        else if (ppasRes.data) setPpas(ppasRes.data);
       } catch (error) {
         console.error('Failed to load admin data', error);
         toast.error('Could not load dashboard data.');
@@ -114,7 +147,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     };
 
     void loadData();
-  }, []);
+  }, [accessToken]);
 
   const filteredStudents = useMemo(
     () =>
@@ -143,6 +176,145 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         `${a.studentName} ${a.opportunityTitle} ${a.companyName}`.toLowerCase().includes(q)
     );
   }, [adminApplications, searchTerm]);
+
+  const filteredPpas = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return ppas;
+    return ppas.filter((p) =>
+      `${p.fullName} ${p.email} ${p.departmentName} ${p.assignedStudyFields.map((f) => f.name).join(' ')}`
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [ppas, searchTerm]);
+
+  const fieldsForSelectedDepartment = useMemo(
+    () => studyFields.filter((f) => f.departmentId === ppaForm.departmentId),
+    [studyFields, ppaForm.departmentId]
+  );
+
+  const fieldsAvailableToAdd = useMemo(
+    () => fieldsForSelectedDepartment.filter((f) => !ppaForm.studyFieldIds.includes(f.id)),
+    [fieldsForSelectedDepartment, ppaForm.studyFieldIds]
+  );
+
+  const openCreatePpa = () => {
+    setEditingPpa(null);
+    setStudyFieldPickerKey((k) => k + 1);
+    setPpaForm({ fullName: '', email: '', departmentId: '', studyFieldIds: [] });
+  };
+
+  const openEditPpa = (ppa: PPAApprover) => {
+    setEditingPpa(ppa);
+    setStudyFieldPickerKey((k) => k + 1);
+    setPpaForm({
+      fullName: ppa.fullName,
+      email: ppa.email,
+      departmentId: ppa.departmentId,
+      studyFieldIds: ppa.assignedStudyFields.map((f) => f.id),
+    });
+  };
+
+  const savePpa = async () => {
+    const fullName = ppaForm.fullName.trim();
+    const email = ppaForm.email.trim();
+    const departmentId = ppaForm.departmentId.trim();
+    const selectedFieldIds = ppaForm.studyFieldIds.filter((id) => id.trim() !== '');
+
+    if (!fullName) {
+      toast.error('Full name is required.');
+      return;
+    }
+    if (!email) {
+      toast.error('Email is required.');
+      return;
+    }
+    if (!departmentId) {
+      toast.error('Department is required.');
+      return;
+    }
+    if (selectedFieldIds.length === 0) {
+      toast.error('Please select at least one study field.');
+      return;
+    }
+    const deptId = Number(departmentId);
+    const fieldIds = selectedFieldIds.map(Number).filter((v) => Number.isFinite(v));
+    const allMatch = fieldIds.every((fid) => studyFields.some((f) => Number(f.id) === fid && Number(f.departmentId) === deptId));
+    if (!allMatch) {
+      toast.error('Assigned study fields must belong to the selected department.');
+      return;
+    }
+
+    const token = await resolveAccessToken();
+    if (!token) {
+      toast.error('Not signed in.');
+      return;
+    }
+    setIsSavingPpa(true);
+    const payload = {
+      fullName,
+      email: email.toLowerCase(),
+      departmentId: deptId,
+      studyFieldIds: fieldIds,
+    };
+    try {
+      if (editingPpa) {
+        const { data, errorMessage } = await updateAdminPpa(token, editingPpa.id, payload);
+        if (!data || errorMessage) {
+          toast.error(errorMessage || 'Could not update PP approver.');
+          return;
+        }
+        setPpas((prev) => prev.map((p) => (p.id === data.id ? data : p)));
+        toast.success('PP approver updated.');
+      } else {
+        const { data, errorMessage } = await createAdminPpa(token, payload);
+        if (!data || errorMessage) {
+          toast.error(errorMessage || 'Could not create PP approver.');
+          return;
+        }
+        setPpas((prev) => [data, ...prev]);
+        setStats((prev) => ({ ...prev, ppaApprovers: (prev.ppaApprovers ?? 0) + 1 }));
+        toast.success('PP approver created.');
+      }
+      setEditingPpa(null);
+      setStudyFieldPickerKey((k) => k + 1);
+      setPpaForm({ fullName: '', email: '', departmentId: '', studyFieldIds: [] });
+    } finally {
+      setIsSavingPpa(false);
+    }
+  };
+
+  const removePpa = async (ppa: PPAApprover) => {
+    const ok = window.confirm(`Delete PP approver "${ppa.fullName}"?`);
+    if (!ok) return;
+    const token = await resolveAccessToken();
+    if (!token) {
+      toast.error('Not signed in.');
+      return;
+    }
+    const { errorMessage } = await deleteAdminPpa(token, ppa.id);
+    if (errorMessage) {
+      toast.error(errorMessage);
+      return;
+    }
+    setPpas((prev) => prev.filter((p) => p.id !== ppa.id));
+    setStats((prev) => ({ ...prev, ppaApprovers: Math.max(0, (prev.ppaApprovers ?? 1) - 1) }));
+    toast.success('PP approver deleted.');
+  };
+
+  const addStudyFieldFromPicker = (fieldId: string) => {
+    if (!fieldId) return;
+    setPpaForm((s) => {
+      if (s.studyFieldIds.includes(fieldId)) return s;
+      return { ...s, studyFieldIds: [...s.studyFieldIds, fieldId] };
+    });
+  };
+
+  const removeStudyFieldFromPicker = (fieldId: string) => {
+    setPpaForm((s) => ({
+      ...s,
+      studyFieldIds: s.studyFieldIds.filter((id) => id !== fieldId),
+    }));
+  };
 
   const renderStats = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -176,8 +348,8 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       return (
         <AddStudentForm 
           onSave={async (newStudent) => {
-            const accessToken = await getSessionAccessToken();
-            if (!accessToken) {
+            const token = await resolveAccessToken();
+            if (!token) {
               toast.error('Not signed in.');
               return;
             }
@@ -187,7 +359,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
               toast.error('Invalid department or study field.');
               return;
             }
-            const { data: created, errorMessage } = await createAdminStudent(accessToken, {
+            const { data: created, errorMessage } = await createAdminStudent(token, {
               fullName: newStudent.fullName,
               email: newStudent.email,
               departmentId: deptId,
@@ -477,6 +649,182 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     </div>
   );
 
+  const renderPpas = () => (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-blue-200/60 bg-blue-50/40 shadow-sm p-4 backdrop-blur-[2px]">
+        <h2 className="text-lg font-bold text-[#002B5B] mb-4">{editingPpa ? 'Update PP Approver' : 'Create PP Approver'}</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input
+            className="rounded-xl border border-blue-200/80 bg-white/90 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/15 outline-none"
+            placeholder="Full name"
+            value={ppaForm.fullName}
+            onChange={(e) => setPpaForm((s) => ({ ...s, fullName: e.target.value }))}
+          />
+          <input
+            className="rounded-xl border border-blue-200/80 bg-white/90 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/15 outline-none"
+            placeholder="Email"
+            value={ppaForm.email}
+            onChange={(e) => setPpaForm((s) => ({ ...s, email: e.target.value }))}
+          />
+          <div>
+            <label className="block text-xs font-semibold text-blue-900/55 mb-1">Department</label>
+            <select
+              className="w-full rounded-xl border border-blue-200/80 px-3 py-2 text-sm bg-white/90 text-slate-900 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/15 outline-none"
+              value={ppaForm.departmentId}
+              onChange={(e) => {
+                const nextDepartment = e.target.value;
+                setStudyFieldPickerKey((k) => k + 1);
+                setPpaForm((s) => ({ ...s, departmentId: nextDepartment, studyFieldIds: [] }));
+              }}
+            >
+              <option value="">Select department</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-blue-900/55 mb-1">Study fields</label>
+            {!ppaForm.departmentId ? (
+              <div className="w-full rounded-xl border border-dashed border-blue-200/70 bg-blue-50/60 px-3 py-2.5 text-sm text-blue-800/45">
+                Select a department first
+              </div>
+            ) : fieldsForSelectedDepartment.length === 0 ? (
+              <div className="w-full rounded-xl border border-blue-200/60 bg-blue-50/50 px-3 py-2.5 text-sm text-blue-900/55">
+                No study fields for this department.
+              </div>
+            ) : (
+              <select
+                key={studyFieldPickerKey}
+                className="w-full rounded-xl border border-blue-200/80 px-3 py-2 text-sm bg-white/90 disabled:bg-blue-50/50 disabled:text-blue-900/35 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/15 outline-none"
+                defaultValue=""
+                disabled={fieldsAvailableToAdd.length === 0}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) return;
+                  addStudyFieldFromPicker(v);
+                  setStudyFieldPickerKey((k) => k + 1);
+                }}
+              >
+                <option value="">
+                  {fieldsAvailableToAdd.length === 0
+                    ? 'All study fields for this department are added'
+                    : 'Add a study field…'}
+                </option>
+                {fieldsAvailableToAdd.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
+        {ppaForm.departmentId && ppaForm.studyFieldIds.length > 0 ? (
+          <div className="mt-2 rounded-xl border border-blue-200/70 p-2.5 bg-blue-100/35">
+            <p className="text-xs font-semibold text-blue-900/50 mb-2">Selected study fields</p>
+            <div className="flex flex-wrap gap-2">
+              {ppaForm.studyFieldIds.map((id) => {
+                const f = studyFields.find((x) => x.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-full text-xs font-semibold bg-[#002B5B]/10 text-[#002B5B] border border-[#002B5B]/20"
+                  >
+                    {f?.name ?? id}
+                    <button
+                      type="button"
+                      onClick={() => removeStudyFieldFromPicker(id)}
+                      className="p-0.5 rounded-full hover:bg-[#002B5B]/20 text-[#002B5B]"
+                      aria-label={`Remove ${f?.name ?? id}`}
+                    >
+                      <X size={14} />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={() => void savePpa()}
+            disabled={isSavingPpa}
+            className="px-4 py-2 rounded-xl bg-[#002B5B] text-white text-sm font-bold hover:bg-[#001F42] disabled:opacity-60"
+          >
+            {isSavingPpa ? 'Saving…' : editingPpa ? 'Update PPA' : 'Create PPA'}
+          </button>
+          <button
+            onClick={openCreatePpa}
+            className="px-4 py-2 rounded-xl border border-blue-200/80 bg-white/70 text-sm font-semibold text-[#002B5B] hover:bg-blue-100/50"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-blue-200/60 bg-blue-50/35 shadow-sm overflow-hidden backdrop-blur-[2px]">
+        <div className="p-4 border-b border-blue-200/60 flex justify-between items-center bg-blue-100/50">
+          <h2 className="text-lg font-bold text-[#002B5B]">PP Approvers</h2>
+          <div className="flex gap-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" size={16} />
+              <input
+                type="text"
+                placeholder="Search PPA..."
+                className="pl-10 pr-4 py-2 bg-white/95 border border-blue-200/80 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B]/25 focus:border-[#002B5B]/35 outline-none w-64"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+        <div className="overflow-x-auto bg-blue-50/30">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-blue-100/70 text-blue-900/75 text-xs font-bold uppercase tracking-wider">
+                <th className="px-5 py-3.5">Full Name</th>
+                <th className="px-5 py-3.5">Email</th>
+                <th className="px-5 py-3.5">Department</th>
+                <th className="px-5 py-3.5">Assigned Study Fields</th>
+                <th className="px-5 py-3.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-blue-100/80">
+              {filteredPpas.map((ppa) => (
+                <tr key={ppa.id} className="bg-white/55 hover:bg-blue-100/40 transition-all">
+                  <td className="px-5 py-3.5 font-bold text-slate-900">{ppa.fullName}</td>
+                  <td className="px-5 py-3.5 text-sm text-blue-950/70">{ppa.email}</td>
+                  <td className="px-5 py-3.5 text-sm text-blue-950/70">{ppa.departmentName}</td>
+                  <td className="px-5 py-3.5 text-sm text-blue-950/70">
+                    {ppa.assignedStudyFields.map((f) => f.name).join(', ') || '—'}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex justify-end gap-2">
+                      <button className="p-2 text-blue-400 hover:text-[#002B5B] hover:bg-blue-100/80 rounded-lg transition-all" onClick={() => openEditPpa(ppa)}>
+                        <Edit2 size={16} />
+                      </button>
+                      <button className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" onClick={() => void removePpa(ppa)}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filteredPpas.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-5 py-6 text-center text-sm text-blue-900/45">
+                    No PP approvers found.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -526,6 +874,8 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         );
       case 'students':
         return renderStudents();
+      case 'ppa':
+        return renderPpas();
       case 'academic':
         return renderAcademic();
       case 'opportunities':

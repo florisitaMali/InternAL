@@ -689,6 +689,7 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
 
   return (
     <Dashboard
+      title="My Students"
 userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}

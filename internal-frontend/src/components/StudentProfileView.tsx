@@ -101,11 +101,10 @@ const StudentProfileView: React.FC<StudentProfileViewProps> = ({
   const subtitleLine = useMemo(() => {
     const parts = [
       student.fullName,
-      `Student ID: ${student.id}`,
       student.departmentName ? `Faculty of ${student.departmentName}` : null,
     ].filter(Boolean);
     return parts.join(' | ');
-  }, [student.fullName, student.id, student.departmentName]);
+  }, [student.fullName, student.departmentName]);
 
   const roleSubtitle = student.studyFieldName
     ? `${student.studyFieldName} Student`

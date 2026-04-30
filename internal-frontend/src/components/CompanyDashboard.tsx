@@ -1,14 +1,16 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useRef, type MutableRefObject } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo, type MutableRefObject } from 'react';
 import Dashboard from './Dashboard';
 import AddOpportunityForm from './AddOpportunityForm';
+import CompanyProfileTabbedView from '@/src/components/CompanyProfileTabbedView';
 import UnderDevelopment from './UnderDevelopment';
+import NotificationsPanel from './NotificationsPanel';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
 import CompanyOpportunityManageRow from '@/src/components/CompanyOpportunityManageRow';
+import OpportunityDetailView from '@/src/components/OpportunityDetailView';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import {
-  profileImageDisplayUrl,
   uploadCompanyProfilePhoto,
 } from '@/src/lib/supabase/companyProfilePhotos';
 import {
@@ -26,34 +28,30 @@ import {
   updateCompanyOpportunity,
   type CompanyOpportunityCreateBody,
 } from '@/src/lib/auth/companyOpportunities';
+import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
 import { 
   Briefcase, 
-  Building2, 
+  Building2,
+  Building,
   Edit2,
   Plus, 
   Search, 
   Clock, 
-  ArrowLeft,
   Calendar,
-  Users,
   MapPin,
+  Users,
   Link as LinkIcon,
-  Building,
   Upload,
   X,
   Star,
   Eye,
-  Rocket,
   CheckCircle,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import {
   formatDeadline,
-  formatDurationCodeLabel,
   formatOpportunityType,
   formatPostedDisplay,
-  formatTargetUniversitiesDisplay,
-  formatWorkTypeLabel,
 } from '@/src/lib/opportunityFormat';
 import { toast } from 'sonner';
 import type { Application, CompanyProfileFromApi, Opportunity } from '@/src/types';
@@ -76,7 +74,9 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   onToggleSidebar,
   onNavigateTab,
   accessTokenRef,
+  linkedEntityId,
 }) => {
+  const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingOpportunity, setIsAddingOpportunity] = useState(false);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
@@ -123,10 +123,19 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     return () => URL.revokeObjectURL(u);
   }, [profileCoverFile]);
 
-  const companyIdStr = companyProfile ? String(companyProfile.companyId) : '';
-  const displayName = companyProfile?.name ?? 'Company';
-  const displayIndustry = companyProfile?.industry ?? '';
-  const displayDescription = companyProfile?.description ?? '';
+  const canEditProfile = useMemo(() => {
+    if (!companyProfile || linkedEntityId == null) return false;
+    return String(companyProfile.companyId) === String(linkedEntityId);
+  }, [companyProfile, linkedEntityId]);
+
+  const postedDisplayLabel = (opp: Opportunity) => {
+    if (opp.draft === true) {
+      return 'Draft — not posted. Students cannot see this listing yet.';
+    }
+    if (opp.postedLabel) return opp.postedLabel;
+    if (opp.postedAt) return formatPostedDisplay(opp.postedAt);
+    return '—';
+  };
 
   const loadCompanyApplications = useCallback(async () => {
     setApplicationsLoading(true);
@@ -543,7 +552,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
               <CompanyOpportunityManageRow
                 key={opp.id}
                 opportunity={opp}
-                postedLabel={postedDisplay(opp)}
+                postedLabel={postedDisplayLabel(opp)}
                 onViewApplications={() => onNavigateTab?.('applications')}
                 onViewDetails={() => void openOpportunityDetail(opp, 'manage')}
               />
@@ -818,340 +827,19 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   };
 
 
-  const defaultApplicationStats = { total: 0, inReview: 0, approved: 0, rejected: 0 };
-
-  const postedDisplay = (opp: Opportunity) => {
-    if (opp.draft === true) {
-      return 'Draft — not posted. Students cannot see this listing yet.';
-    }
-    if (opp.postedLabel) return opp.postedLabel;
-    if (opp.postedAt) return formatPostedDisplay(opp.postedAt);
-    return '—';
-  };
-
-  const renderOpportunityDetail = (opportunity: Opportunity) => {
-    const stats = opportunity.applicationStats ?? defaultApplicationStats;
-    const jobType =
-      opportunity.jobTypeLabel ??
-      formatWorkTypeLabel(opportunity.workType) ??
-      opportunity.type ??
-      '—';
-    const duration =
-      opportunity.durationLabel ?? formatDurationCodeLabel(opportunity.duration) ?? '—';
-    const location = opportunity.location ?? '—';
-    const workMode = opportunity.workMode ?? '—';
-    const startDate =
-      opportunity.startDateLabel ?? formatDeadline(opportunity.startDate) ?? '—';
-    const appDeadline = formatDeadline(opportunity.deadline);
-    const positions =
-      opportunity.positionCount != null ? String(opportunity.positionCount) : '—';
-    const paidLabel =
-      opportunity.isPaid === true ? 'Yes' : opportunity.isPaid === false ? 'No' : '—';
-    const salaryLabel =
-      opportunity.isPaid === true && opportunity.salaryMonthly != null
-        ? `${opportunity.salaryMonthly.toLocaleString()} / month`
-        : '—';
-    const categoryLabel = opportunity.type
-      ? formatOpportunityType(opportunity.type)
-      : '—';
-    const targetUniversitiesLabel = formatTargetUniversitiesDisplay(opportunity);
-
-    return (
-      <div className="space-y-6">
-        <button
-          type="button"
-          onClick={() => setSelectedOpportunityDetail(null)}
-          className="inline-flex items-center gap-2 text-sm font-semibold text-[#0E2A50] hover:text-[#002B5B]"
-        >
-          <ArrowLeft size={18} />
-          Back to Opportunities
-        </button>
-
-        <div
-          className={cn(
-            'rounded-xl border p-6 shadow-sm md:p-8',
-            opportunity.draft === true
-              ? 'border-amber-200 bg-amber-50/40'
-              : 'border-slate-200 bg-white'
-          )}
-        >
-          {opportunity.draft === true ? (
-            <div
-              className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
-              role="status"
-            >
-              <span className="font-bold">Draft</span>
-              <span className="text-amber-900">
-                {' '}
-                — This listing is not live. It is not shown to students and does not accept applications until you
-                publish it.
-              </span>
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex flex-1 flex-col gap-4 min-w-0 sm:flex-row sm:items-start">
-              <div className="h-14 w-14 flex-shrink-0 rounded-lg bg-[#002B5B]" />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2 gap-y-1">
-                  <h1 className="text-2xl md:text-3xl font-bold text-[#0E2A50]">{opportunity.title}</h1>
-                  {opportunity.draft === true ? (
-                    <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-900">
-                      Draft
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-sm text-slate-500">{opportunity.companyName}</p>
-                <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin size={14} className="text-slate-400" />
-                    {location}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Building size={14} className="text-slate-400" />
-                    {workMode}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Clock size={14} className="text-slate-400" />
-                    {jobType}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Calendar size={14} className="text-slate-400" />
-                    {duration}
-                  </span>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {(opportunity.requiredSkills ?? []).map((skill) => (
-                    <span
-                      key={`${opportunity.id}-skill-${skill}`}
-                      className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col items-stretch gap-3 sm:items-end lg:min-w-[220px]">
-              <button
-                type="button"
-                suppressHydrationWarning
-                onClick={() => {
-                  onNavigateTab?.('applications');
-                  setSelectedOpportunityDetail(null);
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#002B5B] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#001F42]"
-              >
-                <Users size={18} />
-                View Applications ({stats.total})
-              </button>
-              {opportunity.draft === true ? (
-                <button
-                  type="button"
-                  suppressHydrationWarning
-                  disabled={isPublishingOpportunity}
-                  onClick={() => void handlePublishOpportunity(opportunity)}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-emerald-600 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Rocket size={18} />
-                  {isPublishingOpportunity ? 'Publishing…' : 'Publish opportunity'}
-                </button>
-              ) : null}
-              <p className="text-right text-xs text-slate-400">{postedDisplay(opportunity)}</p>
-            </div>
-          </div>
-
-          <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-3">
-            <div className="space-y-8 lg:col-span-2">
-              <section>
-                <h2 className="text-lg font-bold text-slate-900">About the Role</h2>
-                {opportunity.description ? (
-                  <p className="mt-3 text-sm leading-7 text-slate-600">{opportunity.description}</p>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-400">No description yet.</p>
-                )}
-                {opportunity.roleSummary ? (
-                  <p className="mt-4 text-sm leading-7 text-slate-600">{opportunity.roleSummary}</p>
-                ) : null}
-                {opportunity.roleAboutExtra ? (
-                  <p className="mt-4 text-sm leading-7 text-slate-600">{opportunity.roleAboutExtra}</p>
-                ) : null}
-              </section>
-
-              <section>
-                <h2 className="text-lg font-bold text-slate-900">Responsibilities</h2>
-                {opportunity.responsibilities?.length ? (
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-600">
-                    {opportunity.responsibilities.map((item, i) => (
-                      <li key={`${opportunity.id}-resp-${i}`}>{item}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-400">No responsibilities listed yet.</p>
-                )}
-              </section>
-
-              <section>
-                <h2 className="text-lg font-bold text-slate-900">Requirements</h2>
-                {opportunity.requirements?.length ? (
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-600">
-                    {opportunity.requirements.map((item, i) => (
-                      <li key={`${opportunity.id}-req-${i}`}>{item}</li>
-                    ))}
-                  </ul>
-                ) : opportunity.requiredExperience ? (
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-7 text-slate-600">
-                    <li>{opportunity.requiredExperience}</li>
-                  </ul>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-400">No requirements listed yet.</p>
-                )}
-              </section>
-
-              {opportunity.niceToHave?.trim() ? (
-                <section>
-                  <h2 className="text-lg font-bold text-slate-900">Additional notes (nice to have)</h2>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-600">
-                    {opportunity.niceToHave}
-                  </p>
-                </section>
-              ) : null}
-            </div>
-
-            <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-5">
-                <h3 className="text-base font-bold text-slate-900">Overview</h3>
-                <dl className="mt-4 space-y-3">
-                  {[
-                    ['TARGET UNIVERSITIES', targetUniversitiesLabel],
-                    ['APPLICATION DEADLINE', appDeadline],
-                    ['START DATE', startDate],
-                    ['POSITIONS', positions],
-                    ['JOB TYPE', jobType],
-                    ['DURATION', duration],
-                    ['LOCATION', location],
-                    ['WORK MODE', workMode],
-                    ['PAID', paidLabel],
-                    ['MONTHLY SALARY', salaryLabel],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <dt className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</dt>
-                      <dd className="mt-0.5 text-sm font-medium text-slate-800">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-5">
-                <h3 className="text-base font-bold text-slate-900">Application Stats</h3>
-                <dl className="mt-4 space-y-3 text-sm">
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-slate-600">Total Applicants</dt>
-                    <dd className="font-bold text-slate-900">{stats.total}</dd>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-slate-600">In Review</dt>
-                    <dd className="font-semibold text-blue-600">{stats.inReview}</dd>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-slate-600">Approved</dt>
-                    <dd className="font-semibold text-emerald-600">{stats.approved}</dd>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-slate-600">Rejected</dt>
-                    <dd className="font-semibold text-slate-500">{stats.rejected}</dd>
-                  </div>
-                </dl>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderCompanyInfoCard = () => {
-    const website = companyProfile?.website;
-    const employees =
-      companyProfile?.employeeCount != null ? String(companyProfile.employeeCount) : '—';
-    const hq = companyProfile?.location ?? '—';
-    const founded = companyProfile?.foundedYear != null ? String(companyProfile.foundedYear) : '—';
-    const specialties = companyProfile?.specialties ?? '—';
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <h3 className="text-lg font-bold text-slate-900 mb-5">Company Info</h3>
-        <div className="space-y-4">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Website</p>
-            {website ? (
-              <a
-                href={website.startsWith('http') ? website : `https://${website}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm text-[#002B5B] font-medium hover:underline break-all"
-              >
-                {website}
-              </a>
-            ) : (
-              <p className="text-sm text-slate-400">—</p>
-            )}
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Industry</p>
-            <p className="text-sm text-slate-700 font-medium">{displayIndustry || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Number of Employees</p>
-            <p className="text-sm text-slate-700 font-medium">{employees}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Headquarters</p>
-            <p className="text-sm text-slate-700 font-medium">{hq}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Founded</p>
-            <p className="text-sm text-slate-700 font-medium">{founded}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Specialties</p>
-            <p className="text-sm text-slate-700 font-medium">{specialties}</p>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderProfileAbout = () => {
-    if (profileLoading && !companyProfile && !isEditingProfile) {
-      return (
-        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-500">
-          Loading company profile…
-        </div>
-      );
-    }
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6 mt-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-6">
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <h3 className="text-2xl font-bold text-slate-900">About</h3>
-            <button
-              type="button"
-              onClick={beginEditProfile}
-              disabled={!companyProfile}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-[#0E2A50] hover:bg-slate-50 disabled:opacity-50"
-            >
-              <Edit2 size={16} />
-              Edit profile
-            </button>
-          </div>
-          <p className="text-sm text-slate-600 leading-7 whitespace-pre-wrap">
-            {displayDescription?.trim() ? displayDescription : 'No overview yet. Click Edit profile to add one.'}
-          </p>
-        </div>
-        {renderCompanyInfoCard()}
-      </div>
-    );
-  };
+  const renderOpportunityDetail = (opportunity: Opportunity) => (
+    <OpportunityDetailView
+      variant="company"
+      opportunity={opportunity}
+      onBack={() => setSelectedOpportunityDetail(null)}
+      onNavigateToApplications={() => {
+        onNavigateTab?.('applications');
+        setSelectedOpportunityDetail(null);
+      }}
+      isPublishingOpportunity={isPublishingOpportunity}
+      onPublishOpportunity={handlePublishOpportunity}
+    />
+  );
 
   const renderEditProfileModal = () => {
     if (!isEditingProfile) return null;
@@ -1389,112 +1077,44 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     );
   };
 
-  const renderProfileOpportunities = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6 mt-6">
-      <div>
-        <h3 className="text-3xl font-bold text-slate-900 mb-4">
-          {opportunities.length} Opportunities Available
-        </h3>
-        <div className="space-y-3">
-          {oppListLoading ? (
-            <p className="text-sm text-slate-500">Loading opportunities…</p>
-          ) : opportunities.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-10 text-center text-sm text-slate-500">
-              You have not created any opportunities yet. Use <strong>My Opportunities</strong> in the sidebar to add one.
-            </div>
-          ) : (
-            opportunities.map((opportunity) => (
-              <OpportunityRecordCard
-                key={opportunity.id}
-                opportunity={opportunity}
-                onViewDetails={() => void openOpportunityDetail(opportunity, 'profile')}
-              />
-            ))
-          )}
-        </div>
+  const renderProfileOpportunitiesPanel = () => (
+    <>
+      <h3 className="text-3xl font-bold text-slate-900 mb-4">
+        {opportunities.length} Opportunities Available
+      </h3>
+      <div className="space-y-3">
+        {oppListLoading ? (
+          <p className="text-sm text-slate-500">Loading opportunities…</p>
+        ) : opportunities.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-10 text-center text-sm text-slate-500">
+            You have not created any opportunities yet. Use <strong>My Opportunities</strong> in the sidebar to add one.
+          </div>
+        ) : (
+          opportunities.map((opportunity) => (
+            <OpportunityRecordCard
+              key={opportunity.id}
+              opportunity={opportunity}
+              onViewDetails={() => void openOpportunityDetail(opportunity, 'profile')}
+            />
+          ))
+        )}
       </div>
-      {renderCompanyInfoCard()}
-    </div>
+    </>
   );
 
   const renderCompanyProfile = () => (
     <>
-    <div className="space-y-4">
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        {companyProfile?.coverUrl ? (
-          <div
-            className="h-44 w-full bg-cover bg-center"
-            style={{
-              backgroundImage: `url(${JSON.stringify(profileImageDisplayUrl(companyProfile.coverUrl, profileMediaDisplayRev))})`,
-            }}
-          />
-        ) : (
-          <div className="h-44 bg-gradient-to-r from-[#003A83] to-[#00A7A0]" />
-        )}
-        <div className="px-6 pb-3">
-          {companyProfile?.logoUrl ? (
-            <img
-              key={`${companyProfile.logoUrl}-${profileMediaDisplayRev}`}
-              src={profileImageDisplayUrl(companyProfile.logoUrl, profileMediaDisplayRev)}
-              alt=""
-              className="-mt-14 h-24 w-24 rounded-xl border-4 border-white object-cover shadow-sm bg-white"
-            />
-          ) : (
-            <div className="-mt-14 h-24 w-24 rounded-xl border-4 border-white bg-slate-100 shadow-sm" />
-          )}
-          <div className="mt-3">
-            <h2 className="text-4xl font-bold text-[#0E2A50] leading-tight">{displayName}</h2>
-            <p className="text-slate-500 text-sm mt-1 line-clamp-2">
-              {companyProfile?.description?.trim()
-                ? companyProfile.description.split('\n')[0].slice(0, 160)
-                : 'Add an overview in the About section.'}
-            </p>
-            <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 mt-3">
-              <span className="flex items-center gap-1.5">
-                <MapPin size={13} />
-                {companyProfile?.location ?? '—'}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Building size={13} />
-                {companyProfile?.employeeCount != null ? `${companyProfile.employeeCount} employees` : '—'}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <LinkIcon size={13} />
-                {companyProfile?.website ?? '—'}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-6 mt-5 border-b border-slate-200">
-            <button
-              type="button"
-              onClick={() => setProfileSection('about')}
-              className={cn(
-                'pb-2 text-sm font-semibold border-b-2 transition-colors',
-                profileSection === 'about'
-                  ? 'text-[#0E2A50] border-[#0E2A50]'
-                  : 'text-slate-500 border-transparent hover:text-slate-700'
-              )}
-            >
-              About
-            </button>
-            <button
-              type="button"
-              onClick={() => setProfileSection('opportunities')}
-              className={cn(
-                'pb-2 text-sm font-semibold border-b-2 transition-colors',
-                profileSection === 'opportunities'
-                  ? 'text-[#0E2A50] border-[#0E2A50]'
-                  : 'text-slate-500 border-transparent hover:text-slate-700'
-              )}
-            >
-              Opportunities
-            </button>
-          </div>
-        </div>
-      </div>
-      {profileSection === 'about' ? renderProfileAbout() : renderProfileOpportunities()}
-    </div>
-    {renderEditProfileModal()}
+      <CompanyProfileTabbedView
+        profile={companyProfile}
+        mediaRev={profileMediaDisplayRev}
+        section={profileSection}
+        onSectionChange={setProfileSection}
+        canEditProfile={canEditProfile}
+        onEditProfile={beginEditProfile}
+        aboutLoading={profileLoading && !companyProfile && !isEditingProfile}
+        opportunitiesPanel={renderProfileOpportunitiesPanel()}
+      />
+      {renderEditProfileModal()}
     </>
   );
 
@@ -1524,6 +1144,17 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}
+      notificationUnreadCount={unreadCount}
+      notificationPanel={(close) => (
+        <NotificationsPanel
+          onClose={() => {
+            void refreshUnreadNotifications();
+            close();
+          }}
+          onUnreadMayHaveChanged={refreshUnreadNotifications}
+          className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
+        />
+      )}
     >
       {renderContent()}
     </Dashboard>

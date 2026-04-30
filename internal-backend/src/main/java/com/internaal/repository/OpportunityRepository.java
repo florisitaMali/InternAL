@@ -151,11 +151,6 @@ public class OpportunityRepository {
         try {
             StringBuilder url = new StringBuilder(supabaseUrl);
             url.append("/rest/v1/opportunity?select=").append(selectClause());
-            url.append("/rest/v1/opportunity?select=opportunity_id,company_id,code,title,description,")
-               .append("required_skills,required_experience,deadline,type,is_paid,work_mode,job_location,work_type,duration,")
-               .append("position_count,salary_monthly,nice_to_have,start_date,created_at,")
-               .append("company(name,location),")
-               .append("opportunitytarget(university_id)");
 
             if (query.type() != null && !query.type().isBlank()) {
                 url.append("&type=eq.").append(query.type().trim());
@@ -189,6 +184,76 @@ public class OpportunityRepository {
 
         } catch (Exception e) {
             log.error("findForStudent failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Single opportunity visible to a student (same rules as {@link #findForStudent}: university targeting, not draft).
+     */
+    public Optional<Opportunity> findVisibleForStudent(int opportunityId, Integer studentUniversityId) {
+        try {
+            String url = supabaseUrl + "/rest/v1/opportunity?select=" + selectClause()
+                    + "&opportunity_id=eq." + opportunityId
+                    + "&limit=1";
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || !array.isArray() || array.isEmpty()) {
+                return Optional.empty();
+            }
+            JsonNode node = array.get(0);
+            if (!matchesUniversity(node, studentUniversityId)) {
+                return Optional.empty();
+            }
+            Opportunity opp = OpportunityMapper.fromJsonNode(node);
+            if (opp.draft()) {
+                return Optional.empty();
+            }
+            return Optional.of(enrichTargetUniversities(List.of(opp)).get(0));
+        } catch (HttpStatusCodeException e) {
+            String body = e.getResponseBodyAsString();
+            String hint = body != null && body.length() > 500 ? body.substring(0, 500) + "…" : body;
+            log.error("findVisibleForStudent HTTP {}: {}", e.getStatusCode().value(), hint);
+            return Optional.empty();
+        } catch (Exception e) {
+            log.error("findVisibleForStudent failed: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Opportunities for one company that a student may see (university targeting, not draft).
+     */
+    public List<Opportunity> findVisibleForStudentByCompany(int companyId, Integer studentUniversityId) {
+        try {
+            String url = supabaseUrl + "/rest/v1/opportunity?select=" + selectClause()
+                    + "&company_id=eq." + companyId;
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || !array.isArray()) {
+                return List.of();
+            }
+            List<Opportunity> result = new ArrayList<>();
+            for (JsonNode node : array) {
+                if (!matchesUniversity(node, studentUniversityId)) {
+                    continue;
+                }
+                Opportunity opp = OpportunityMapper.fromJsonNode(node);
+                if (opp.draft()) {
+                    continue;
+                }
+                result.add(opp);
+            }
+            return enrichTargetUniversities(result);
+        } catch (HttpStatusCodeException e) {
+            String body = e.getResponseBodyAsString();
+            String hint = body != null && body.length() > 500 ? body.substring(0, 500) + "…" : body;
+            log.error("findVisibleForStudentByCompany HTTP {}: {}", e.getStatusCode().value(), hint);
+            return List.of();
+        } catch (Exception e) {
+            log.error("findVisibleForStudentByCompany failed: {}", e.getMessage());
             return List.of();
         }
     }

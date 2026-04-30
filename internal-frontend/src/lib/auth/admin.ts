@@ -1,5 +1,5 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
-import type { Application, DashboardStats, Department, Student, StudyField } from '@/src/types';
+import type { Application, DashboardStats, Department, PPAApprover, Student, StudyField } from '@/src/types';
 
 function getApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080').replace(/\/+$/, '');
@@ -64,6 +64,68 @@ async function postJson<T>(path: string, accessToken: string, body: unknown): Pr
   }
 }
 
+async function putJson<T>(path: string, accessToken: string, body: unknown): Promise<{ data: T | null; errorMessage: string | null }> {
+  const t = accessToken.trim();
+  if (!t) {
+    return { data: null, errorMessage: 'Not signed in.' };
+  }
+  try {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${t}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    const raw = await response.text();
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!response.ok) {
+      let msg = `Request failed with status ${response.status}`;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
+        const e = (parsed as { error?: unknown }).error;
+        if (typeof e === 'string' && e.trim()) msg = e.trim();
+      }
+      return { data: null, errorMessage: msg };
+    }
+    return { data: parsed as T, errorMessage: null };
+  } catch (e) {
+    return { data: null, errorMessage: e instanceof Error ? e.message : 'Request failed' };
+  }
+}
+
+async function deleteJson(path: string, accessToken: string): Promise<{ errorMessage: string | null }> {
+  const t = accessToken.trim();
+  if (!t) {
+    return { errorMessage: 'Not signed in.' };
+  }
+  try {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${t}`,
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const raw = await response.text();
+      const parsed: unknown = raw ? JSON.parse(raw) : null;
+      let msg = `Request failed with status ${response.status}`;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
+        const e = (parsed as { error?: unknown }).error;
+        if (typeof e === 'string' && e.trim()) msg = e.trim();
+      }
+      return { errorMessage: msg };
+    }
+    return { errorMessage: null };
+  } catch (e) {
+    return { errorMessage: e instanceof Error ? e.message : 'Request failed' };
+  }
+}
+
 type AdminDepartmentRow = { departmentId: number; name: string; universityName: string | null };
 type AdminStudyFieldRow = { fieldId: number; name: string; departmentId: number };
 export type AdminStudentRow = {
@@ -87,6 +149,15 @@ type AdminOpportunityRow = {
   companyName: string | null;
   deadline: string | null;
   type: string | null;
+};
+
+type AdminPpaRow = {
+  ppaId: number;
+  fullName: string | null;
+  email: string | null;
+  departmentId: number | null;
+  departmentName: string | null;
+  studyFields: AdminStudyFieldRow[] | null;
 };
 
 export function mapAdminStudentToStudent(row: AdminStudentRow): Student {
@@ -210,6 +281,93 @@ export async function fetchAdminApplications(
   accessToken: string
 ): Promise<{ data: ApplicationResponse[] | null; errorMessage: string | null }> {
   return fetchJson<ApplicationResponse[]>('/api/admin/applications', accessToken);
+}
+
+export async function fetchAdminPpas(
+  accessToken: string
+): Promise<{ data: PPAApprover[] | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await fetchJson<AdminPpaRow[]>('/api/admin/ppas', accessToken);
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not load PP approvers.' };
+  }
+  const mapped: PPAApprover[] = data.map((p) => ({
+    id: String(p.ppaId),
+    fullName: p.fullName || '—',
+    email: p.email || '',
+    departmentId: p.departmentId != null ? String(p.departmentId) : '',
+    departmentName: p.departmentName || '—',
+    assignedStudyFields: (p.studyFields || []).map((f) => ({
+      id: String(f.fieldId),
+      name: f.name || '—',
+      departmentId: String(f.departmentId),
+    })),
+  }));
+  return { data: mapped, errorMessage: null };
+}
+
+type PpaUpsertPayload = {
+  fullName: string;
+  email: string;
+  departmentId: number;
+  studyFieldIds: number[];
+};
+
+export async function createAdminPpa(
+  accessToken: string,
+  payload: PpaUpsertPayload
+): Promise<{ data: PPAApprover | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await postJson<AdminPpaRow>('/api/admin/ppas', accessToken, payload);
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not create PP approver.' };
+  }
+  return {
+    data: {
+      id: String(data.ppaId),
+      fullName: data.fullName || '—',
+      email: data.email || '',
+      departmentId: data.departmentId != null ? String(data.departmentId) : '',
+      departmentName: data.departmentName || '—',
+      assignedStudyFields: (data.studyFields || []).map((f) => ({
+        id: String(f.fieldId),
+        name: f.name || '—',
+        departmentId: String(f.departmentId),
+      })),
+    },
+    errorMessage: null,
+  };
+}
+
+export async function updateAdminPpa(
+  accessToken: string,
+  ppaId: string,
+  payload: PpaUpsertPayload
+): Promise<{ data: PPAApprover | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await putJson<AdminPpaRow>(`/api/admin/ppas/${encodeURIComponent(ppaId)}`, accessToken, payload);
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not update PP approver.' };
+  }
+  return {
+    data: {
+      id: String(data.ppaId),
+      fullName: data.fullName || '—',
+      email: data.email || '',
+      departmentId: data.departmentId != null ? String(data.departmentId) : '',
+      departmentName: data.departmentName || '—',
+      assignedStudyFields: (data.studyFields || []).map((f) => ({
+        id: String(f.fieldId),
+        name: f.name || '—',
+        departmentId: String(f.departmentId),
+      })),
+    },
+    errorMessage: null,
+  };
+}
+
+export async function deleteAdminPpa(
+  accessToken: string,
+  ppaId: string
+): Promise<{ errorMessage: string | null }> {
+  return deleteJson(`/api/admin/ppas/${encodeURIComponent(ppaId)}`, accessToken);
 }
 
 export function mapApplicationResponseToApplication(row: ApplicationResponse): Application {

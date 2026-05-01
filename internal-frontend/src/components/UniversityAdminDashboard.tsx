@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import Dashboard from './Dashboard';
 import AddStudentForm from './AddStudentForm';
@@ -86,13 +86,13 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     studyFieldIds: [] as string[],
   });
 
-  const resolveAccessToken = async (): Promise<string | null> => {
+  const resolveAccessToken = useCallback(async (): Promise<string | null> => {
     const fromRef = accessTokenRef?.current?.trim();
     if (fromRef) return fromRef;
     const fromProp = accessToken?.trim();
     if (fromProp) return fromProp;
     return getSessionAccessToken();
-  };
+  }, [accessToken, accessTokenRef]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -147,7 +147,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     };
 
     void loadData();
-  }, [accessToken]);
+  }, [resolveAccessToken]);
 
   const filteredStudents = useMemo(
     () =>

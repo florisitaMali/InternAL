@@ -38,4 +38,10 @@ public class PpaController {
     public List<AdminStudentResponse> students(@AuthenticationPrincipal UserAccount user) {
         return ppaService.listStudents(user);
     }
+
+    @PreAuthorize("hasRole('PPA')")
+    @GetMapping("/my-students")
+    public List<AdminStudentResponse> myStudents(@AuthenticationPrincipal UserAccount user) {
+        return ppaService.listStudentsByField(user);
+    }
 }

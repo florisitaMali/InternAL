@@ -64,6 +64,8 @@ export async function fetchPpaProfile(
   accessToken: string
 ): Promise<{ data: PpaProfileResponse | null; errorMessage: string | null }> {
   return fetchJson<PpaProfileResponse>('/api/ppa/me', accessToken);
+}
+
 export async function fetchPpaMyStudents(
   accessToken: string
 ): Promise<{ data: AdminStudentRow[] | null; errorMessage: string | null }> {

@@ -80,6 +80,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
             const metadataName =
               (session?.user?.user_metadata?.full_name as string | undefined) ||
               (session?.user?.user_metadata?.name as string | undefined);
+            const invitePasswordCompleted =
+              session.user.user_metadata?.invite_password_completed === true;
 
             if (!session?.access_token) {
               await supabase.auth.signOut();
@@ -90,7 +92,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
             const { data: appUser, errorMessage } = await loadCurrentAppUser(
               session.access_token,
               emailForProfile,
-              metadataName
+              metadataName,
+              invitePasswordCompleted
             );
 
             if (errorMessage) {
@@ -110,6 +113,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onForgotPassword }) => {
               toast.error('Could not load your account profile from the backend.', { duration: 10000 });
               return;
             }
+
+            if (appUser.user.role === 'PPA') {
+              const meta = session.user.user_metadata as Record<string, unknown> | undefined;
+              if (meta?.invite_password_completed !== true) {
+                window.location.replace('/auth/set-password');
+                return;
+              }
+            }
+
             onLogin(
               appUser.user.role,
               appUser.displayName || 'User',

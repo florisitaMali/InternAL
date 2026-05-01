@@ -715,4 +715,60 @@ public class UniversityAdminRepository {
                 String.class
         );
     }
+
+    public Optional<AdminPpaResponse> getPpaProfile(int ppaId) {
+        return findPpaById(ppaId);
+    }
+
+    /**
+     * Supabase Auth UUID for this PPA's {@code useraccount} row, when {@code supabase_user_id} is set (after login).
+     */
+    public Optional<String> findSupabaseAuthUserIdForPpa(int ppaId) {
+        String url = supabaseUrl + "/rest/v1/useraccount?role=eq.PPA&linked_entity_id=eq." + ppaId
+                + "&select=supabase_user_id&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        if (opt.isEmpty() || !opt.get().isArray() || opt.get().isEmpty()) {
+            return Optional.empty();
+        }
+        JsonNode n = opt.get().get(0);
+        if (!n.has("supabase_user_id") || n.get("supabase_user_id").isNull()) {
+            return Optional.empty();
+        }
+        String id = n.get("supabase_user_id").asText(null);
+        if (id == null || id.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(id.trim());
+    }
+
+    public Optional<Integer> findDepartmentIdForPpa(int ppaId) {
+        String url = supabaseUrl + "/rest/v1/" + PPA_TABLE
+                + "?ppa_id=eq." + ppaId + "&select=department_id&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        if (opt.isEmpty() || !opt.get().isArray() || opt.get().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(intVal(opt.get().get(0), "department_id"));
+    }
+
+    /**
+     * Persists Supabase Auth user id (JWT {@code sub}) on useraccount when the column exists.
+     */
+    public void tryLinkSupabaseUserToAccount(Integer userId, String supabaseSub) {
+        if (userId == null || supabaseSub == null || supabaseSub.isBlank()) {
+            return;
+        }
+        try {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("supabase_user_id", supabaseSub);
+            String body = objectMapper.writeValueAsString(row);
+            restTemplate.exchange(
+                    supabaseUrl + "/rest/v1/useraccount?user_id=eq." + userId,
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(body, createServiceHeaders()),
+                    String.class);
+        } catch (Exception ignored) {
+            /* Column may be missing until migration is applied. */
+        }
+    }
 }

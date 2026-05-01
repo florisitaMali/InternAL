@@ -5,6 +5,7 @@ import type {
   StudentProfileFile,
   StudentProject,
 } from '@/src/types';
+import { fetchPpaProfile } from '@/src/lib/auth/ppa';
 
 export type CurrentUserResponse = {
   userId: number;
@@ -585,10 +586,15 @@ export async function uploadProfileCover(
   return sendBackendFormData<{ url: string }>('/api/student/profile/cover', accessToken, formData);
 }
 
+/**
+ * @param invitePasswordCompleted - Pass `session.user.user_metadata.invite_password_completed === true`.
+ *   For PPAs, when this is not true, skips `/api/ppa/me` so invite onboarding can still redirect to set-password.
+ */
 export async function loadCurrentAppUser(
   accessToken: string,
   fallbackEmail: string,
-  metadataName?: string
+  metadataName?: string,
+  invitePasswordCompleted?: boolean
 ): Promise<{ data: LoadedAppUser | null; errorMessage: string | null }> {
   const { data: user, errorMessage } = await fetchCurrentUser(accessToken);
   if (!user || errorMessage) {
@@ -609,6 +615,25 @@ export async function loadCurrentAppUser(
 
     studentProfile = mapStudentProfileToStudent(profile);
     displayName = studentProfile.fullName || displayName;
+  } else if (user.role === 'PPA') {
+    if (invitePasswordCompleted !== true) {
+      return {
+        data: {
+          user,
+          displayName,
+          studentProfile: null,
+        },
+        errorMessage: null,
+      };
+    }
+    const { data: ppaProfile, errorMessage: ppaError } = await fetchPpaProfile(accessToken);
+    if (!ppaProfile || ppaError) {
+      return {
+        data: null,
+        errorMessage: ppaError || 'Could not load PPA profile.',
+      };
+    }
+    displayName = ppaProfile.fullName?.trim() || displayName;
   }
 
   return {

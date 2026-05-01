@@ -1,6 +1,22 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
 import { type AdminStudentRow } from '@/src/lib/auth/admin';
 
+export type PpaStudyFieldRow = {
+  fieldId: number;
+  name: string | null;
+  departmentId: number;
+};
+
+/** Matches backend AdminPpaResponse JSON. */
+export type PpaProfileResponse = {
+  ppaId: number;
+  fullName: string | null;
+  email: string | null;
+  departmentId: number | null;
+  departmentName: string | null;
+  studyFields: PpaStudyFieldRow[];
+};
+
 function getApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080').replace(/\/+$/, '');
 }
@@ -42,4 +58,10 @@ export async function fetchPpaStudents(
   accessToken: string
 ): Promise<{ data: AdminStudentRow[] | null; errorMessage: string | null }> {
   return fetchJson<AdminStudentRow[]>('/api/ppa/students', accessToken);
+}
+
+export async function fetchPpaProfile(
+  accessToken: string
+): Promise<{ data: PpaProfileResponse | null; errorMessage: string | null }> {
+  return fetchJson<PpaProfileResponse>('/api/ppa/me', accessToken);
 }

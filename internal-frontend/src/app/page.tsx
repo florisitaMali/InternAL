@@ -49,6 +49,25 @@ export default function Home() {
     setLinkedEntityId(null);
   };
 
+  /**
+   * Supabase often sends magic links to the Auth "Site URL" (/) with tokens in the hash.
+   * Forward invite/recovery hashes to the routes that handle them so redirect_to is optional for local/dev.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.location.hash.replace(/^#/, '');
+    if (!raw) return;
+    const params = new URLSearchParams(raw);
+    const type = params.get('type');
+    if (type === 'invite') {
+      window.location.replace(`${window.location.origin}/auth/set-password#${raw}`);
+      return;
+    }
+    if (type === 'recovery') {
+      window.location.replace(`${window.location.origin}/auth/reset#${raw}`);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -69,13 +88,25 @@ export default function Home() {
         return;
       }
 
+      const meta = session.user.user_metadata as Record<string, unknown> | undefined;
+      // Invited PPAs carry internaal_app_role in JWT — redirect before /api/me so a broken production API cannot block onboarding.
+      if (meta?.internaal_app_role === 'PPA' && meta?.invite_password_completed !== true) {
+        if (typeof window !== 'undefined') {
+          window.location.replace('/auth/set-password');
+        }
+        return;
+      }
+
       const metadataName =
         (session.user.user_metadata?.full_name as string | undefined) ||
         (session.user.user_metadata?.name as string | undefined);
+      const invitePasswordCompleted =
+        session.user.user_metadata?.invite_password_completed === true;
       const { data: appUser, errorMessage } = await loadCurrentAppUser(
         session.access_token,
         session.user.email,
-        metadataName
+        metadataName,
+        invitePasswordCompleted
       );
       if (cancelled) return;
 
@@ -89,6 +120,15 @@ export default function Home() {
         resetLocalUserState();
         toast.error(errorMessage || 'Could not load your account profile.');
         return;
+      }
+
+      if (appUser.user.role === 'PPA') {
+        if (meta?.invite_password_completed !== true) {
+          if (typeof window !== 'undefined') {
+            window.location.replace('/auth/set-password');
+          }
+          return;
+        }
       }
 
       setRole(appUser.user.role);
@@ -148,7 +188,7 @@ export default function Home() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'INITIAL_SESSION') return;
+      // Invite/magic-link sessions are often delivered only here; skipping INITIAL_SESSION left getSession()-null users stuck on / with no sync.
       try {
         if (!cancelled) await sync(session);
       } catch (e) {

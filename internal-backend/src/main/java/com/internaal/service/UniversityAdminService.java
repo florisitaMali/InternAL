@@ -26,12 +26,15 @@ public class UniversityAdminService {
 
     private final UniversityAdminRepository universityAdminRepository;
     private final ApplicationRepository applicationRepository;
+    private final SupabaseAuthAdminService supabaseAuthAdminService;
 
     public UniversityAdminService(
             UniversityAdminRepository universityAdminRepository,
-            ApplicationRepository applicationRepository) {
+            ApplicationRepository applicationRepository,
+            SupabaseAuthAdminService supabaseAuthAdminService) {
         this.universityAdminRepository = universityAdminRepository;
         this.applicationRepository = applicationRepository;
+        this.supabaseAuthAdminService = supabaseAuthAdminService;
     }
 
     public List<AdminDepartmentResponse> listDepartments(UserAccount user) {
@@ -66,8 +69,10 @@ public class UniversityAdminService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned study fields must belong to selected department.");
         }
         try {
-            return universityAdminRepository.insertPpa(body)
+            AdminPpaResponse created = universityAdminRepository.insertPpa(body)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not create PPA."));
+            supabaseAuthAdminService.invitePpaIfConfigured(created.email(), created.fullName());
+            return created;
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
@@ -78,6 +83,11 @@ public class UniversityAdminService {
     public AdminPpaResponse updatePpa(UserAccount user, int ppaId, AdminPpaUpdateRequest body) {
         requireAdmin(user);
         validatePpaPayload(body.fullName(), body.email(), body.departmentId(), body.studyFieldIds());
+        AdminPpaResponse before = universityAdminRepository.getPpaProfile(ppaId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PPA not found."));
+        if (!before.email().trim().equalsIgnoreCase(body.email().trim())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PPA email cannot be changed.");
+        }
         var ppaWithSameEmail = universityAdminRepository.findPpaIdByEmail(body.email());
         if (ppaWithSameEmail.isPresent() && ppaWithSameEmail.get() != ppaId) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A user with this email already exists.");
@@ -89,8 +99,15 @@ public class UniversityAdminService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Assigned study fields must belong to selected department.");
         }
         try {
-            return universityAdminRepository.updatePpa(ppaId, body)
+            var authUserId = universityAdminRepository.findSupabaseAuthUserIdForPpa(ppaId);
+            AdminPpaResponse updated = universityAdminRepository.updatePpa(ppaId, body)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PPA not found."));
+            supabaseAuthAdminService.syncPpaAuthUser(
+                    before.email(),
+                    updated.email(),
+                    updated.fullName(),
+                    authUserId);
+            return updated;
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
@@ -101,7 +118,13 @@ public class UniversityAdminService {
     public void deletePpa(UserAccount user, int ppaId) {
         requireAdmin(user);
         try {
+            AdminPpaResponse existing = universityAdminRepository.getPpaProfile(ppaId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PPA not found."));
+            var authUserId = universityAdminRepository.findSupabaseAuthUserIdForPpa(ppaId);
             universityAdminRepository.deletePpa(ppaId);
+            supabaseAuthAdminService.deleteAuthUserIfExists(existing.email(), authUserId);
+        } catch (ResponseStatusException e) {
+            throw e;
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import Dashboard from './Dashboard';
 import AddStudentForm from './AddStudentForm';
@@ -86,13 +86,13 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     studyFieldIds: [] as string[],
   });
 
-  const resolveAccessToken = async (): Promise<string | null> => {
+  const resolveAccessToken = useCallback(async (): Promise<string | null> => {
     const fromRef = accessTokenRef?.current?.trim();
     if (fromRef) return fromRef;
     const fromProp = accessToken?.trim();
     if (fromProp) return fromProp;
     return getSessionAccessToken();
-  };
+  }, [accessToken, accessTokenRef]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -147,7 +147,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     };
 
     void loadData();
-  }, [accessToken]);
+  }, [resolveAccessToken]);
 
   const filteredStudents = useMemo(
     () =>
@@ -660,12 +660,27 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
             value={ppaForm.fullName}
             onChange={(e) => setPpaForm((s) => ({ ...s, fullName: e.target.value }))}
           />
-          <input
-            className="rounded-xl border border-blue-200/80 bg-white/90 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/15 outline-none"
-            placeholder="Email"
-            value={ppaForm.email}
-            onChange={(e) => setPpaForm((s) => ({ ...s, email: e.target.value }))}
-          />
+          <div>
+            <label className="block text-xs font-semibold text-blue-900/55 mb-1">Email</label>
+            <input
+              className={`w-full rounded-xl border border-blue-200/80 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/15 outline-none ${
+                editingPpa
+                  ? 'bg-slate-100/90 text-slate-600 cursor-not-allowed'
+                  : 'bg-white/90 text-slate-900'
+              }`}
+              placeholder="Email"
+              value={ppaForm.email}
+              readOnly={!!editingPpa}
+              title={editingPpa ? 'Email is tied to Supabase login and cannot be changed here.' : undefined}
+              onChange={(e) => {
+                if (editingPpa) return;
+                setPpaForm((s) => ({ ...s, email: e.target.value }));
+              }}
+            />
+            {editingPpa ? (
+              <p className="mt-1 text-[11px] text-blue-900/45">Email cannot be edited (linked to authentication).</p>
+            ) : null}
+          </div>
           <div>
             <label className="block text-xs font-semibold text-blue-900/55 mb-1">Department</label>
             <select

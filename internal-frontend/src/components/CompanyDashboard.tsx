@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useRef, useMemo, type MutableRefObject } from 'react';
+import Image from 'next/image';
 import Dashboard from './Dashboard';
 import AddOpportunityForm from './AddOpportunityForm';
 import CompanyProfileTabbedView from '@/src/components/CompanyProfileTabbedView';
@@ -973,12 +974,15 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                       }}
                     />
                     <div className="mt-2 space-y-2">
-                      <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                         {(logoObjectUrl || profileDraft.logoUrl)?.trim() ? (
-                          <img
+                          <Image
                             src={logoObjectUrl || profileDraft.logoUrl || ''}
                             alt=""
-                            className="h-full w-full object-cover"
+                            fill
+                            unoptimized
+                            className="object-cover"
+                            sizes="80px"
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">

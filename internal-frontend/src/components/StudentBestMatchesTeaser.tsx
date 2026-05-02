@@ -12,6 +12,8 @@ export const BEST_MATCHES_PREVIEW_COUNT = 2;
 type Props = {
   loading: boolean;
   matches: Opportunity[];
+  /** When true, show the full ranked list with no paywall. */
+  hasPremium?: boolean;
   onViewDetails: (opp: Opportunity) => void;
   onApply: (opp: Opportunity) => void;
   hasAppliedToOpportunity: (opp: Opportunity) => boolean;
@@ -22,6 +24,7 @@ type Props = {
 export default function StudentBestMatchesTeaser({
   loading,
   matches,
+  hasPremium = false,
   onViewDetails,
   onApply,
   hasAppliedToOpportunity,
@@ -59,6 +62,42 @@ export default function StudentBestMatchesTeaser({
               Update my profile
             </button>
           ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (hasPremium) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <div className="flex flex-wrap items-center gap-2 gap-y-1">
+            <Sparkles className="h-7 w-7 text-emerald-600" strokeWidth={1.75} aria-hidden />
+            <h2 className="text-2xl font-bold tracking-tight text-[#002B5B] md:text-3xl">Best Matches</h2>
+            <span
+              className={cn(
+                'rounded-full border border-emerald-300/80 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-900'
+              )}
+            >
+              Premium active
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">
+            Full skill-ranked results — all matches unlocked.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <p className="text-xs font-bold uppercase tracking-widest text-emerald-800/90">Your ranked picks</p>
+          {matches.map((opp) => (
+            <OpportunityRecordCard
+              key={opp.id}
+              opportunity={opp}
+              onViewDetails={() => onViewDetails(opp)}
+              showApply={!hasAppliedToOpportunity(opp)}
+              onApply={() => onApply(opp)}
+            />
+          ))}
         </div>
       </div>
     );

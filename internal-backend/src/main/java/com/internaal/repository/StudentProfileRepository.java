@@ -567,6 +567,8 @@ public class StudentProfileRepository {
         response.setHasCompletedPp(boolValue(studentNode, "has_completed_pp"));
         Boolean canApplyForPp = readCanApplyForPpFlag(studentNode);
         response.setCanApplyForPp(canApplyForPp != null ? canApplyForPp : Boolean.TRUE);
+        Boolean hasPremium = readHasPremiumFlag(studentNode);
+        response.setHasPremium(hasPremium != null ? hasPremium : Boolean.FALSE);
         response.setAccessStartDate(textValue(studentNode, "access_start_date"));
         response.setAccessEndDate(textValue(studentNode, "access_end_date"));
 
@@ -876,6 +878,49 @@ public class StudentProfileRepository {
             }
         }
         return null;
+    }
+
+    /**
+     * Same tolerant matching as {@link #readCanApplyForPpFlag} for {@code hasPremium} / {@code haspremium}.
+     */
+    private Boolean readHasPremiumFlag(JsonNode row) {
+        if (row == null || row.isNull()) {
+            return null;
+        }
+        final String target = "haspremium";
+        var fields = row.fields();
+        while (fields.hasNext()) {
+            var e = fields.next();
+            String norm = e.getKey().replace("_", "").toLowerCase();
+            if (target.equals(norm) && !e.getValue().isNull()) {
+                return e.getValue().asBoolean();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Demo: sets {@code hasPremium} on the student row via PostgREST, then reloads the profile.
+     * Real PSP integration should verify payment before calling this.
+     */
+    public Optional<StudentProfileResponse> completeMockPremiumPayment(Integer studentId, String userJwt) throws Exception {
+        HttpHeaders headers = createUserHeaders(userJwt);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("hasPremium", Boolean.TRUE);
+        JsonNode updated = patchSingleRowWithServiceFallbackOnForbidden(
+                "student",
+                body,
+                headers,
+                "student_id",
+                studentId,
+                "student_id",
+                studentId,
+                studentId);
+        if (updated == null) {
+            return Optional.empty();
+        }
+        return findByStudentId(studentId, userJwt);
     }
 
     private String textValue(JsonNode node, String field) {

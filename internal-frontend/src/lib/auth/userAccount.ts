@@ -29,6 +29,7 @@ export type StudentProfileResponse = {
   cgpa: number | null;
   hasCompletedPp: boolean | null;
   canApplyForPP: boolean | null;
+  hasPremium?: boolean | null;
   accessStartDate: string | null;
   accessEndDate: string | null;
   description: string | null;
@@ -156,10 +157,12 @@ async function sendBackendJson<T>(
   body: unknown
 ): Promise<{ data: T | null; errorMessage: string | null }> {
   try {
-    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    const url = `${getApiBaseUrl()}${path}`;
+    const trimmed = typeof accessToken === 'string' ? accessToken.trim() : '';
+    const response = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${trimmed}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -295,6 +298,25 @@ export async function saveCurrentStudentProfile(
   return { data: mapStudentProfileToStudent(data), errorMessage: null };
 }
 
+/** Demo: activates Premium via backend mock payment endpoint (replace with real PSP later). */
+export async function completeMockPremiumPayment(
+  accessToken: string,
+  paymentMethod: string
+): Promise<{ data: Student | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await sendBackendJson<StudentProfileResponse>(
+    '/api/student/premium/mock-payment',
+    accessToken,
+    'POST',
+    { paymentMethod }
+  );
+
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not activate Premium.' };
+  }
+
+  return { data: mapStudentProfileToStudent(data), errorMessage: null };
+}
+
 function mapStudentProject(row: StudentProjectResponse): StudentProject {
   return {
     projectId: row.projectId,
@@ -341,6 +363,15 @@ function pickCanApplyForPPFromProfile(profile: StudentProfileResponse): boolean 
   return null;
 }
 
+function pickHasPremiumFromProfile(profile: StudentProfileResponse): boolean | null {
+  const raw = profile as Record<string, unknown>;
+  for (const key of ['hasPremium', 'haspremium'] as const) {
+    const v = raw[key];
+    if (typeof v === 'boolean') return v;
+  }
+  return null;
+}
+
 export function mapStudentProfileToStudent(profile: StudentProfileResponse): Student {
   return {
     id: String(profile.studentId),
@@ -358,6 +389,7 @@ export function mapStudentProfileToStudent(profile: StudentProfileResponse): Stu
     cgpa: profile.cgpa ?? 0,
     hasCompletedPP: Boolean(profile.hasCompletedPp),
     canApplyForPP: pickCanApplyForPPFromProfile(profile) ?? true,
+    hasPremium: pickHasPremiumFromProfile(profile) ?? false,
     accessStartDate: profile.accessStartDate || undefined,
     accessEndDate: profile.accessEndDate || undefined,
     profilePhotoUrl: profile.photo?.trim() || undefined,

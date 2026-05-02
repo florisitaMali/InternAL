@@ -71,6 +71,8 @@ export interface Student extends User {
   hasCompletedPP: boolean;
   /** When false, application type is fixed to individual growth (no PP choice in the form). */
   canApplyForPP?: boolean;
+  /** Unlocks full Premium features (e.g. Best Matches) when true. */
+  hasPremium?: boolean;
   accessStartDate?: string;
   accessEndDate?: string;
   /** Public or signed URL from `studentprofile.photo`. */

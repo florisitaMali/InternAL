@@ -24,6 +24,9 @@ public class StudentProfileResponse {
     /** When false, student applications must be stored as individual growth (no PP choice). Matches DB column {@code canApplyForPP}. */
     @JsonProperty("canApplyForPP")
     private Boolean canApplyForPp;
+    /** Matches DB column {@code hasPremium}. */
+    @JsonProperty("hasPremium")
+    private Boolean hasPremium;
     private String accessStartDate;
     private String accessEndDate;
     private String description;
@@ -70,6 +73,8 @@ public class StudentProfileResponse {
     public void setHasCompletedPp(Boolean hasCompletedPp) { this.hasCompletedPp = hasCompletedPp; }
     public Boolean getCanApplyForPp() { return canApplyForPp; }
     public void setCanApplyForPp(Boolean canApplyForPp) { this.canApplyForPp = canApplyForPp; }
+    public Boolean getHasPremium() { return hasPremium; }
+    public void setHasPremium(Boolean hasPremium) { this.hasPremium = hasPremium; }
     public String getAccessStartDate() { return accessStartDate; }
     public void setAccessStartDate(String accessStartDate) { this.accessStartDate = accessStartDate; }
     public String getAccessEndDate() { return accessEndDate; }

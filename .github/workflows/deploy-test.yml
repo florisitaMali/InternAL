@@ -42,9 +42,8 @@ jobs:
             git pull origin develop
             cd internal-frontend
             npm ci
-            NEXT_PUBLIC_API_BASE_URL=https://test.internalbania.com npm run build
+            npm run build
             cd ../internal-backend
             mvn package -DskipTests
             pm2 restart test-internalbania-backend
-
           

@@ -28,6 +28,7 @@ export type StudentProfileResponse = {
   studyYear: number | null;
   cgpa: number | null;
   hasCompletedPp: boolean | null;
+  canApplyForPP: boolean | null;
   accessStartDate: string | null;
   accessEndDate: string | null;
   description: string | null;
@@ -330,6 +331,16 @@ function mapStudentProfileFile(file: StudentProfileFileResponse): StudentProfile
   };
 }
 
+/** Backend / PostgREST may use camelCase or lowercase keys for the same column. */
+function pickCanApplyForPPFromProfile(profile: StudentProfileResponse): boolean | null {
+  const raw = profile as Record<string, unknown>;
+  for (const key of ['canApplyForPP', 'canapplyforpp', 'can_apply_for_pp'] as const) {
+    const v = raw[key];
+    if (typeof v === 'boolean') return v;
+  }
+  return null;
+}
+
 export function mapStudentProfileToStudent(profile: StudentProfileResponse): Student {
   return {
     id: String(profile.studentId),
@@ -346,6 +357,7 @@ export function mapStudentProfileToStudent(profile: StudentProfileResponse): Stu
     studyYear: profile.studyYear ?? 0,
     cgpa: profile.cgpa ?? 0,
     hasCompletedPP: Boolean(profile.hasCompletedPp),
+    canApplyForPP: pickCanApplyForPPFromProfile(profile) ?? true,
     accessStartDate: profile.accessStartDate || undefined,
     accessEndDate: profile.accessEndDate || undefined,
     profilePhotoUrl: profile.photo?.trim() || undefined,

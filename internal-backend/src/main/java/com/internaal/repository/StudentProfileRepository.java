@@ -565,6 +565,8 @@ public class StudentProfileRepository {
         response.setCgpa(studentNode.has("cgpa") && !studentNode.get("cgpa").isNull()
                 ? studentNode.get("cgpa").decimalValue() : null);
         response.setHasCompletedPp(boolValue(studentNode, "has_completed_pp"));
+        Boolean canApplyForPp = readCanApplyForPpFlag(studentNode);
+        response.setCanApplyForPp(canApplyForPp != null ? canApplyForPp : Boolean.TRUE);
         response.setAccessStartDate(textValue(studentNode, "access_start_date"));
         response.setAccessEndDate(textValue(studentNode, "access_end_date"));
 
@@ -854,6 +856,26 @@ public class StudentProfileRepository {
 
     private Boolean boolValue(JsonNode node, String field) {
         return node != null && node.has(field) && !node.get(field).isNull() ? node.get(field).asBoolean() : null;
+    }
+
+    /**
+     * PostgREST uses Postgres column names in JSON — unquoted identifiers are lowercased ({@code canapplyforpp}),
+     * quoted camelCase stays mixed. This finds the PP-eligibility flag regardless.
+     */
+    private Boolean readCanApplyForPpFlag(JsonNode row) {
+        if (row == null || row.isNull()) {
+            return null;
+        }
+        final String target = "canapplyforpp";
+        var fields = row.fields();
+        while (fields.hasNext()) {
+            var e = fields.next();
+            String norm = e.getKey().replace("_", "").toLowerCase();
+            if (target.equals(norm) && !e.getValue().isNull()) {
+                return e.getValue().asBoolean();
+            }
+        }
+        return null;
     }
 
     private String textValue(JsonNode node, String field) {

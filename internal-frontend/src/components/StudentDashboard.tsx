@@ -398,7 +398,13 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   useEffect(() => {
     if (!currentStudent) return;
-    setStudent(currentStudent);
+    setStudent((prev) => {
+      const merged: Student = { ...prev, ...currentStudent };
+      if (currentStudent.canApplyForPP === undefined && prev.canApplyForPP !== undefined) {
+        merged.canApplyForPP = prev.canApplyForPP;
+      }
+      return merged;
+    });
     setIsEditingProfile(false);
   }, [currentStudent]);
 
@@ -422,6 +428,10 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       toast.error(e instanceof Error ? e.message : 'Could not refresh profile.');
     }
   }, []);
+
+  useEffect(() => {
+    void reloadStudentProfile();
+  }, [reloadStudentProfile]);
 
   const loadOpportunities = useCallback(async (filters: OpportunityFilterState) => {
     setIsLoadingOpportunities(true);
@@ -952,29 +962,97 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </p>
       );
     }
+    const opp = applicationListingDetail;
+    const meta = [
+      opp.location,
+      opp.workMode,
+      formatDbWorkType(opp.workType),
+      formatDbDuration(opp.duration),
+    ].filter(Boolean);
+    const overviewItems = [
+      ['Target universities', opp.targetUniversities?.map((u) => u.name).join(', ') || 'All universities'],
+      ['Application deadline', formatDeadline(opp.deadline)],
+      ['Start date', formatDeadline(opp.startDate)],
+      ['Positions', opp.positionCount != null ? String(opp.positionCount) : '—'],
+    ];
+    const companyButton = (
+      <button
+        type="button"
+        className="font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
+        onClick={() => {
+          const cid = opp.companyId;
+          setSelectedApplication(null);
+          onNavigateTab?.('opportunities');
+          setSelectedExploreOpportunityId(null);
+          setExploreOpportunityDetail(null);
+          setCompanyBrowseId(cid);
+          void loadCompanyBrowseForId(cid);
+        }}
+      >
+        {opp.companyName}
+      </button>
+    );
+
     return (
-      <div className="space-y-2">
-        <h4 className="text-sm font-semibold text-gray-900">Opportunity</h4>
-        <div className="rounded-lg border border-slate-200 bg-white p-2 sm:p-3">
-          <OpportunityDetailView
-            variant="student"
-            showBackButton={false}
-            opportunity={applicationListingDetail}
-            onBack={() => {}}
-            onApply={handleApply}
-            applyDisabled={hasAppliedToOpportunity(applicationListingDetail)}
-            applyLabel={hasAppliedToOpportunity(applicationListingDetail) ? 'Applied' : 'Apply Now'}
-            onCompanyNameClick={() => {
-              const cid = applicationListingDetail.companyId;
-              setSelectedApplication(null);
-              onNavigateTab?.('opportunities');
-              setSelectedExploreOpportunityId(null);
-              setExploreOpportunityDetail(null);
-              setCompanyBrowseId(cid);
-              void loadCompanyBrowseForId(cid);
-            }}
-            showApplicationStats={false}
-          />
+      <div>
+        <h4 className="text-base font-bold text-slate-950">Opportunity</h4>
+        <div className="mt-3 flex flex-col gap-5 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-4">
+              <div className="mt-1 h-12 w-12 shrink-0 rounded-xl bg-[#002B5B]" aria-hidden />
+              <div className="min-w-0">
+                <h5 className="text-xl font-bold text-[#0E2A50]">{opp.title}</h5>
+                <div className="mt-0.5 text-sm">{companyButton}</div>
+                {meta.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    {meta.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
+                ) : null}
+                {opp.requiredSkills?.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {opp.requiredSkills.slice(0, 5).map((skill) => (
+                      <span key={skill} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3 text-sm text-slate-600">
+              {opp.description ? (
+                <div>
+                  <p className="font-semibold text-slate-900">About the role</p>
+                  <p className="mt-1 leading-6">{opp.description}</p>
+                </div>
+              ) : null}
+              {opp.responsibilities?.length ? (
+                <div>
+                  <p className="font-semibold text-slate-900">Responsibilities</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    {opp.responsibilities.slice(0, 3).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="w-full border-t border-slate-100 pt-4 lg:w-64 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            <p className="text-sm font-bold text-slate-950">Overview</p>
+            <div className="mt-3 space-y-3">
+              {overviewItems.map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-700">{value || '—'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -1882,6 +1960,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           student={applicationStudentFormProps}
           onClose={() => setApplicationOpportunity(null)}
           onSubmit={handleSubmitApplication}
+          canApplyForPP={student.canApplyForPP !== false}
         />
       )}
       {selectedApplication && (

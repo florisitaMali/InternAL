@@ -132,14 +132,23 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
     );
     setIsSubmitting(false);
 
+    // #region agent log
+    fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:handleSubmit',message:'updateUser result',data:{hasError:!!error,errorMessage:error?.message,errorName:error?.name,errorStatus:(error as unknown as Record<string,unknown>)?.status},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    console.error('[debug][A] updateUser result:', {hasError:!!error,errorMessage:error?.message,errorName:error?.name});
+    // #endregion
+
     if (error) {
       toast.error(error.message);
       return;
     }
 
     if (variant === 'invite') {
-      const { error: refreshError } = await supabase.auth.refreshSession();
-      if (refreshError && process.env.NODE_ENV === 'development') {
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      // #region agent log
+      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:handleSubmit',message:'refreshSession result',data:{hasError:!!refreshError,errorMessage:refreshError?.message,hasSession:!!refreshData?.session,metaAfterRefresh:(refreshData?.session?.user?.user_metadata as Record<string,unknown>|undefined)},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+      console.error('[debug][B] refreshSession result:', {hasError:!!refreshError,errorMessage:refreshError?.message,hasSession:!!refreshData?.session,metaAfterRefresh:refreshData?.session?.user?.user_metadata});
+      // #endregion
+      if (refreshError) {
         console.warn('[set-password] refreshSession after update:', refreshError.message);
       }
       toast.success('Password saved. Welcome to InternAL.');

@@ -55,6 +55,9 @@ export default function Home() {
    */
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    // #region agent log
+    fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'A',location:'page.tsx:hashEffect',message:'root page.tsx hash effect running',data:{pathname:window.location.pathname,hash:window.location.hash.slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const raw = window.location.hash.replace(/^#/, '');
     if (!raw) return;
     const params = new URLSearchParams(raw);
@@ -89,8 +92,14 @@ export default function Home() {
       }
 
       const meta = session.user.user_metadata as Record<string, unknown> | undefined;
+      // #region agent log
+      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'C',location:'page.tsx:sync',message:'sync() called in root page',data:{pathname:typeof window!=='undefined'?window.location.pathname:'?',role:meta?.internaal_app_role,inviteDone:meta?.invite_password_completed},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       // Invited PPAs carry internaal_app_role in JWT — redirect before /api/me so a broken production API cannot block onboarding.
       if (meta?.internaal_app_role === 'PPA' && meta?.invite_password_completed !== true) {
+        // #region agent log
+        fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'C',location:'page.tsx:sync:ppaRedirect',message:'root page firing PPA invite redirect',data:{pathname:typeof window!=='undefined'?window.location.pathname:'?'},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         if (typeof window !== 'undefined') {
           window.location.replace('/auth/set-password');
         }

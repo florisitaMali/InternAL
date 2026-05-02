@@ -1,5 +1,7 @@
 package com.internaal.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +21,9 @@ public class StudentProfileResponse {
     private Integer studyYear;
     private BigDecimal cgpa;
     private Boolean hasCompletedPp;
+    /** When false, student applications must be stored as individual growth (no PP choice). Matches DB column {@code canApplyForPP}. */
+    @JsonProperty("canApplyForPP")
+    private Boolean canApplyForPp;
     private String accessStartDate;
     private String accessEndDate;
     private String description;
@@ -63,6 +68,8 @@ public class StudentProfileResponse {
     public void setCgpa(BigDecimal cgpa) { this.cgpa = cgpa; }
     public Boolean getHasCompletedPp() { return hasCompletedPp; }
     public void setHasCompletedPp(Boolean hasCompletedPp) { this.hasCompletedPp = hasCompletedPp; }
+    public Boolean getCanApplyForPp() { return canApplyForPp; }
+    public void setCanApplyForPp(Boolean canApplyForPp) { this.canApplyForPp = canApplyForPp; }
     public String getAccessStartDate() { return accessStartDate; }
     public void setAccessStartDate(String accessStartDate) { this.accessStartDate = accessStartDate; }
     public String getAccessEndDate() { return accessEndDate; }

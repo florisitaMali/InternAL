@@ -99,6 +99,15 @@ export interface PPA extends User {
   supervisedFieldIds: string[];
 }
 
+export interface PPAApprover {
+  id: string;
+  fullName: string;
+  email: string;
+  departmentId: string;
+  departmentName: string;
+  assignedStudyFields: StudyField[];
+}
+
 export interface Company {
   id: string;
   name: string;

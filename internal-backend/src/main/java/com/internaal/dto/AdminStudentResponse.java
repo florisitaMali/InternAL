@@ -10,6 +10,9 @@ public record AdminStudentResponse(
         Integer departmentId,
         Integer studyFieldId,
         Integer studyYear,
-        BigDecimal cgpa
+        BigDecimal cgpa,
+        String studyFieldName,
+        Integer applicationCount,
+        String applicationStatus
 ) {
 }

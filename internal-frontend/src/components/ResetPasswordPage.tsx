@@ -38,9 +38,6 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
 
     const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
     const q = new URLSearchParams(hash);
-    // #region agent log
-    fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'B',location:'ResetPasswordPage.tsx:useEffect',message:'ResetPasswordPage mounted',data:{variant,hashType:q.get('type'),hasAccessToken:hash.includes('access_token'),hasError:!!q.get('error'),pathname:typeof window!=='undefined'?window.location.pathname:'?'},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (q.get('error')) {
       setStatus('invalid');
       return;
@@ -66,9 +63,6 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'B',location:'ResetPasswordPage.tsx:onAuthStateChange',message:'auth state change in ResetPasswordPage',data:{event,hasSession:!!session},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (cancelled || !session) return;
       if (
         event === 'PASSWORD_RECOVERY' ||

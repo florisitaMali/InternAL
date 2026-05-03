@@ -46,10 +46,6 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
     const hashRefresh = q.get('refresh_token');
     if (hashAccess && hashRefresh) {
       sessionTokensRef.current = { access: hashAccess, refresh: hashRefresh };
-      // #region agent log
-      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:useEffect',message:'invite tokens captured from hash',data:{hasAccess:true,hasRefresh:true},timestamp:Date.now(),hypothesisId:'F'})}).catch(()=>{});
-      console.error('[debug][F] invite tokens captured from hash');
-      // #endregion
     }
 
     if (q.get('error')) {
@@ -77,10 +73,6 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:onAuthStateChange',message:'auth event',data:{event,hasSession:!!session,meta:session?.user?.user_metadata},timestamp:Date.now(),hypothesisId:'F'})}).catch(()=>{});
-      console.error('[debug][F] onAuthStateChange event:', event, 'hasSession:', !!session);
-      // #endregion
       // Keep sessionTokensRef up-to-date with any refreshed tokens.
       if (session?.access_token && session?.refresh_token) {
         sessionTokensRef.current = { access: session.access_token, refresh: session.refresh_token };
@@ -149,19 +141,11 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
     // by Supabase's autoRefreshToken if the invite grant was already consumed server-side.
     if (variant === 'invite') {
       const { data: { session: currentSession } } = await supabase.auth.getSession();
-      // #region agent log
-      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:handleSubmit',message:'getSession before updateUser',data:{hasSession:!!currentSession,hasStoredTokens:!!sessionTokensRef.current},timestamp:Date.now(),hypothesisId:'F'})}).catch(()=>{});
-      console.error('[debug][F] getSession before updateUser:', {hasSession:!!currentSession,hasStoredTokens:!!sessionTokensRef.current});
-      // #endregion
       if (!currentSession && sessionTokensRef.current) {
         const { error: restoreError } = await supabase.auth.setSession({
           access_token: sessionTokensRef.current.access,
           refresh_token: sessionTokensRef.current.refresh,
         });
-        // #region agent log
-        fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:handleSubmit',message:'setSession restore result',data:{hasError:!!restoreError,errorMessage:restoreError?.message},timestamp:Date.now(),hypothesisId:'F'})}).catch(()=>{});
-        console.error('[debug][F] setSession restore:', {hasError:!!restoreError,errorMessage:restoreError?.message});
-        // #endregion
         if (restoreError) {
           setIsSubmitting(false);
           toast.error('Your invitation session has expired. Please ask for a new invite link.');
@@ -180,22 +164,13 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
     );
     setIsSubmitting(false);
 
-    // #region agent log
-    fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:handleSubmit',message:'updateUser result',data:{hasError:!!error,errorMessage:error?.message,errorName:error?.name,errorStatus:(error as unknown as Record<string,unknown>)?.status},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-    console.error('[debug][A] updateUser result:', {hasError:!!error,errorMessage:error?.message,errorName:error?.name});
-    // #endregion
-
     if (error) {
       toast.error(error.message);
       return;
     }
 
     if (variant === 'invite') {
-      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-      // #region agent log
-      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:handleSubmit',message:'refreshSession result',data:{hasError:!!refreshError,errorMessage:refreshError?.message,hasSession:!!refreshData?.session,metaAfterRefresh:(refreshData?.session?.user?.user_metadata as Record<string,unknown>|undefined)},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-      console.error('[debug][B] refreshSession result:', {hasError:!!refreshError,errorMessage:refreshError?.message,hasSession:!!refreshData?.session,metaAfterRefresh:refreshData?.session?.user?.user_metadata});
-      // #endregion
+      const { error: refreshError } = await supabase.auth.refreshSession();
       if (refreshError) {
         console.warn('[set-password] refreshSession after update:', refreshError.message);
       }

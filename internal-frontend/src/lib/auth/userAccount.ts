@@ -628,10 +628,6 @@ export async function loadCurrentAppUser(
     studentProfile = mapStudentProfileToStudent(profile);
     displayName = studentProfile.fullName || displayName;
   } else if (user.role === 'PPA') {
-    // #region agent log
-    fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'userAccount.ts:loadCurrentAppUser',message:'PPA path reached',data:{invitePasswordCompleted,userId:user.userId,linkedEntityId:user.linkedEntityId},timestamp:Date.now(),hypothesisId:'C-E'})}).catch(()=>{});
-    console.error('[debug][C-E] PPA path:', {invitePasswordCompleted,userId:user.userId,linkedEntityId:user.linkedEntityId});
-    // #endregion
     if (invitePasswordCompleted !== true) {
       return {
         data: {
@@ -643,10 +639,6 @@ export async function loadCurrentAppUser(
       };
     }
     const { data: ppaProfile, errorMessage: ppaError } = await fetchPpaProfile(accessToken);
-    // #region agent log
-    fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'userAccount.ts:loadCurrentAppUser',message:'fetchPpaProfile result',data:{hasPpaProfile:!!ppaProfile,ppaError},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
-    console.error('[debug][C] fetchPpaProfile result:', {hasPpaProfile:!!ppaProfile,ppaError});
-    // #endregion
     if (!ppaProfile || ppaError) {
       return {
         data: null,

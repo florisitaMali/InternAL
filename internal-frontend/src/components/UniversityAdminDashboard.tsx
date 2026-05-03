@@ -654,12 +654,15 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       <div className="rounded-2xl border border-blue-200/60 bg-blue-50/40 shadow-sm p-4 backdrop-blur-[2px]">
         <h2 className="text-lg font-bold text-[#002B5B] mb-4">{editingPpa ? 'Update PP Approver' : 'Create PP Approver'}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input
-            className="rounded-xl border border-blue-200/80 bg-white/90 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/15 outline-none"
-            placeholder="Full name"
-            value={ppaForm.fullName}
-            onChange={(e) => setPpaForm((s) => ({ ...s, fullName: e.target.value }))}
-          />
+          <div>
+            <label className="block text-xs font-semibold text-blue-900/55 mb-1">Full name</label>
+            <input
+              className="w-full rounded-xl border border-blue-200/80 bg-white/90 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#002B5B]/40 focus:ring-2 focus:ring-[#002B5B]/15 outline-none"
+              placeholder="Full name"
+              value={ppaForm.fullName}
+              onChange={(e) => setPpaForm((s) => ({ ...s, fullName: e.target.value }))}
+            />
+          </div>
           <div>
             <label className="block text-xs font-semibold text-blue-900/55 mb-1">Email</label>
             <input

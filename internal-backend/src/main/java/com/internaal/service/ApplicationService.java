@@ -8,7 +8,9 @@ import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.NotificationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +34,11 @@ public class ApplicationService {
     }
 
     public ApplicationResponse submitApplication(Integer studentId, ApplicationRequest request) {
+        if (request != null && PROFESSIONAL_PRACTICE_TYPE.equals(normalizeApplicationType(request.getApplicationType()))
+                && !applicationRepository.canStudentApplyForPP(studentId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Your university is deactivated; Professional Practice applications are paused. Individual Growth is still available.");
+        }
         ApplicationResponse result = applicationRepository.save(studentId, request)
                 .orElseThrow(() -> new RuntimeException("Failed to submit application"));
         try {

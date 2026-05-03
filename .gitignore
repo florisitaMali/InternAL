@@ -22,3 +22,4 @@ internal-frontend/dist/
 # Logs
 *.log
 logs/
+docs/authentication.md

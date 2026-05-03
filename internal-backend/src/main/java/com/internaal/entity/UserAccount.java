@@ -7,6 +7,7 @@ public class UserAccount {
     private String password;
     private Role role;
     private String linkedEntityId;
+    private boolean isActive = true;
 
     public UserAccount() {}
 
@@ -20,4 +21,6 @@ public class UserAccount {
     public void setRole(Role role) { this.role = role; }
     public String getLinkedEntityId() { return linkedEntityId; }
     public void setLinkedEntityId(String linkedEntityId) { this.linkedEntityId = linkedEntityId; }
+    public boolean isActive() { return isActive; }
+    public void setActive(boolean isActive) { this.isActive = isActive; }
 }

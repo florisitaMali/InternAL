@@ -8,6 +8,7 @@ import UniversityAdminDashboard from '@/src/components/UniversityAdminDashboard'
 import PPADashboard from '@/src/components/PPADashboard';
 import StudentDashboard from '@/src/components/StudentDashboard';
 import CompanyDashboard from '@/src/components/CompanyDashboard';
+import SystemAdminDashboard from '@/src/components/SystemAdminDashboard';
 import LoginPage from '@/src/components/LoginPage';
 import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
 import { toast } from 'sonner';
@@ -22,6 +23,7 @@ const ROLE_LABELS: Record<Role, string> = {
   PPA: 'PPA',
   STUDENT: 'Student',
   COMPANY: 'Company',
+  SYSTEM_ADMIN: 'System Admin',
 };
 
 export default function Home() {
@@ -175,6 +177,9 @@ export default function Home() {
     if ((role === 'STUDENT' || role === 'COMPANY') && activeTab === 'dashboard') {
       setActiveTab('opportunities');
     }
+    if (role === 'SYSTEM_ADMIN' && activeTab === 'dashboard') {
+      setActiveTab('universities');
+    }
   }, [isLoggedIn, role, activeTab]);
 
   /** Legacy sidebar tab id removed; migrate old sessions still on "notifications". */
@@ -287,6 +292,17 @@ export default function Home() {
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
             linkedEntityId={linkedEntityId}
+          />
+        );
+      case 'SYSTEM_ADMIN':
+        return (
+          <SystemAdminDashboard
+            activeTab={activeTab}
+            currentUserName={currentUserName}
+            currentUserRoleLabel={roleLabel}
+            onToggleSidebar={handleToggleSidebar}
+            accessToken={accessToken}
+            accessTokenRef={accessTokenRef}
           />
         );
       default:

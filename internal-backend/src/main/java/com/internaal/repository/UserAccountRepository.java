@@ -52,7 +52,8 @@ public class UserAccountRepository {
             headers.set("apikey", supabaseAnonKey);
             headers.set("Authorization", "Bearer " + userJwt);
 
-            String url = supabaseUrl + "/rest/v1/useraccount?select=*&limit=1";
+            String normalizedEmail = email.trim().toLowerCase();
+            String url = supabaseUrl + "/rest/v1/useraccount?email=eq." + normalizedEmail + "&select=*&limit=1";
 
             ResponseEntity<String> response = restTemplate.exchange(
                     url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
@@ -72,6 +73,8 @@ public class UserAccountRepository {
                     ? Role.valueOf(node.get("role").asText()) : null);
             user.setLinkedEntityId(node.has("linked_entity_id") && !node.get("linked_entity_id").isNull()
                     ? node.get("linked_entity_id").asText() : null);
+            user.setActive(!node.has("isActive") || node.get("isActive").isNull()
+                    || node.get("isActive").asBoolean(true));
             return Optional.of(user);
 
         } catch (Exception e) {

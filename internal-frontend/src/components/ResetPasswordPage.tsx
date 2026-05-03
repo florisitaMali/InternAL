@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Logo from './Logo';
 import { Lock, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -32,12 +32,26 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<'loading' | 'ready' | 'invalid'>('loading');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Keep the latest session tokens so we can restore them if autoRefreshToken clears the session. */
+  const sessionTokensRef = useRef<{ access: string; refresh: string } | null>(null);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
 
     const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
     const q = new URLSearchParams(hash);
+
+    // Capture invite tokens from the URL hash BEFORE Supabase removes the fragment.
+    const hashAccess = q.get('access_token');
+    const hashRefresh = q.get('refresh_token');
+    if (hashAccess && hashRefresh) {
+      sessionTokensRef.current = { access: hashAccess, refresh: hashRefresh };
+      // #region agent log
+      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:useEffect',message:'invite tokens captured from hash',data:{hasAccess:true,hasRefresh:true},timestamp:Date.now(),hypothesisId:'F'})}).catch(()=>{});
+      console.error('[debug][F] invite tokens captured from hash');
+      // #endregion
+    }
+
     if (q.get('error')) {
       setStatus('invalid');
       return;
@@ -63,6 +77,14 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:onAuthStateChange',message:'auth event',data:{event,hasSession:!!session,meta:session?.user?.user_metadata},timestamp:Date.now(),hypothesisId:'F'})}).catch(()=>{});
+      console.error('[debug][F] onAuthStateChange event:', event, 'hasSession:', !!session);
+      // #endregion
+      // Keep sessionTokensRef up-to-date with any refreshed tokens.
+      if (session?.access_token && session?.refresh_token) {
+        sessionTokensRef.current = { access: session.access_token, refresh: session.refresh_token };
+      }
       if (cancelled || !session) return;
       if (
         event === 'PASSWORD_RECOVERY' ||
@@ -122,6 +144,32 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
 
     setIsSubmitting(true);
     const supabase = getSupabaseBrowserClient();
+
+    // Ensure session is active before calling updateUser – invite sessions can be wiped
+    // by Supabase's autoRefreshToken if the invite grant was already consumed server-side.
+    if (variant === 'invite') {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      // #region agent log
+      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:handleSubmit',message:'getSession before updateUser',data:{hasSession:!!currentSession,hasStoredTokens:!!sessionTokensRef.current},timestamp:Date.now(),hypothesisId:'F'})}).catch(()=>{});
+      console.error('[debug][F] getSession before updateUser:', {hasSession:!!currentSession,hasStoredTokens:!!sessionTokensRef.current});
+      // #endregion
+      if (!currentSession && sessionTokensRef.current) {
+        const { error: restoreError } = await supabase.auth.setSession({
+          access_token: sessionTokensRef.current.access,
+          refresh_token: sessionTokensRef.current.refresh,
+        });
+        // #region agent log
+        fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'ResetPasswordPage.tsx:handleSubmit',message:'setSession restore result',data:{hasError:!!restoreError,errorMessage:restoreError?.message},timestamp:Date.now(),hypothesisId:'F'})}).catch(()=>{});
+        console.error('[debug][F] setSession restore:', {hasError:!!restoreError,errorMessage:restoreError?.message});
+        // #endregion
+        if (restoreError) {
+          setIsSubmitting(false);
+          toast.error('Your invitation session has expired. Please ask for a new invite link.');
+          return;
+        }
+      }
+    }
+
     const { error } = await supabase.auth.updateUser(
       variant === 'invite'
         ? {

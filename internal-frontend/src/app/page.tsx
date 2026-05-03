@@ -89,10 +89,6 @@ export default function Home() {
       }
 
       const meta = session.user.user_metadata as Record<string, unknown> | undefined;
-      // #region agent log
-      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'page.tsx:sync',message:'sync called - metadata snapshot',data:{internaal_app_role:meta?.internaal_app_role,invite_password_completed:meta?.invite_password_completed,hash:typeof window!=='undefined'?window.location.hash:'',url:typeof window!=='undefined'?window.location.pathname:''},timestamp:Date.now(),hypothesisId:'D-E'})}).catch(()=>{});
-      console.error('[debug][D-E] sync metadata:', {internaal_app_role:meta?.internaal_app_role,invite_password_completed:meta?.invite_password_completed,hash:typeof window!=='undefined'?window.location.hash:'',url:typeof window!=='undefined'?window.location.pathname:''});
-      // #endregion
       // Invited PPAs carry internaal_app_role in JWT — redirect before /api/me so a broken production API cannot block onboarding.
       if (meta?.internaal_app_role === 'PPA' && meta?.invite_password_completed !== true) {
         if (typeof window !== 'undefined') {
@@ -124,10 +120,6 @@ export default function Home() {
       if (cancelled) return;
 
       if (!appUser || errorMessage) {
-        // #region agent log
-        fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',location:'page.tsx:sync',message:'loadCurrentAppUser failed',data:{errorMessage,invitePasswordCompleted:session?.user?.user_metadata?.invite_password_completed,role:session?.user?.user_metadata?.internaal_app_role},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
-        console.error('[debug][C] loadCurrentAppUser failed:', {errorMessage});
-        // #endregion
         clearSupabaseAuthStorage();
         try {
           await supabase!.auth.signOut({ scope: 'local' });

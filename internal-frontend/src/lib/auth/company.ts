@@ -1,4 +1,5 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
+import type { StudentProfileResponse } from '@/src/lib/auth/userAccount';
 import type { CompanyProfileFromApi, Opportunity, OpportunityApplicationStats } from '@/src/types';
 import {
   formatDeadline,
@@ -145,7 +146,7 @@ async function fetchBackendJson<T>(path: string, accessToken: string): Promise<{
 async function sendBackendJson<T>(
   path: string,
   accessToken: string,
-  method: 'PUT',
+  method: 'PUT' | 'PATCH',
   body: unknown
 ): Promise<{ data: T | null; errorMessage: string | null }> {
   const token = normalizeBearerToken(accessToken);
@@ -153,14 +154,17 @@ async function sendBackendJson<T>(
     return { data: null, errorMessage: 'Not signed in. Refresh the page or sign in again.' };
   }
   try {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    };
+    if (body !== undefined && body !== null) {
+      headers['Content-Type'] = 'application/json';
+    }
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: body === undefined || body === null ? undefined : JSON.stringify(body),
       cache: 'no-store',
     });
     const raw = await response.text();
@@ -207,6 +211,40 @@ export async function fetchCompanyApplications(
   accessToken: string
 ): Promise<{ data: ApplicationResponse[] | null; errorMessage: string | null }> {
   return fetchBackendJson<ApplicationResponse[]>('/api/company/applications', accessToken);
+}
+
+export async function approveCompanyApplication(
+  accessToken: string,
+  applicationId: number
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<ApplicationResponse>(
+    `/api/company/applications/${applicationId}/approve`,
+    accessToken,
+    'PATCH',
+    null
+  );
+}
+
+export async function rejectCompanyApplication(
+  accessToken: string,
+  applicationId: number
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<ApplicationResponse>(
+    `/api/company/applications/${applicationId}/reject`,
+    accessToken,
+    'PATCH',
+    null
+  );
+}
+
+export async function fetchCompanyStudentProfile(
+  accessToken: string,
+  studentId: number
+): Promise<{ data: StudentProfileResponse | null; errorMessage: string | null }> {
+  return fetchBackendJson<StudentProfileResponse>(
+    `/api/company/students/${studentId}/profile`,
+    accessToken
+  );
 }
 
 export async function fetchCompanyOpportunities(

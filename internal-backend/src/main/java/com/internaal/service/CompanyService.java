@@ -11,9 +11,12 @@ import com.internaal.entity.Role;
 import com.internaal.entity.Opportunity;
 import com.internaal.entity.UserAccount;
 import com.internaal.dto.ApplicationResponse;
+import com.internaal.dto.StudentFileDownload;
+import com.internaal.dto.StudentProfileResponse;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyRepository;
 import com.internaal.repository.OpportunityRepository;
+import com.internaal.repository.StudentProfileRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -31,14 +34,20 @@ public class CompanyService {
     private final CompanyRepository companyRepository;
     private final OpportunityRepository opportunityRepository;
     private final ApplicationRepository applicationRepository;
+    private final StudentProfileRepository studentProfileRepository;
+    private final StudentProfileFileService studentProfileFileService;
 
     public CompanyService(
             CompanyRepository companyRepository,
             OpportunityRepository opportunityRepository,
-            ApplicationRepository applicationRepository) {
+            ApplicationRepository applicationRepository,
+            StudentProfileRepository studentProfileRepository,
+            StudentProfileFileService studentProfileFileService) {
         this.companyRepository = companyRepository;
         this.opportunityRepository = opportunityRepository;
         this.applicationRepository = applicationRepository;
+        this.studentProfileRepository = studentProfileRepository;
+        this.studentProfileFileService = studentProfileFileService;
     }
 
     public CompanyProfileResponse getProfile(UserAccount user) {
@@ -115,6 +124,80 @@ public class CompanyService {
     public List<ApplicationResponse> listApplications(UserAccount user) {
         int companyId = requireCompanyId(user);
         return applicationRepository.findByCompanyId(companyId);
+    }
+
+    /**
+     * Approves or rejects an application on behalf of the company. Verifies ownership and that the
+     * application hasn't already been decided before mutating.
+     */
+    public ApplicationResponse decideApplication(UserAccount user, int applicationId, boolean approved) {
+        int companyId = requireCompanyId(user);
+        JsonNode row = applicationRepository.findApplicationOwnership(applicationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Application not found."));
+        JsonNode companyNode = row.get("company_id");
+        Integer rowCompanyId = (companyNode == null || companyNode.isNull()) ? null : companyNode.asInt();
+        if (rowCompanyId == null || rowCompanyId != companyId) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Application does not belong to this company.");
+        }
+        JsonNode decisionNode = row.get("is_approved_by_company");
+        if (decisionNode != null && !decisionNode.isNull()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This application has already been decided.");
+        }
+        return applicationRepository.setCompanyDecision(applicationId, approved)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Could not update the application. Please try again."));
+    }
+
+    /**
+     * Returns the read-only profile of a student who has applied to one of the company's
+     * opportunities. Authorization rule: any student that has any application for this company
+     * can be viewed (regardless of approval state).
+     */
+    public StudentProfileResponse getStudentProfile(UserAccount user, int studentId) {
+        int companyId = requireCompanyId(user);
+        if (!applicationRepository.studentHasAppliedToCompany(studentId, companyId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "This student has not applied to your opportunities.");
+        }
+        return studentProfileRepository.findByStudentIdAsService(studentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Student profile not found."));
+    }
+
+    /** Streams a student's CV to the company. Same authorization rule as {@link #getStudentProfile}. */
+    public StudentFileDownload downloadStudentCv(UserAccount user, int studentId) {
+        requireStudentApplicationOwnership(user, studentId);
+        try {
+            return studentProfileFileService.downloadCv(studentId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "CV not found."));
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not download CV.");
+        }
+    }
+
+    /** Streams one of a student's certifications to the company. */
+    public StudentFileDownload downloadStudentCertification(UserAccount user, int studentId, int certificationId) {
+        requireStudentApplicationOwnership(user, studentId);
+        try {
+            return studentProfileFileService.downloadCertification(studentId, certificationId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                            "Certification not found."));
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Could not download certification.");
+        }
+    }
+
+    private void requireStudentApplicationOwnership(UserAccount user, int studentId) {
+        int companyId = requireCompanyId(user);
+        if (!applicationRepository.studentHasAppliedToCompany(studentId, companyId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "This student has not applied to your opportunities.");
+        }
     }
 
     private OpportunityApplicationStatsDto statsForOpportunity(int companyId, int opportunityId) {

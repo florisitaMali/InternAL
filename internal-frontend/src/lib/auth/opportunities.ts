@@ -160,6 +160,17 @@ export type ApplicationResponse = {
   companyName: string | null;
   studentName?: string | null;
   createdAt: string | null;
+  // Populated for the company-side View modal. Optional; backend may omit when embed fails.
+  studentEmail?: string | null;
+  studentPhone?: string | null;
+  studentUniversityName?: string | null;
+  studentFacultyName?: string | null;
+  studentFieldName?: string | null;
+  studentStudyYear?: number | null;
+  studentCgpa?: number | null;
+  studentSkills?: string | null; // raw comma-separated text from studentprofile.skills
+  studentCvUrl?: string | null;
+  studentCvFilename?: string | null;
 };
 
 export async function fetchStudentApplications(

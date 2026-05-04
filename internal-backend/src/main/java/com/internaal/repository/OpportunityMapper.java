@@ -1,6 +1,8 @@
 package com.internaal.repository;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.internaal.dto.OpportunityResponseItem;
+import com.internaal.dto.TargetUniversityOption;
 import com.internaal.entity.Opportunity;
 import com.internaal.entity.TargetUniversity;
 
@@ -21,6 +23,62 @@ public final class OpportunityMapper {
 
     private OpportunityMapper() {}
 
+    /** Maps a loaded {@link Opportunity} to the public list/detail DTO (e.g. admin or company APIs). */
+    public static OpportunityResponseItem toResponseItem(Opportunity o, int skillMatchCount) {
+        return toResponseItem(o, skillMatchCount, 0);
+    }
+
+    /**
+     * @param applicantCount total applications for this opportunity (student-facing stats); use 0 when unknown.
+     */
+    public static OpportunityResponseItem toResponseItem(Opportunity o, int skillMatchCount, int applicantCount) {
+        if (o == null) {
+            return null;
+        }
+        List<Integer> targetIds = o.targetUniversities() == null
+                ? List.of()
+                : o.targetUniversities().stream().map(TargetUniversity::id).toList();
+        List<TargetUniversityOption> targetOpts;
+        if (o.targetUniversities() == null || o.targetUniversities().isEmpty()) {
+            targetOpts = List.of();
+        } else {
+            targetOpts = o.targetUniversities().stream()
+                    .map(t -> new TargetUniversityOption(
+                            t.id(),
+                            t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id())))
+                    .toList();
+        }
+        String wm = o.workMode() == null ? null : o.workMode().toApiValue();
+        return new OpportunityResponseItem(
+                o.id(),
+                o.companyId(),
+                o.companyName(),
+                o.affiliatedUniversityName(),
+                o.title(),
+                o.description(),
+                o.requiredSkills(),
+                o.requiredExperience(),
+                o.deadline(),
+                o.startDate(),
+                targetIds,
+                targetOpts,
+                o.type(),
+                o.location(),
+                o.isPaid(),
+                wm,
+                o.positionCount(),
+                o.workType(),
+                o.duration(),
+                o.salaryMonthly(),
+                o.niceToHave(),
+                o.draft(),
+                o.postedAt(),
+                skillMatchCount,
+                o.code(),
+                o.createdAt(),
+                applicantCount);
+    }
+
     public static Opportunity fromJsonNode(JsonNode node) {
         Integer id = intVal(node, "opportunity_id");
         Integer companyId = intVal(node, "company_id");
@@ -28,9 +86,11 @@ public final class OpportunityMapper {
         JsonNode company = node.get("company");
         String companyName = null;
         String companyLocation = null;
+        String affiliatedUniversityName = null;
         if (company != null && !company.isNull()) {
             companyName = str(company, "name");
             companyLocation = str(company, "location");
+            affiliatedUniversityName = embeddedUniversityName(company.get("university"));
         }
 
         String jobLocation = str(node, "job_location");
@@ -39,7 +99,7 @@ public final class OpportunityMapper {
 
         String title = str(node, "title");
         String description = str(node, "description");
-        List<String> requiredSkills = splitCsv(str(node, "required_skills"));
+        List<String> requiredSkills = skillsFromNode(node, "required_skills");
         String requiredExperience = str(node, "required_experience");
 
         LocalDate deadline = null;
@@ -64,14 +124,22 @@ public final class OpportunityMapper {
 
         List<TargetUniversity> targetUniversities = new ArrayList<>();
         JsonNode targets = node.get("opportunitytarget");
-        if (targets != null && targets.isArray()) {
-            for (JsonNode t : targets) {
-                Integer uid = intVal(t, "university_id");
-                if (uid == null) {
-                    continue;
+        if (targets != null && !targets.isNull()) {
+            if (targets.isArray()) {
+                for (JsonNode t : targets) {
+                    Integer uid = intVal(t, "university_id");
+                    if (uid == null) {
+                        continue;
+                    }
+                    String uniName = embeddedUniversityName(t.get("university"));
+                    targetUniversities.add(new TargetUniversity(uid, uniName));
                 }
-                String uniName = embeddedUniversityName(t.get("university"));
-                targetUniversities.add(new TargetUniversity(uid, uniName));
+            } else if (targets.isObject()) {
+                Integer uid = intVal(targets, "university_id");
+                if (uid != null) {
+                    String uniName = embeddedUniversityName(targets.get("university"));
+                    targetUniversities.add(new TargetUniversity(uid, uniName));
+                }
             }
         }
 
@@ -126,7 +194,8 @@ public final class OpportunityMapper {
                 startDate,
                 createdAt,
                 isDraft,
-                postedAt);
+                postedAt,
+                affiliatedUniversityName);
     }
 
     /**
@@ -203,6 +272,14 @@ public final class OpportunityMapper {
         return n;
     }
 
+    /** Name from PostgREST embed {@code company(university(name))}. */
+    public static String affiliatedUniversityFromCompanyEmbed(JsonNode companyNode) {
+        if (companyNode == null || companyNode.isNull()) {
+            return null;
+        }
+        return embeddedUniversityName(companyNode.get("university"));
+    }
+
     /**
      * Fills missing {@link TargetUniversity#name()} from a lookup map (e.g. after batch load from {@code university}).
      */
@@ -250,7 +327,8 @@ public final class OpportunityMapper {
                 o.startDate(),
                 o.createdAt(),
                 o.draft(),
-                o.postedAt());
+                o.postedAt(),
+                o.affiliatedUniversityName());
     }
 
     static String str(JsonNode node, String field) {
@@ -302,6 +380,34 @@ public final class OpportunityMapper {
             }
         }
         return null;
+    }
+
+    /**
+     * {@code required_skills} may be a CSV/text column or a JSON array from PostgREST.
+     */
+    public static List<String> skillsFromNode(JsonNode parent, String field) {
+        if (parent == null || !parent.has(field) || parent.get(field).isNull()) {
+            return List.of();
+        }
+        JsonNode v = parent.get(field);
+        if (v.isArray()) {
+            List<String> out = new ArrayList<>();
+            for (JsonNode x : v) {
+                if (x == null || x.isNull()) {
+                    continue;
+                }
+                if (x.isTextual()) {
+                    String s = x.asText().trim();
+                    if (!s.isEmpty()) {
+                        out.add(s);
+                    }
+                } else if (x.isNumber()) {
+                    out.add(x.asText());
+                }
+            }
+            return out;
+        }
+        return splitCsv(str(parent, field));
     }
 
     static List<String> splitCsv(String raw) {

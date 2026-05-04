@@ -1,5 +1,14 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
-import type { Application, DashboardStats, Department, PPAApprover, Student, StudyField } from '@/src/types';
+import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
+import {
+  coerceApiDateToIsoString,
+  formatDeadline,
+  formatDurationCodeLabel,
+  formatPostedDisplay,
+  formatWorkTypeLabel,
+  normalizePostedAtFromApi,
+  responsibilitiesFromNiceToHave,
+} from '@/src/lib/opportunityFormat';
 
 function getApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080').replace(/\/+$/, '');
@@ -143,13 +152,277 @@ export type AdminStudentRow = {
 };
 type AdminStatsRow = { totalStudents: number; totalDepartments: number; totalStudyFields: number; ppaApprovers: number };
 type AdminCompanyRow = { companyId: number; name: string; industry: string | null };
-type AdminOpportunityRow = {
+export type AdminOpportunityRow = {
   opportunityId: number;
+  companyId: number;
   title: string | null;
   companyName: string | null;
+  affiliatedUniversityName: string | null;
   deadline: string | null;
   type: string | null;
+  targetUniversityNames: string[] | null;
+  description: string | null;
+  location: string | null;
+  workMode: string | null;
+  duration: string | null;
+  createdAt: string | null;
+  requiredSkills: string[] | null;
+  applicantCount: number;
 };
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function pickStr(r: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = r[k];
+    if (v == null) continue;
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (t.length) return t;
+      continue;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  }
+  return null;
+}
+
+function pickNum(r: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const k of keys) {
+    const v = r[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() && !Number.isNaN(Number(v))) return Number(v);
+  }
+  return null;
+}
+
+function pickStrList(r: Record<string, unknown>, ...keys: string[]): string[] | null {
+  for (const k of keys) {
+    const v = r[k];
+    if (Array.isArray(v)) {
+      return v
+        .filter((x) => x != null)
+        .map((x) => String(x).trim())
+        .filter(Boolean);
+    }
+    if (typeof v === 'string' && v.trim()) {
+      return v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+  }
+  return null;
+}
+
+function parseAdminOpportunitySummaryResponse(raw: unknown): AdminOpportunityRow {
+  if (!isRecord(raw)) {
+    return {
+      opportunityId: 0,
+      companyId: 0,
+      title: null,
+      companyName: null,
+      affiliatedUniversityName: null,
+      deadline: null,
+      type: null,
+      targetUniversityNames: null,
+      description: null,
+      location: null,
+      workMode: null,
+      duration: null,
+      createdAt: null,
+      requiredSkills: null,
+      applicantCount: 0,
+    };
+  }
+  const r = raw;
+  return {
+    opportunityId: pickNum(r, 'opportunityId', 'opportunity_id') ?? 0,
+    companyId: pickNum(r, 'companyId', 'company_id') ?? 0,
+    title: pickStr(r, 'title'),
+    companyName: pickStr(r, 'companyName', 'company_name'),
+    affiliatedUniversityName: pickStr(r, 'affiliatedUniversityName', 'affiliated_university_name'),
+    deadline: pickStr(r, 'deadline') ?? coerceApiDateToIsoString(r.deadline) ?? null,
+    type: pickStr(r, 'type'),
+    targetUniversityNames: pickStrList(r, 'targetUniversityNames', 'target_university_names'),
+    description: pickStr(r, 'description'),
+    location: pickStr(r, 'location', 'job_location', 'jobLocation'),
+    workMode: pickStr(r, 'workMode', 'work_mode'),
+    duration: pickStr(r, 'duration'),
+    createdAt: pickStr(r, 'createdAt', 'created_at'),
+    requiredSkills: pickStrList(r, 'requiredSkills', 'required_skills'),
+    applicantCount: pickNum(r, 'applicantCount', 'applicant_count') ?? 0,
+  };
+}
+
+function parseTargetUniversitiesFromDetail(raw: unknown): { universityId: number; name: string }[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: { universityId: number; name: string }[] = [];
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const uid = pickNum(item, 'universityId', 'university_id');
+    if (uid == null) continue;
+    const name = pickStr(item, 'name');
+    out.push({ universityId: uid, name: name ?? `University ${uid}` });
+  }
+  return out.length ? out : null;
+}
+
+function parseAdminOpportunityDetailResponse(raw: unknown): AdminOpportunityDetail | null {
+  if (!isRecord(raw)) return null;
+  const r = raw;
+  const targetsRaw = r.targetUniversities ?? r.target_universities;
+  const targetUniversities = parseTargetUniversitiesFromDetail(targetsRaw);
+  const tidRaw = r.targetUniversityIds ?? r.target_university_ids;
+  let targetUniversityIds: number[] | null = null;
+  if (Array.isArray(tidRaw)) {
+    targetUniversityIds = tidRaw
+      .map((x) => (typeof x === 'number' ? x : Number(x)))
+      .filter((n) => Number.isFinite(n)) as number[];
+    if (targetUniversityIds.length === 0) targetUniversityIds = null;
+  }
+
+  const deadline = coerceApiDateToIsoString(r.deadline) ?? pickStr(r, 'deadline');
+  const startDate =
+    coerceApiDateToIsoString(r.startDate) ?? coerceApiDateToIsoString(r.start_date) ?? pickStr(r, 'startDate', 'start_date');
+  const postedAtRaw = normalizePostedAtFromApi(r.postedAt ?? r.posted_at);
+  const createdAt = pickStr(r, 'createdAt', 'created_at');
+
+  return {
+    id: pickNum(r, 'id'),
+    companyId: pickNum(r, 'companyId', 'company_id'),
+    companyName: pickStr(r, 'companyName', 'company_name'),
+    affiliatedUniversityName: pickStr(r, 'affiliatedUniversityName', 'affiliated_university_name'),
+    title: pickStr(r, 'title'),
+    description: pickStr(r, 'description'),
+    requiredSkills: pickStrList(r, 'requiredSkills', 'required_skills'),
+    requiredExperience: pickStr(r, 'requiredExperience', 'required_experience'),
+    deadline,
+    startDate,
+    targetUniversityIds,
+    targetUniversities,
+    type: pickStr(r, 'type'),
+    location: pickStr(r, 'location', 'job_location'),
+    isPaid: typeof r.isPaid === 'boolean' ? r.isPaid : typeof r.is_paid === 'boolean' ? r.is_paid : null,
+    workMode: pickStr(r, 'workMode', 'work_mode'),
+    positionCount: pickNum(r, 'positionCount', 'position_count'),
+    workType: pickStr(r, 'workType', 'work_type'),
+    duration: pickStr(r, 'duration'),
+    salaryMonthly: pickNum(r, 'salaryMonthly', 'salary_monthly'),
+    niceToHave: pickStr(r, 'niceToHave', 'nice_to_have'),
+    draft: typeof r.draft === 'boolean' ? r.draft : typeof r.is_draft === 'boolean' ? r.is_draft : null,
+    postedAt: postedAtRaw ?? null,
+    skillMatchCount: pickNum(r, 'skillMatchCount', 'skill_match_count'),
+    code: pickStr(r, 'code'),
+    createdAt,
+    applicantCount: pickNum(r, 'applicantCount', 'applicant_count'),
+  };
+}
+
+export type AdminOpportunityDetail = {
+  id: number | null;
+  companyId: number | null;
+  companyName: string | null;
+  affiliatedUniversityName: string | null;
+  title: string | null;
+  description: string | null;
+  requiredSkills: string[] | null;
+  requiredExperience: string | null;
+  deadline: string | null;
+  startDate: string | null;
+  targetUniversityIds: number[] | null;
+  targetUniversities: { universityId: number; name: string }[] | null;
+  type: string | null;
+  location: string | null;
+  isPaid: boolean | null;
+  workMode: string | null;
+  positionCount: number | null;
+  workType: string | null;
+  duration: string | null;
+  salaryMonthly: number | null;
+  niceToHave: string | null;
+  draft: boolean | null;
+  postedAt: string | null;
+  skillMatchCount: number | null;
+  code: string | null;
+  createdAt: string | null;
+  applicantCount: number | null;
+};
+
+/** List card: same shape as student explore cards (subset from admin summary API). */
+export function mapAdminOpportunitySummaryToOpportunity(row: AdminOpportunityRow): Opportunity {
+  const postedAt = normalizePostedAtFromApi(row.createdAt);
+  return {
+    id: String(row.opportunityId),
+    companyId: String(row.companyId),
+    companyName: row.companyName || 'Unknown company',
+    affiliatedUniversityName: row.affiliatedUniversityName?.trim() || undefined,
+    title: row.title || 'Untitled opportunity',
+    description: row.description?.trim() || '',
+    requiredSkills: row.requiredSkills ?? [],
+    targetUniversityIds: [],
+    deadline: row.deadline || undefined,
+    type: row.type || undefined,
+    location: row.location?.trim() || undefined,
+    workMode: row.workMode || undefined,
+    duration: row.duration || undefined,
+    createdAt: row.createdAt ?? undefined,
+    applicantCount: row.applicantCount ?? 0,
+    draft: false,
+    postedAt,
+    postedLabel: postedAt ? formatPostedDisplay(postedAt) : undefined,
+  };
+}
+
+/** Full detail: matches company/student `OpportunityResponseItem` mapping. */
+export function mapAdminOpportunityDetailToOpportunity(item: AdminOpportunityDetail): Opportunity {
+  const workType = item.workType ?? undefined;
+  const duration = item.duration ?? undefined;
+  const niceToHave = item.niceToHave ?? undefined;
+  const postedAt = normalizePostedAtFromApi(item.postedAt);
+  const exp = item.requiredExperience?.trim();
+  const deadlineIso = item.deadline ? coerceApiDateToIsoString(item.deadline) ?? item.deadline : undefined;
+  const startIso = item.startDate ? coerceApiDateToIsoString(item.startDate) ?? item.startDate : undefined;
+  return {
+    id: item.id != null ? String(item.id) : '',
+    companyId: item.companyId != null ? String(item.companyId) : '',
+    companyName: item.companyName || 'Unknown company',
+    affiliatedUniversityName: item.affiliatedUniversityName?.trim() || undefined,
+    title: item.title || 'Untitled opportunity',
+    description: item.description?.trim() || '',
+    requiredSkills: item.requiredSkills ?? [],
+    requiredExperience: item.requiredExperience || undefined,
+    deadline: deadlineIso || undefined,
+    startDate: startIso || undefined,
+    targetUniversities: item.targetUniversities ?? undefined,
+    targetUniversityIds:
+      item.targetUniversities?.length
+        ? item.targetUniversities.map((t) => String(t.universityId))
+        : (item.targetUniversityIds || []).map(String),
+    type: item.type || undefined,
+    location: item.location?.trim() || undefined,
+    isPaid: item.isPaid,
+    workMode: item.workMode || undefined,
+    skillMatchCount: item.skillMatchCount ?? 0,
+    positionCount: item.positionCount ?? undefined,
+    workType,
+    duration,
+    salaryMonthly: item.salaryMonthly ?? undefined,
+    niceToHave,
+    draft: item.draft === true,
+    code: item.code ?? undefined,
+    applicantCount: item.applicantCount ?? 0,
+    createdAt: item.createdAt ?? undefined,
+    jobTypeLabel: formatWorkTypeLabel(workType),
+    durationLabel: formatDurationCodeLabel(duration),
+    startDateLabel: item.startDate ? formatDeadline(item.startDate) : undefined,
+    responsibilities: responsibilitiesFromNiceToHave(niceToHave),
+    requirements: exp ? exp.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : undefined,
+    postedAt,
+    postedLabel: postedAt ? formatPostedDisplay(postedAt) : undefined,
+  };
+}
 
 type AdminPpaRow = {
   ppaId: number;
@@ -272,9 +545,39 @@ export async function fetchAdminCompanies(
 
 export async function fetchAdminOpportunities(
   accessToken: string,
-  limit = 100
+  options?: { limit?: number; status?: 'all' | 'active' | 'expired' }
 ): Promise<{ data: AdminOpportunityRow[] | null; errorMessage: string | null }> {
-  return fetchJson<AdminOpportunityRow[]>(`/api/admin/opportunities?limit=${limit}`, accessToken);
+  const limit = options?.limit ?? 100;
+  const status = options?.status ?? 'all';
+  const { data, errorMessage } = await fetchJson<unknown>(
+    `/api/admin/opportunities?limit=${encodeURIComponent(String(limit))}&status=${encodeURIComponent(status)}`,
+    accessToken
+  );
+  if (errorMessage || data == null) {
+    return { data: null, errorMessage: errorMessage ?? 'Could not load opportunities.' };
+  }
+  if (!Array.isArray(data)) {
+    return { data: null, errorMessage: 'Invalid opportunities response.' };
+  }
+  return { data: data.map(parseAdminOpportunitySummaryResponse), errorMessage: null };
+}
+
+export async function fetchAdminOpportunityDetail(
+  accessToken: string,
+  opportunityId: number
+): Promise<{ data: AdminOpportunityDetail | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await fetchJson<unknown>(
+    `/api/admin/opportunities/${encodeURIComponent(String(opportunityId))}`,
+    accessToken
+  );
+  if (errorMessage || data == null) {
+    return { data: null, errorMessage: errorMessage ?? 'Could not load opportunity.' };
+  }
+  const parsed = parseAdminOpportunityDetailResponse(data);
+  if (!parsed) {
+    return { data: null, errorMessage: 'Invalid opportunity response.' };
+  }
+  return { data: parsed, errorMessage: null };
 }
 
 export async function fetchAdminApplications(

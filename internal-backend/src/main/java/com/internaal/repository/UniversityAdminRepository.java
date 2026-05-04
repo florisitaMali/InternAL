@@ -20,7 +20,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Repository;
 import org.springframework.web.client.RestTemplate;
 
+import com.internaal.entity.Opportunity;
+
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -92,11 +96,7 @@ public class UniversityAdminRepository {
     }
 
     private Integer intVal(JsonNode n, String field) {
-        if (n == null || !n.has(field) || n.get(field).isNull()) {
-            return null;
-        }
-        JsonNode v = n.get(field);
-        return v.isNumber() ? v.asInt() : null;
+        return OpportunityMapper.intVal(n, field);
     }
 
     private String text(JsonNode n, String field) {
@@ -279,29 +279,153 @@ public class UniversityAdminRepository {
         return out;
     }
 
-    public List<AdminOpportunitySummaryResponse> listOpportunitySummaries(int limit) {
-        String url = supabaseUrl + "/rest/v1/opportunity?select=opportunity_id,title,deadline,type,company(name)"
-                + "&order=created_at.desc&limit=" + limit;
+    private static final String OPPORTUNITY_DETAIL_SELECT =
+            "opportunity_id,company_id,code,title,description,"
+                    + "required_skills,required_experience,deadline,start_date,type,"
+                    + "position_count,job_location,work_mode,work_type,duration,salary_monthly,nice_to_have,"
+                    + "is_draft,is_paid,created_at,"
+                    + "company(name,location,university(name)),"
+                    + "opportunitytarget(university_id,university(name))";
+
+    /**
+     * All published (non-draft) opportunities for university-admin oversight — not restricted to
+     * {@code opportunitytarget} (students still only see listings their university is eligible for).
+     *
+     * @param statusFilter {@code all}, {@code active} (deadline null or &gt;= today), or {@code expired} (deadline &lt; today)
+     */
+    public List<AdminOpportunitySummaryResponse> listOpportunitySummariesForUniversityAdmin(
+            String statusFilter, int limit) {
+        String s = statusFilter == null ? "all" : statusFilter.trim().toLowerCase();
+        final String norm = ("active".equals(s) || "expired".equals(s) || "all".equals(s)) ? s : "all";
+        int cap = Math.min(Math.max(limit, 1), 500);
+        String listSelect = "opportunity_id,company_id,title,deadline,type,is_draft,description,job_location,work_mode,"
+                + "duration,required_skills,created_at,company(name,university(name)),opportunitytarget(university_id,university(name))";
+        String url = supabaseUrl + "/rest/v1/opportunity?select=" + listSelect + "&order=created_at.desc&limit=1000";
         List<AdminOpportunitySummaryResponse> out = new ArrayList<>();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         fetchArray(url).ifPresent(arr -> {
-            if (arr.isArray()) {
-                for (JsonNode n : arr) {
-                    Integer oid = intVal(n, "opportunity_id");
-                    if (oid == null) {
-                        continue;
-                    }
-                    String companyName = null;
-                    JsonNode c = n.get("company");
-                    if (c != null && !c.isNull()) {
-                        companyName = text(c, "name");
-                    }
-                    String typeStr = text(n, "type");
-                    String deadline = text(n, "deadline");
-                    out.add(new AdminOpportunitySummaryResponse(oid, text(n, "title"), companyName, deadline, typeStr));
+            if (!arr.isArray()) {
+                return;
+            }
+            for (JsonNode n : arr) {
+                if (isDraftRow(n)) {
+                    continue;
+                }
+                Integer oid = intVal(n, "opportunity_id");
+                if (oid == null) {
+                    continue;
+                }
+                LocalDate dead = parseDeadlineLocalDate(text(n, "deadline"));
+                boolean active = dead == null || !dead.isBefore(today);
+                boolean expired = dead != null && dead.isBefore(today);
+                if ("active".equals(norm) && !active) {
+                    continue;
+                }
+                if ("expired".equals(norm) && !expired) {
+                    continue;
+                }
+                Integer companyIdOpt = intVal(n, "company_id");
+                int companyId = companyIdOpt != null ? companyIdOpt : 0;
+                String companyName = null;
+                String affiliatedUniversityName = null;
+                JsonNode c = n.get("company");
+                if (c != null && !c.isNull()) {
+                    companyName = text(c, "name");
+                    affiliatedUniversityName = OpportunityMapper.affiliatedUniversityFromCompanyEmbed(c);
+                }
+                List<String> uniNames = extractTargetUniversityNamesFromJson(n.get("opportunitytarget"));
+                List<String> skills = OpportunityMapper.skillsFromNode(n, "required_skills");
+                out.add(new AdminOpportunitySummaryResponse(
+                        oid,
+                        companyId,
+                        text(n, "title"),
+                        companyName,
+                        affiliatedUniversityName,
+                        text(n, "deadline"),
+                        text(n, "type"),
+                        uniNames,
+                        text(n, "description"),
+                        text(n, "job_location"),
+                        text(n, "work_mode"),
+                        text(n, "duration"),
+                        text(n, "created_at"),
+                        skills,
+                        0));
+                if (out.size() >= cap) {
+                    break;
                 }
             }
         });
         return out;
+    }
+
+    /** Published, non-draft opportunity by id (university admin oversight; no target-university restriction). */
+    public Optional<Opportunity> findPublishedOpportunityByIdForUniversityAdmin(int opportunityId) {
+        String url = supabaseUrl + "/rest/v1/opportunity?opportunity_id=eq." + opportunityId
+                + "&select=" + OPPORTUNITY_DETAIL_SELECT + "&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        if (opt.isEmpty() || !opt.get().isArray() || opt.get().isEmpty()) {
+            return Optional.empty();
+        }
+        JsonNode n = opt.get().get(0);
+        if (isDraftRow(n)) {
+            return Optional.empty();
+        }
+        return Optional.of(OpportunityMapper.fromJsonNode(n));
+    }
+
+    private boolean isDraftRow(JsonNode n) {
+        JsonNode d = n.get("is_draft");
+        return d != null && !d.isNull() && d.asBoolean();
+    }
+
+    private static LocalDate parseDeadlineLocalDate(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String s = raw.trim();
+        try {
+            if (s.length() >= 10) {
+                return LocalDate.parse(s.substring(0, 10));
+            }
+            return LocalDate.parse(s);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private List<String> extractTargetUniversityNamesFromJson(JsonNode targetsNode) {
+        List<String> names = new ArrayList<>();
+        if (targetsNode == null || targetsNode.isNull()) {
+            return names;
+        }
+        if (targetsNode.isObject()) {
+            names.add(resolveOneTargetUniversityLabel(targetsNode));
+            return names;
+        }
+        if (!targetsNode.isArray()) {
+            return names;
+        }
+        for (JsonNode t : targetsNode) {
+            names.add(resolveOneTargetUniversityLabel(t));
+        }
+        return names;
+    }
+
+    private String resolveOneTargetUniversityLabel(JsonNode t) {
+        String name = null;
+        JsonNode u = t.get("university");
+        if (u != null && !u.isNull()) {
+            JsonNode uni = u.isArray() && !u.isEmpty() ? u.get(0) : u;
+            if (uni != null && !uni.isNull()) {
+                name = text(uni, "name");
+            }
+        }
+        if (name == null || name.isBlank()) {
+            Integer uid = intVal(t, "university_id");
+            name = uid != null ? ("University " + uid) : "—";
+        }
+        return name;
     }
 
     public List<AdminPpaResponse> listPpas() {

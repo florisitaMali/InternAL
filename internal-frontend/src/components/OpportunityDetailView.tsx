@@ -7,6 +7,7 @@ import {
   Building,
   Calendar,
   Clock,
+  GraduationCap,
   MapPin,
   Rocket,
   Users,
@@ -157,6 +158,16 @@ export default function OpportunityDetailView({
                   opportunity.companyName
                 )}
               </p>
+              {opportunity.affiliatedUniversityName?.trim() ? (
+                <p className="mt-2 flex items-start gap-1.5 text-xs text-slate-600">
+                  <GraduationCap size={14} className="mt-0.5 shrink-0 text-slate-400" aria-hidden />
+                  <span>
+                    <span className="font-semibold text-slate-500">Employer university</span>
+                    <span className="text-slate-400"> · </span>
+                    {opportunity.affiliatedUniversityName.trim()}
+                  </span>
+                </p>
+              ) : null}
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
                 <span className="inline-flex items-center gap-1.5">
                   <MapPin size={14} className="text-slate-400" />

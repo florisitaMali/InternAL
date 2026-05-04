@@ -32,7 +32,12 @@ public record Opportunity(
         String createdAt,
         boolean draft,
         /** From {@code opportunity.created_at}; when the listing was created. */
-        Instant postedAt
+        Instant postedAt,
+        /**
+         * From PostgREST embed {@code company(university(name))} when the company row links to a university;
+         * otherwise null.
+         */
+        String affiliatedUniversityName
 ) {
     public enum WorkType {
         FULL_TIME,

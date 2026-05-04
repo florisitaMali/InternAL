@@ -197,8 +197,18 @@ export interface Application {
   isApprovedByCompany?: boolean;
   createdAt: string;
   status: ApplicationStatus;
-  /** Enriched for company “view application” (mock today; wire from API later) */
+  /** Enriched for company “view application” modal. */
   studentEmail?: string;
+  studentPhone?: string;
+  studentUniversityName?: string;
+  studentFacultyName?: string;
+  studentFieldName?: string;
+  studentStudyYear?: number;
+  studentCgpa?: number;
+  /** Split from the comma-separated server value. */
+  studentSkills?: string[];
+  studentCvUrl?: string;
+  studentCvFilename?: string;
   opportunityDescription?: string;
   opportunityDeadline?: string;
   opportunityStartDate?: string;

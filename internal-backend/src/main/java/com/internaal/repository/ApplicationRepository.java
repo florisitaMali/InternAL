@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -281,10 +282,19 @@ public class ApplicationRepository {
     }
 
     private String buildCompanyApplicationsUrl(Integer companyId, boolean withEmbeds) {
+        String studentEmbed = "student(full_name,email,phone,study_year,cgpa,"
+                + "university(name),department(name),studyfield(name),"
+                + "studentprofile(skills,cv_url,cv_filename))";
         String select = withEmbeds
-                ? APPLICATION_SELECT_BASE + ",opportunity(title),company(name),student(full_name)"
+                ? APPLICATION_SELECT_BASE + ",opportunity(title),company(name)," + studentEmbed
                 : APPLICATION_SELECT_BASE;
+        // Hide PROFESSIONAL_PRACTICE applications until they're PPA-approved.
+        // INDIVIDUAL_GROWTH applications are always visible to the company.
+        String visibilityFilter =
+                "or=(application_type.eq.INDIVIDUAL_GROWTH,"
+                        + "and(application_type.eq.PROFESSIONAL_PRACTICE,is_approved_by_ppa.eq.true))";
         return supabaseUrl + "/rest/v1/application?company_id=eq." + companyId
+                + "&" + visibilityFilter
                 + "&select=" + select
                 + "&order=created_at.desc";
     }
@@ -356,6 +366,59 @@ public class ApplicationRepository {
         return parseApplicationArrayJson(body);
     }
 
+    /**
+     * Returns true if the student has applied to at least one of the given company's
+     * opportunities. Used by the company-side "view applicant profile" authorization.
+     */
+    public boolean studentHasAppliedToCompany(int studentId, int companyId) {
+        String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
+                + "&company_id=eq." + companyId
+                + "&select=application_id&limit=1";
+        return fetchArray(url).map(arr -> arr.isArray() && arr.size() > 0).orElse(false);
+    }
+
+    /**
+     * Lightweight ownership read used before mutating an application: returns just enough columns
+     * for the service layer to decide between 404 / 403 / 409.
+     */
+    public Optional<JsonNode> findApplicationOwnership(int applicationId) {
+        String url = supabaseUrl + "/rest/v1/application?application_id=eq." + applicationId
+                + "&select=application_id,company_id,is_approved_by_company&limit=1";
+        return fetchArray(url).flatMap(arr ->
+                arr.isArray() && arr.size() > 0 ? Optional.of(arr.get(0)) : Optional.empty());
+    }
+
+    /**
+     * Flips {@code is_approved_by_company} on the given application. Returns the updated row mapped
+     * to {@link ApplicationResponse}, or empty if the PATCH matched zero rows. The service layer is
+     * responsible for ownership and already-decided checks BEFORE calling this.
+     */
+    public Optional<ApplicationResponse> setCompanyDecision(int applicationId, boolean approved) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("is_approved_by_company", approved);
+        HttpHeaders headers = createServiceHeaders();
+        headers.set("Prefer", "return=representation");
+        String url = supabaseUrl + "/rest/v1/application?application_id=eq." + applicationId;
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.PATCH,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
+                    String.class);
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                return Optional.empty();
+            }
+            JsonNode root = objectMapper.readTree(response.getBody());
+            if (!root.isArray() || root.size() == 0) {
+                return Optional.empty();
+            }
+            return Optional.of(mapToResponse(root.get(0)));
+        } catch (RestClientResponseException e) {
+            throw supabaseError(url, e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to update application decision: " + e.getMessage());
+        }
+    }
+
     public List<ApplicationResponse> findByCompanyId(Integer companyId) {
         String body = tryGetApplicationsFromUrl(buildCompanyApplicationsUrl(companyId, true), true)
                 .orElseGet(() -> tryGetApplicationsFromUrl(buildCompanyApplicationsUrl(companyId, false), false)
@@ -419,6 +482,31 @@ public class ApplicationRepository {
         JsonNode student = node.get("student");
         if (student != null && !student.isNull()) {
             r.setStudentName(textValue(student, "full_name"));
+            r.setStudentEmail(textValue(student, "email"));
+            r.setStudentPhone(textValue(student, "phone"));
+            r.setStudentStudyYear(intValue(student, "study_year"));
+            JsonNode cgpaNode = student.get("cgpa");
+            if (cgpaNode != null && !cgpaNode.isNull() && cgpaNode.isNumber()) {
+                r.setStudentCgpa(cgpaNode.asDouble());
+            }
+            JsonNode uniNode = student.get("university");
+            if (uniNode != null && !uniNode.isNull()) {
+                r.setStudentUniversityName(textValue(uniNode, "name"));
+            }
+            JsonNode deptNode = student.get("department");
+            if (deptNode != null && !deptNode.isNull()) {
+                r.setStudentFacultyName(textValue(deptNode, "name"));
+            }
+            JsonNode fieldNode = student.get("studyfield");
+            if (fieldNode != null && !fieldNode.isNull()) {
+                r.setStudentFieldName(textValue(fieldNode, "name"));
+            }
+            JsonNode profileNode = student.get("studentprofile");
+            if (profileNode != null && !profileNode.isNull()) {
+                r.setStudentSkills(textValue(profileNode, "skills"));
+                r.setStudentCvUrl(textValue(profileNode, "cv_url"));
+                r.setStudentCvFilename(textValue(profileNode, "cv_filename"));
+            }
         }
 
         return r;

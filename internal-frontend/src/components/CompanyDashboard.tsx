@@ -15,14 +15,23 @@ import {
   uploadCompanyProfilePhoto,
 } from '@/src/lib/supabase/companyProfilePhotos';
 import {
+  approveCompanyApplication,
   fetchCompanyApplications,
   fetchCompanyProfile,
   fetchCompanyOpportunities,
   fetchCompanyOpportunityDetail,
+  fetchCompanyStudentProfile,
+  rejectCompanyApplication,
   updateCompanyProfile,
   type CompanyProfileUpdatePayload,
 } from '@/src/lib/auth/company';
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
+import {
+  downloadStudentProfileFile,
+  fetchStudentProfileBlob,
+  mapStudentProfileToStudent,
+} from '@/src/lib/auth/userAccount';
+import StudentProfileView from '@/src/components/StudentProfileView';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import {
   createCompanyOpportunity,
@@ -30,14 +39,14 @@ import {
   type CompanyOpportunityCreateBody,
 } from '@/src/lib/auth/companyOpportunities';
 import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
-import { 
-  Briefcase, 
+import {
+  Briefcase,
   Building2,
   Building,
   Edit2,
-  Plus, 
-  Search, 
-  Clock, 
+  Plus,
+  Search,
+  Clock,
   Calendar,
   MapPin,
   Users,
@@ -47,6 +56,12 @@ import {
   Star,
   Eye,
   CheckCircle,
+  MoreVertical,
+  Download,
+  GraduationCap,
+  User as UserIcon,
+  FileText,
+  ArrowLeft,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import {
@@ -55,7 +70,7 @@ import {
   formatPostedDisplay,
 } from '@/src/lib/opportunityFormat';
 import { toast } from 'sonner';
-import type { Application, CompanyProfileFromApi, Opportunity } from '@/src/types';
+import type { Application, CompanyProfileFromApi, Opportunity, Student } from '@/src/types';
 
 interface CompanyDashboardProps {
   activeTab: string;
@@ -83,7 +98,20 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [profileSection, setProfileSection] = useState<'about' | 'opportunities'>('about');
   const [selectedOpportunityDetail, setSelectedOpportunityDetail] = useState<Opportunity | null>(null);
-  const [selectedApplicationDetail, setSelectedApplicationDetail] = useState<Application | null>(null);
+  const [selectedApplicationDetail, setSelectedApplicationDetail] = useState<ApplicationResponse | null>(null);
+  const [selectedStudentProfile, setSelectedStudentProfile] = useState<ApplicationResponse | null>(null);
+  const [studentProfileLoading, setStudentProfileLoading] = useState(false);
+  const [studentProfileLoaded, setStudentProfileLoaded] = useState<Student | null>(null);
+  const [studentProfileError, setStudentProfileError] = useState<string | null>(null);
+  const [actionMenu, setActionMenu] = useState<{
+    application: ApplicationResponse;
+    top: number;
+    right: number;
+  } | null>(null);
+  const [applicationsFilterOpportunityId, setApplicationsFilterOpportunityId] = useState<number | null>(null);
+  const [applicationsFilterOpportunityTitle, setApplicationsFilterOpportunityTitle] = useState<string | null>(null);
+  const [pendingDecision, setPendingDecision] = useState<{ application: ApplicationResponse; approved: boolean } | null>(null);
+  const [decidingId, setDecidingId] = useState<number | null>(null);
   const [detailOpenedFrom, setDetailOpenedFrom] = useState<'profile' | 'manage'>('profile');
   const [companyProfile, setCompanyProfile] = useState<CompanyProfileFromApi | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -295,6 +323,41 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     }
   }, [activeTab, loadCompanyApplications]);
 
+  // Load the full read-only profile when the company opens the student-profile modal.
+  useEffect(() => {
+    if (!selectedStudentProfile?.studentId) {
+      setStudentProfileLoaded(null);
+      setStudentProfileError(null);
+      return;
+    }
+    let cancelled = false;
+    const studentId = selectedStudentProfile.studentId;
+    setStudentProfileLoading(true);
+    setStudentProfileError(null);
+    setStudentProfileLoaded(null);
+    void (async () => {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
+        if (!cancelled) {
+          setStudentProfileError('Not signed in.');
+          setStudentProfileLoading(false);
+        }
+        return;
+      }
+      const { data, errorMessage } = await fetchCompanyStudentProfile(accessToken, studentId);
+      if (cancelled) return;
+      if (errorMessage) {
+        setStudentProfileError(errorMessage);
+      } else if (data) {
+        setStudentProfileLoaded(mapStudentProfileToStudent(data));
+      }
+      setStudentProfileLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStudentProfile]);
+
 
   const openOpportunityDetail = async (opportunity: Opportunity, from: 'profile' | 'manage') => {
     setDetailOpenedFrom(from);
@@ -392,8 +455,29 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     }
   };
 
-  const handleDecision = (studentName: string, decision: 'Approve' | 'Reject') => {
-    toast.success(`${decision}d application for ${studentName}!`);
+  const executeDecision = async (application: ApplicationResponse, approved: boolean) => {
+    if (application.applicationId == null) return;
+    const id = application.applicationId;
+    setDecidingId(id);
+    try {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
+        toast.error('Not signed in. Refresh the page or sign in again.');
+        return;
+      }
+      const { errorMessage } = approved
+        ? await approveCompanyApplication(accessToken, id)
+        : await rejectCompanyApplication(accessToken, id);
+      if (errorMessage) {
+        toast.error(errorMessage);
+        return;
+      }
+      toast.success(approved ? 'Application approved' : 'Application rejected');
+      await loadCompanyApplications();
+    } finally {
+      setDecidingId(null);
+      setPendingDecision(null);
+    }
   };
 
   const formatApplicationTypeLabel = (t: string | null) => {
@@ -403,11 +487,27 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     return t.replace(/_/g, ' ');
   };
 
+  const suffix = (year: number) => {
+    const v = year % 100;
+    if (v >= 11 && v <= 13) return 'th';
+    switch (year % 10) {
+      case 1: return 'st';
+      case 2: return 'nd';
+      case 3: return 'rd';
+      default: return 'th';
+    }
+  };
+
+  const formatAppliedDate = (value: string | null) => formatDeadline(value ?? undefined);
+
   const totalApplicants = companyApplications.length;
   const pendingCompany = companyApplications.filter((a) => a.isApprovedByCompany == null).length;
   const hiredCompany = companyApplications.filter((a) => a.isApprovedByCompany === true).length;
 
   const filteredCompanyApplications = companyApplications.filter((a) => {
+    if (applicationsFilterOpportunityId != null && a.opportunityId !== applicationsFilterOpportunityId) {
+      return false;
+    }
     const q = searchTerm.trim().toLowerCase();
     if (!q) return true;
     const hay = `${a.studentName ?? ''} ${a.opportunityTitle ?? ''}`.toLowerCase();
@@ -554,7 +654,14 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                 key={opp.id}
                 opportunity={opp}
                 postedLabel={postedDisplayLabel(opp)}
-                onViewApplications={() => onNavigateTab?.('applications')}
+                onViewApplications={() => {
+                  const idNum = Number(opp.id);
+                  if (!Number.isNaN(idNum)) {
+                    setApplicationsFilterOpportunityId(idNum);
+                    setApplicationsFilterOpportunityTitle(opp.title ?? null);
+                  }
+                  onNavigateTab?.('applications');
+                }}
                 onViewDetails={() => void openOpportunityDetail(opp, 'manage')}
               />
             ))
@@ -564,268 +671,508 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     );
   };
 
-  const renderApplications = () => {
-    const q = searchTerm.trim().toLowerCase();
-    const apps = ([] as Application[])
-      .filter(
-        (a) =>
-          !q ||
-          [a.studentName, a.studentEmail, a.opportunityTitle, a.opportunityDescription]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase()
-            .includes(q)
-      );
+  const renderStudentProfilePage = () => {
+    const studentId = selectedStudentProfile?.studentId;
+    const cvPath = studentId != null ? `/api/company/students/${studentId}/cv` : null;
+    const certPath = (certificationId: number | undefined) =>
+      studentId != null && certificationId != null
+        ? `/api/company/students/${studentId}/certifications/${certificationId}`
+        : null;
 
-    const detail = selectedApplicationDetail;
+    const openInNewTab = async (path: string, fallbackName: string) => {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
+        toast.error('Not signed in.');
+        return;
+      }
+      const { blob, errorMessage } = await fetchStudentProfileBlob(accessToken, path);
+      if (!blob || errorMessage) {
+        toast.error(errorMessage || 'Could not open the file.');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        // popup blocked → fall back to a download
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fallbackName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+      // Object URL is left for the new tab to consume; the browser frees it on tab close.
+    };
 
-    const appDetailDl = (label: string, value: string | null | undefined) => (
-      <div key={label}>
-        <dt className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</dt>
-        <dd className="mt-0.5 text-sm font-medium text-slate-800 whitespace-pre-wrap">
-          {value != null && String(value).trim() !== '' ? value : '—'}
-        </dd>
+    const downloadFile = async (path: string, filename: string) => {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
+        toast.error('Not signed in.');
+        return;
+      }
+      const { errorMessage } = await downloadStudentProfileFile(accessToken, path, filename);
+      if (errorMessage) toast.error(errorMessage);
+    };
+
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => setSelectedStudentProfile(null)}
+          className="mb-4 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          <ArrowLeft size={16} />
+          Back to applications
+        </button>
+        {studentProfileLoading ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-16 text-center text-sm text-slate-500">
+            Loading profile…
+          </div>
+        ) : studentProfileError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-10 text-center text-sm text-rose-600">
+            {studentProfileError}
+          </div>
+        ) : studentProfileLoaded ? (
+          <StudentProfileView
+            student={studentProfileLoaded}
+            projects={studentProfileLoaded.projects ?? []}
+            readOnly
+            onEdit={() => { /* read-only */ }}
+            onPreviewCv={() => {
+              if (!cvPath) return;
+              const name =
+                studentProfileLoaded.extendedProfile?.cvFile?.originalFilename ||
+                studentProfileLoaded.extendedProfile?.cvFilename ||
+                'cv.pdf';
+              void openInNewTab(cvPath, name);
+            }}
+            onDownloadCv={() => {
+              if (!cvPath) return;
+              const name =
+                studentProfileLoaded.extendedProfile?.cvFile?.originalFilename ||
+                studentProfileLoaded.extendedProfile?.cvFilename ||
+                'cv.pdf';
+              void downloadFile(cvPath, name);
+            }}
+            onPreviewCertification={(file) => {
+              const path = certPath(file.certificationId);
+              if (!path) return;
+              void openInNewTab(path, file.originalFilename || file.displayName);
+            }}
+            onDownloadCertification={(file) => {
+              const path = certPath(file.certificationId);
+              if (!path) return;
+              void downloadFile(path, file.originalFilename || file.displayName);
+            }}
+            /* Edit/add/delete props omitted — StudentProfileView gates each affordance on its callback being defined. */
+          />
+        ) : null}
       </div>
     );
+  };
+
+  const renderApplications = () => {
+    if (selectedStudentProfile) {
+      return renderStudentProfilePage();
+    }
+
+    const apps = filteredCompanyApplications;
+    const totalApps = companyApplications.length;
+    const detail = selectedApplicationDetail;
+
+    const skillsForApp = (a: ApplicationResponse): string[] => {
+      const raw = a.studentSkills;
+      if (!raw) return [];
+      return raw.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
+    };
+
+    const statusPill = (status: string | null, isApprovedByCompany: boolean | null) => {
+      const label = (status ?? 'WAITING').toUpperCase();
+      let bg = '#5DADE2'; // Waiting
+      if (isApprovedByCompany === true || label === 'APPROVED') bg = '#20948B'; // Approved
+      else if (isApprovedByCompany === false || label === 'REJECTED') bg = '#E74C3C'; // Rejected
+      const display = isApprovedByCompany === true
+        ? 'APPROVED'
+        : isApprovedByCompany === false
+          ? 'REJECTED'
+          : label;
+      return (
+        <span
+          className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white"
+          style={{ backgroundColor: bg }}
+        >
+          {display}
+        </span>
+      );
+    };
+
+    const openActionMenu = (app: ApplicationResponse, e: React.MouseEvent<HTMLButtonElement>) => {
+      const targetId = app.applicationId;
+      if (actionMenu?.application.applicationId === targetId) {
+        setActionMenu(null);
+        return;
+      }
+      const rect = e.currentTarget.getBoundingClientRect();
+      setActionMenu({
+        application: app,
+        top: rect.bottom + 6,
+        right: window.innerWidth - rect.right,
+      });
+    };
 
     return (
       <>
-        {detail ? (
+        <h1 className="text-3xl font-extrabold text-[#002B5B] mb-6">Review Applications</h1>
+
+        {applicationsFilterOpportunityId != null ? (
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#002B5B]/20 bg-[#002B5B]/5 px-4 py-2 text-sm font-medium text-[#002B5B]">
+            <span className="text-xs uppercase tracking-wider text-slate-500">Filtered by</span>
+            <span>{applicationsFilterOpportunityTitle ?? `Opportunity #${applicationsFilterOpportunityId}`}</span>
+            <button
+              type="button"
+              aria-label="Clear opportunity filter"
+              onClick={() => {
+                setApplicationsFilterOpportunityId(null);
+                setApplicationsFilterOpportunityTitle(null);
+              }}
+              className="ml-1 rounded-full p-1 text-slate-500 hover:bg-slate-200/60 hover:text-slate-700"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : null}
+
+        <div className="relative mb-4">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Search student name or role..."
+            suppressHydrationWarning
+            className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-[#002B5B]/20 focus:border-[#002B5B] outline-none shadow-sm"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {applicationsLoading ? (
+            <p className="px-6 py-10 text-center text-sm text-slate-500">Loading applications...</p>
+          ) : totalApps === 0 ? (
+            <div className="px-6 py-16 text-center">
+              <div className="mx-auto w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-4">
+                <FileText size={20} />
+              </div>
+              <p className="text-sm font-medium text-slate-700">No applications yet.</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Students will appear here when they apply to your opportunities.
+              </p>
+            </div>
+          ) : apps.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-slate-500">
+              No applications match your search.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-[#002B5B] text-white text-xs font-bold uppercase tracking-wider">
+                    <th className="px-6 py-4 text-center">Name</th>
+                    <th className="px-6 py-4 text-center">Date Applied</th>
+                    <th className="px-6 py-4 text-center">Opportunity</th>
+                    <th className="px-6 py-4 text-center">Type</th>
+                    <th className="px-6 py-4 text-center">Status</th>
+                    <th className="px-6 py-4 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {apps.map((app) => {
+                    const id = app.applicationId;
+                    return (
+                      <tr key={id ?? Math.random()} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-6 py-4 text-center">
+                          <button
+                            type="button"
+                            suppressHydrationWarning
+                            onClick={() => setSelectedStudentProfile(app)}
+                            className="font-medium text-slate-800 hover:underline focus:outline-none focus:ring-2 focus:ring-[#002B5B] rounded"
+                          >
+                            {app.studentName ?? '—'}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4 text-center text-sm text-slate-600">
+                          {formatAppliedDate(app.createdAt)}
+                        </td>
+                        <td className="px-6 py-4 text-center text-sm text-slate-700">
+                          {app.opportunityTitle ?? '—'}
+                        </td>
+                        <td className="px-6 py-4 text-center text-sm text-slate-600">
+                          {formatApplicationTypeLabel(app.applicationType)}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          {statusPill(app.status, app.isApprovedByCompany)}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <button
+                            type="button"
+                            suppressHydrationWarning
+                            aria-label={`Actions for ${app.studentName ?? 'application'}`}
+                            onClick={(e) => openActionMenu(app, e)}
+                            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                          >
+                            <MoreVertical size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* View Application modal */}
+        {detail ? (() => {
+          const detailSkills = skillsForApp(detail);
+          const detailCvPath = detail.studentId != null ? `/api/company/students/${detail.studentId}/cv` : null;
+          const detailCvName = detail.studentCvFilename ?? 'cv.pdf';
+          const handleDetailDownload = async () => {
+            if (!detailCvPath) return;
+            const accessToken = await getSessionAccessToken();
+            if (!accessToken) {
+              toast.error('Not signed in.');
+              return;
+            }
+            const { errorMessage } = await downloadStudentProfileFile(accessToken, detailCvPath, detailCvName);
+            if (errorMessage) toast.error(errorMessage);
+          };
+          return (
+            <div
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
+              onClick={() => setSelectedApplicationDetail(null)}
+              role="presentation"
+            >
+              <div
+                className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+              >
+                {/* Header */}
+                <div className="sticky top-0 z-10 flex items-center justify-between gap-4 bg-[#002B5B] px-10 py-4">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-bold text-white">{detail.studentName ?? 'Application'}</h2>
+                    {statusPill(detail.status, detail.isApprovedByCompany)}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedApplicationDetail(null)}
+                    className="rounded-lg p-1.5 text-white/80 hover:bg-white/10"
+                    aria-label="Close"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-8 px-10 py-6">
+                  {/* Left column */}
+                  <section>
+                    <h3 className="pb-2 mb-4 border-b border-slate-200 text-base font-bold text-slate-900">
+                      Personal Information
+                    </h3>
+                    <dl className="grid grid-cols-2 gap-x-10 gap-y-4">
+                      <DetailField label="Email" value={detail.studentEmail} />
+                      <DetailField label="Phone" value={detail.studentPhone} />
+                      <DetailField label="University" value={detail.studentUniversityName} />
+                      <DetailField label="Faculty" value={detail.studentFacultyName} />
+                      <DetailField label="Year of study" value={detail.studentStudyYear ? `${detail.studentStudyYear}${suffix(detail.studentStudyYear)} year` : null} />
+                      <DetailField label="GPA" value={detail.studentCgpa != null ? `${detail.studentCgpa.toFixed(2)} / 4.00` : null} />
+                    </dl>
+
+                    <h3 className="pb-2 mt-8 mb-4 border-b border-slate-200 text-base font-bold text-slate-900">
+                      Application Details
+                    </h3>
+                    <dl className="grid grid-cols-1 gap-y-4">
+                      <DetailField label="Opportunity" value={detail.opportunityTitle} />
+                      <div className="grid grid-cols-2 gap-x-10">
+                        <DetailField label="Type" value={formatApplicationTypeLabel(detail.applicationType)} />
+                        <DetailField label="Date applied" value={formatAppliedDate(detail.createdAt)} />
+                      </div>
+                    </dl>
+                  </section>
+
+                  {/* Right column */}
+                  <section>
+                    <h3 className="pb-2 mb-4 border-b border-slate-200 text-base font-bold text-slate-900">
+                      Resume / CV
+                    </h3>
+                    {detailCvPath && detail.studentCvFilename ? (
+                      <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center flex-shrink-0">
+                            <FileText size={18} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 truncate">
+                              {detail.studentCvFilename}
+                            </p>
+                            <p className="text-xs text-slate-400">PDF Document</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleDetailDownload()}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#002B5B] hover:bg-[#001F42] px-4 py-2 text-xs font-bold text-white"
+                        >
+                          <Download size={14} />
+                          Download
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">No CV uploaded.</p>
+                    )}
+
+                    <h3 className="pb-2 mt-8 mb-4 border-b border-slate-200 text-base font-bold text-slate-900">
+                      Skills
+                    </h3>
+                    {detailSkills.length === 0 ? (
+                      <p className="text-xs text-slate-400">No skills listed.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {detailSkills.map((s) => (
+                          <span
+                            key={s}
+                            className="px-3 py-1 rounded-full bg-slate-100 text-xs font-medium text-slate-700"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </div>
+            </div>
+          );
+        })() : null}
+
+        {/* Fixed-position action menu — rendered outside the table so the last row's menu doesn't get clipped */}
+        {actionMenu ? (
+          <>
+            <div
+              className="fixed inset-0 z-[80]"
+              onClick={() => setActionMenu(null)}
+              role="presentation"
+            />
+            <div
+              className="fixed z-[90] w-44 rounded-xl border border-slate-200 bg-white shadow-lg py-2"
+              style={{ top: actionMenu.top, right: actionMenu.right }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  const app = actionMenu.application;
+                  setActionMenu(null);
+                  setSelectedApplicationDetail(app);
+                }}
+                style={{ color: '#5FA8D3' }}
+                className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-slate-50"
+              >
+                <Eye size={16} />
+                View
+              </button>
+              {actionMenu.application.isApprovedByCompany == null ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const app = actionMenu.application;
+                      setActionMenu(null);
+                      setPendingDecision({ application: app, approved: true });
+                    }}
+                    style={{ color: '#2FA4A9' }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-slate-50"
+                  >
+                    <CheckCircle size={16} />
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const app = actionMenu.application;
+                      setActionMenu(null);
+                      setPendingDecision({ application: app, approved: false });
+                    }}
+                    style={{ color: '#E53935' }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-slate-50"
+                  >
+                    <X size={16} />
+                    Reject
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+
+        {/* Confirm dialog for Approve / Reject */}
+        {pendingDecision ? (
           <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
-            onClick={() => setSelectedApplicationDetail(null)}
+            onClick={() => decidingId == null && setPendingDecision(null)}
             role="presentation"
           >
             <div
-              className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl"
+              className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
-              aria-labelledby="application-detail-title"
             >
-              <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-6 py-4">
-                <div>
-                  <h2 id="application-detail-title" className="text-lg font-bold text-[#0E2A50]">
-                    Application details
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {detail.studentName} · {detail.opportunityTitle}
-                  </p>
-                </div>
+              <h2 className="text-lg font-bold text-[#002B5B]">
+                {pendingDecision.approved ? 'Approve application?' : 'Reject application?'}
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                {pendingDecision.approved
+                  ? `Approve ${pendingDecision.application.studentName}'s application for "${pendingDecision.application.opportunityTitle ?? 'this opportunity'}"?`
+                  : `Reject ${pendingDecision.application.studentName}'s application for "${pendingDecision.application.opportunityTitle ?? 'this opportunity'}"?`}
+              </p>
+              <div className="mt-6 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setSelectedApplicationDetail(null)}
-                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                  aria-label="Close"
+                  disabled={decidingId != null}
+                  onClick={() => setPendingDecision(null)}
+                  className="px-5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 disabled:opacity-50"
                 >
-                  <X size={20} />
+                  Cancel
                 </button>
-              </div>
-              <div className="space-y-8 p-6">
-                <section>
-                  <h3 className="text-sm font-bold text-slate-900">Applicant</h3>
-                  <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {appDetailDl('Name', detail.studentName)}
-                    {appDetailDl('Email', detail.studentEmail)}
-                    {appDetailDl('Student ID', detail.studentId)}
-                    {appDetailDl('Applied on', formatDeadline(detail.createdAt))}
-                    {appDetailDl('Application type', detail.type.replaceAll('_', ' '))}
-                    {appDetailDl(
-                      'PPA approved',
-                      detail.isApprovedByPPA === true
-                        ? 'Yes'
-                        : detail.isApprovedByPPA === false
-                          ? 'No'
-                          : '—'
-                    )}
-                    {appDetailDl(
-                      'Company decision',
-                      detail.isApprovedByCompany === true
-                        ? 'Approved'
-                        : detail.isApprovedByCompany === false
-                          ? 'Rejected'
-                          : 'Pending'
-                    )}
-                    {appDetailDl('Status', detail.status)}
-                  </dl>
-                </section>
-                <section>
-                  <h3 className="text-sm font-bold text-slate-900">Opportunity snapshot</h3>
-                  <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {appDetailDl('Title', detail.opportunityTitle)}
-                    {appDetailDl(
-                      'Category',
-                      detail.opportunityTypeLabel ?? formatOpportunityType(detail.type)
-                    )}
-                    {appDetailDl('Description', detail.opportunityDescription)}
-                    {appDetailDl(
-                      'Required skills',
-                      detail.opportunityRequiredSkills?.length
-                        ? detail.opportunityRequiredSkills.join(', ')
-                        : undefined
-                    )}
-                    {appDetailDl(
-                      'Application deadline',
-                      detail.opportunityDeadline
-                        ? formatDeadline(detail.opportunityDeadline)
-                        : undefined
-                    )}
-                    {appDetailDl(
-                      'Expected start',
-                      detail.opportunityStartDate
-                        ? formatDeadline(detail.opportunityStartDate)
-                        : undefined
-                    )}
-                    {appDetailDl('Location', detail.opportunityLocation)}
-                    {appDetailDl('Work mode', detail.opportunityWorkMode)}
-                    {appDetailDl('Job type', detail.opportunityJobTypeLabel)}
-                    {appDetailDl('Duration', detail.opportunityDurationLabel)}
-                    {appDetailDl(
-                      'Paid',
-                      detail.opportunityIsPaid === true
-                        ? 'Yes'
-                        : detail.opportunityIsPaid === false
-                          ? 'No'
-                          : '—'
-                    )}
-                    {appDetailDl(
-                      'Monthly salary',
-                      detail.opportunityIsPaid === true && detail.opportunitySalaryMonthly != null
-                        ? `${detail.opportunitySalaryMonthly.toLocaleString()} / month`
-                        : '—'
-                    )}
-                  </dl>
-                  {detail.opportunityNiceToHave?.trim() ? (
-                    <div className="mt-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                        Additional notes (nice to have)
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                        {detail.opportunityNiceToHave}
-                      </p>
-                    </div>
-                  ) : null}
-                </section>
+                <button
+                  type="button"
+                  disabled={decidingId != null}
+                  onClick={() => void executeDecision(pendingDecision.application, pendingDecision.approved)}
+                  className={cn(
+                    'px-5 py-2 rounded-xl text-white font-bold disabled:opacity-50',
+                    pendingDecision.approved ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
+                  )}
+                >
+                  {decidingId != null ? 'Working…' : pendingDecision.approved ? 'Approve' : 'Reject'}
+                </button>
               </div>
             </div>
           </div>
         ) : null}
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-            <h2 className="text-lg font-bold text-slate-900">Incoming Applications</h2>
-            <div className="flex gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input
-                  type="text"
-                  placeholder="Search applicants..."
-                  suppressHydrationWarning
-                  className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-64"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            {apps.length === 0 ? (
-              <p className="px-6 py-10 text-center text-sm text-slate-500">
-                No applications match your search.
-              </p>
-            ) : (
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                    <th className="px-6 py-4">Applicant</th>
-                    <th className="px-6 py-4">Opportunity</th>
-                    <th className="px-6 py-4">Type</th>
-                    <th className="px-6 py-4">Date</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {apps.map((app) => (
-                    <tr key={app.id} className="hover:bg-slate-50 transition-all group">
-                      <td className="px-6 py-4">
-                        <div className="font-bold text-slate-900">{app.studentName}</div>
-                        <div className="text-xs text-slate-500">ID: {app.studentId}</div>
-                      </td>
-                      <td className="px-6 py-4 text-sm font-medium text-slate-700">
-                        {app.opportunityTitle}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={cn(
-                            'px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider',
-                            app.type === 'PROFESSIONAL_PRACTICE'
-                              ? 'bg-[#002B5B]/10 text-[#002B5B]'
-                              : 'bg-slate-100 text-slate-700'
-                          )}
-                        >
-                          {app.type.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={14} className="text-slate-400" />
-                          {formatDeadline(app.createdAt)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex flex-col items-end gap-2">
-                          <button
-                            type="button"
-                            suppressHydrationWarning
-                            onClick={() => setSelectedApplicationDetail(app)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-[#0E2A50] hover:bg-slate-50"
-                          >
-                            <Eye size={14} />
-                            View
-                          </button>
-                          {app.isApprovedByCompany === undefined ? (
-                            <div className="flex justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleDecision(app.studentName, 'Approve')}
-                                suppressHydrationWarning
-                                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDecision(app.studentName, 'Reject')}
-                                suppressHydrationWarning
-                                className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-500/20"
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          ) : (
-                            <span
-                              className={cn(
-                                'px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider',
-                                app.isApprovedByCompany === true
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'bg-red-50 text-red-700'
-                              )}
-                            >
-                              {app.isApprovedByCompany ? 'Approved' : 'Rejected'}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
       </>
     );
   };
+
+  const DetailField: React.FC<{ label: string; value: string | number | null | undefined }> = ({ label, value }) => (
+    <div>
+      <dt className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</dt>
+      <dd className="mt-0.5 text-sm font-medium text-slate-800">
+        {value != null && String(value).trim() !== '' ? value : '—'}
+      </dd>
+    </div>
+  );
 
 
   const renderOpportunityDetail = (opportunity: Opportunity) => (
@@ -834,6 +1181,11 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       opportunity={opportunity}
       onBack={() => setSelectedOpportunityDetail(null)}
       onNavigateToApplications={() => {
+        const idNum = Number(opportunity.id);
+        if (!Number.isNaN(idNum)) {
+          setApplicationsFilterOpportunityId(idNum);
+          setApplicationsFilterOpportunityTitle(opportunity.title ?? null);
+        }
         onNavigateTab?.('applications');
         setSelectedOpportunityDetail(null);
       }}

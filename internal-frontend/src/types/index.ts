@@ -69,6 +69,8 @@ export interface Student extends User {
   studyYear: number;
   cgpa: number;
   hasCompletedPP: boolean;
+  /** When false, application type is fixed to individual growth (no PP choice in the form). */
+  canApplyForPP?: boolean;
   accessStartDate?: string;
   accessEndDate?: string;
   /** Public or signed URL from `studentprofile.photo`. */

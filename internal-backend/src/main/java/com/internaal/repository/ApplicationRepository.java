@@ -24,6 +24,9 @@ import java.util.stream.Collectors;
 @Repository
 public class ApplicationRepository {
 
+    private static final String PROFESSIONAL_PRACTICE_TYPE = "PROFESSIONAL_PRACTICE";
+    private static final String INDIVIDUAL_GROWTH_TYPE = "INDIVIDUAL_GROWTH";
+
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final String supabaseUrl;
@@ -128,6 +131,40 @@ public class ApplicationRepository {
         return row.map(node -> new StudentBrief(intValue(node, "university_id"), textValue(node, "full_name")));
     }
 
+    /**
+     * When {@code false}, professional practice must not be stored (client is overridden to individual growth).
+     * Missing or null PP-eligibility defaults to {@code true} for backward compatibility.
+     */
+    public boolean studentMayApplyForProfessionalPractice(Integer studentId) {
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId
+                + "&select=*&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        Optional<JsonNode> row = opt.flatMap(arr ->
+                arr.isArray() && arr.size() > 0 ? Optional.of(arr.get(0)) : Optional.empty());
+        if (row.isEmpty()) {
+            return true;
+        }
+        Boolean allow = readCanApplyForPpFlag(row.get());
+        return allow == null || allow;
+    }
+
+    /** Same name-resolution as {@link com.internaal.repository.StudentProfileRepository} for PostgREST JSON keys. */
+    private Boolean readCanApplyForPpFlag(JsonNode row) {
+        if (row == null || row.isNull()) {
+            return null;
+        }
+        final String target = "canapplyforpp";
+        var fields = row.fields();
+        while (fields.hasNext()) {
+            var e = fields.next();
+            String norm = e.getKey().replace("_", "").toLowerCase();
+            if (target.equals(norm) && !e.getValue().isNull()) {
+                return e.getValue().asBoolean();
+            }
+        }
+        return null;
+    }
+
     private Optional<JsonNode> findApplicationRow(Integer studentId, Integer opportunityId) {
         String select = APPLICATION_SELECT_BASE + ",opportunity(title),company(name)";
         String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
@@ -180,6 +217,11 @@ public class ApplicationRepository {
         String normalizedType = request.getApplicationType()
                 .toUpperCase()
                 .replace(" ", "_");
+
+        if (!studentMayApplyForProfessionalPractice(studentId)
+                && PROFESSIONAL_PRACTICE_TYPE.equals(normalizedType)) {
+            normalizedType = INDIVIDUAL_GROWTH_TYPE;
+        }
 
         ObjectNode body = objectMapper.createObjectNode();
         body.put("student_id", studentId);

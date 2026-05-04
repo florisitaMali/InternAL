@@ -1,5 +1,6 @@
 package com.internaal.security;
 
+import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.UserAccountRepository;
 import com.nimbusds.jose.JWSVerifier;
@@ -112,9 +113,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // ✅ Step 6: Extract user identifier (email or sub)
+            // ✅ Step 6: Extract user identifier (email required for useraccount RLS lookup)
             String userIdentifier = claims.getStringClaim("email");
-            if (userIdentifier == null) {
+            if (userIdentifier == null || userIdentifier.isBlank()) {
                 sendError(response, HttpStatus.UNAUTHORIZED, "No user identifier in token");
                 return;
             }
@@ -127,13 +128,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             user = account.get();
+            String sub = claims.getSubject();
+            if (sub != null && !sub.isBlank()) {
+                user.setSupabaseUserId(sub);
+            }
 
             // ✅ Step 8: Validate role and linked entity
             if (user.getRole() == null) {
                 sendError(response, HttpStatus.FORBIDDEN, "Account has no role assigned");
                 return;
             }
-            if (user.getLinkedEntityId() == null) {
+            if (!user.isActive()) {
+                sendError(response, HttpStatus.FORBIDDEN,
+                        "Your account is deactivated. Contact your system administrator.");
+                return;
+            }
+            String requestPath = request.getRequestURI();
+            if (user.getRole() == Role.SYSTEM_ADMIN) {
+                boolean allowed = requestPath.startsWith("/api/sysadmin/")
+                        || "/api/health".equals(requestPath)
+                        || "/api/me".equals(requestPath);
+                if (!allowed) {
+                    sendError(response, HttpStatus.FORBIDDEN, "System admin endpoints only");
+                    return;
+                }
+            } else if (user.getLinkedEntityId() == null) {
                 sendError(response, HttpStatus.FORBIDDEN, "Account has no linked entity");
                 return;
             }

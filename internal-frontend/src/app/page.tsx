@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Sidebar from '@/src/components/Sidebar';
 import { Role, Student } from '@/src/types';
@@ -8,12 +8,14 @@ import UniversityAdminDashboard from '@/src/components/UniversityAdminDashboard'
 import PPADashboard from '@/src/components/PPADashboard';
 import StudentDashboard from '@/src/components/StudentDashboard';
 import CompanyDashboard from '@/src/components/CompanyDashboard';
+import SystemAdminDashboard from '@/src/components/SystemAdminDashboard';
 import LoginPage from '@/src/components/LoginPage';
 import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
 import { toast } from 'sonner';
 import { clearSupabaseAuthStorage, getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
 import { messageFromUnknown, toError } from '@/src/lib/messageFromUnknown';
+import UrlStudentTabSync from '@/src/components/UrlStudentTabSync';
 
 const GET_SESSION_TIMEOUT_MS = 25_000;
 const ROLE_LABELS: Record<Role, string> = {
@@ -21,6 +23,7 @@ const ROLE_LABELS: Record<Role, string> = {
   PPA: 'PPA',
   STUDENT: 'Student',
   COMPANY: 'Company',
+  SYSTEM_ADMIN: 'System Admin',
 };
 
 export default function Home() {
@@ -48,6 +51,25 @@ export default function Home() {
     setLinkedEntityId(null);
   };
 
+  /**
+   * Supabase often sends magic links to the Auth "Site URL" (/) with tokens in the hash.
+   * Forward invite/recovery hashes to the routes that handle them so redirect_to is optional for local/dev.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.location.hash.replace(/^#/, '');
+    if (!raw) return;
+    const params = new URLSearchParams(raw);
+    const type = params.get('type');
+    if (type === 'invite') {
+      window.location.replace(`${window.location.origin}/auth/set-password#${raw}`);
+      return;
+    }
+    if (type === 'recovery') {
+      window.location.replace(`${window.location.origin}/auth/reset#${raw}`);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -68,13 +90,34 @@ export default function Home() {
         return;
       }
 
+      const meta = session.user.user_metadata as Record<string, unknown> | undefined;
+      // Invited PPAs carry internaal_app_role in JWT — redirect before /api/me so a broken production API cannot block onboarding.
+      if (meta?.internaal_app_role === 'PPA' && meta?.invite_password_completed !== true) {
+        if (typeof window !== 'undefined') {
+          // Only redirect to set-password when arriving from an actual invite email link.
+          // A stale stored session (no invite hash) would create a redirect loop; sign out instead.
+          const hasInviteHash = window.location.hash.includes('type=invite') || window.location.hash.includes('access_token');
+          if (hasInviteHash) {
+            window.location.replace('/auth/set-password');
+          } else {
+            clearSupabaseAuthStorage();
+            try { await supabase!.auth.signOut({ scope: 'local' }); } catch { /* ignore */ }
+            resetLocalUserState();
+          }
+        }
+        return;
+      }
+
       const metadataName =
         (session.user.user_metadata?.full_name as string | undefined) ||
         (session.user.user_metadata?.name as string | undefined);
+      const invitePasswordCompleted =
+        session.user.user_metadata?.invite_password_completed === true;
       const { data: appUser, errorMessage } = await loadCurrentAppUser(
         session.access_token,
         session.user.email,
-        metadataName
+        metadataName,
+        invitePasswordCompleted
       );
       if (cancelled) return;
 
@@ -88,6 +131,15 @@ export default function Home() {
         resetLocalUserState();
         toast.error(errorMessage || 'Could not load your account profile.');
         return;
+      }
+
+      if (appUser.user.role === 'PPA') {
+        if (meta?.invite_password_completed !== true) {
+          if (typeof window !== 'undefined') {
+            window.location.replace('/auth/set-password');
+          }
+          return;
+        }
       }
 
       setRole(appUser.user.role);
@@ -147,7 +199,7 @@ export default function Home() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'INITIAL_SESSION') return;
+      // Invite/magic-link sessions are often delivered only here; skipping INITIAL_SESSION left getSession()-null users stuck on / with no sync.
       try {
         if (!cancelled) await sync(session);
       } catch (e) {
@@ -174,7 +226,17 @@ export default function Home() {
     if ((role === 'STUDENT' || role === 'COMPANY') && activeTab === 'dashboard') {
       setActiveTab('opportunities');
     }
+    if (role === 'SYSTEM_ADMIN' && activeTab === 'dashboard') {
+      setActiveTab('universities');
+    }
   }, [isLoggedIn, role, activeTab]);
+
+  /** Legacy sidebar tab id removed; migrate old sessions still on "notifications". */
+  useEffect(() => {
+    if (activeTab !== 'notifications') return;
+    if (role === 'STUDENT') setActiveTab('opportunities');
+    else if (role === 'PPA') setActiveTab('dashboard');
+  }, [activeTab, role]);
 
   const handleLogin = (
     selectedRole: Role,
@@ -244,6 +306,8 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            accessToken={accessToken}
+            accessTokenRef={accessTokenRef}
           />
         );
       case 'PPA':
@@ -263,6 +327,7 @@ export default function Home() {
             currentUserRoleLabel={roleLabel}
             currentStudent={currentStudent}
             onToggleSidebar={handleToggleSidebar}
+            onNavigateTab={setActiveTab}
           />
         );
       case 'COMPANY':
@@ -276,6 +341,17 @@ export default function Home() {
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
             linkedEntityId={linkedEntityId}
+          />
+        );
+      case 'SYSTEM_ADMIN':
+        return (
+          <SystemAdminDashboard
+            activeTab={activeTab}
+            currentUserName={currentUserName}
+            currentUserRoleLabel={roleLabel}
+            onToggleSidebar={handleToggleSidebar}
+            accessToken={accessToken}
+            accessTokenRef={accessTokenRef}
           />
         );
       default:
@@ -300,6 +376,11 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen bg-[#F9FAFB] relative overflow-hidden">
+      {isLoggedIn && role === 'STUDENT' ? (
+        <Suspense fallback={null}>
+          <UrlStudentTabSync isLoggedIn={isLoggedIn} role={role} setActiveTab={setActiveTab} />
+        </Suspense>
+      ) : null}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden z-0">
         <div className="absolute -top-24 -right-24 w-96 h-96 bg-indigo-50 rounded-full blur-3xl opacity-50"></div>
         <div className="absolute top-1/2 -left-24 w-72 h-72 bg-blue-50 rounded-full blur-3xl opacity-30"></div>

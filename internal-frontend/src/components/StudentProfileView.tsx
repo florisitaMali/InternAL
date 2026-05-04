@@ -34,6 +34,13 @@ function formatMonthYear(iso: string | undefined): string {
 interface StudentProfileViewProps {
   student: Student;
   projects?: StudentProject[];
+  /**
+   * When true, hides the top-level "Edit Profile" button. Per-item edit / add / delete
+   * affordances are already gated on their optional callbacks, so omitting those props
+   * is enough to suppress them. Set this when rendering for an outside viewer (e.g.
+   * a company viewing an applicant).
+   */
+  readOnly?: boolean;
   onEdit: () => void;
   onDownloadCv: () => void;
   onPreviewCv: () => void;
@@ -69,6 +76,7 @@ function parseBannerTitleParts(raw: string): { before: string; showGreenProfile:
 const StudentProfileView: React.FC<StudentProfileViewProps> = ({
   student,
   projects = [],
+  readOnly = false,
   onEdit,
   onDownloadCv,
   onPreviewCv,
@@ -101,11 +109,10 @@ const StudentProfileView: React.FC<StudentProfileViewProps> = ({
   const subtitleLine = useMemo(() => {
     const parts = [
       student.fullName,
-      `Student ID: ${student.id}`,
       student.departmentName ? `Faculty of ${student.departmentName}` : null,
     ].filter(Boolean);
     return parts.join(' | ');
-  }, [student.fullName, student.id, student.departmentName]);
+  }, [student.fullName, student.departmentName]);
 
   const roleSubtitle = student.studyFieldName
     ? `${student.studyFieldName} Student`
@@ -209,16 +216,18 @@ const StudentProfileView: React.FC<StudentProfileViewProps> = ({
           ) : null}
           <p className="text-slate-500 text-sm">{student.university}</p>
         </div>
-        <button
-          type="button"
-          onClick={onEdit}
-          suppressHydrationWarning
-          className="inline-flex items-center gap-2 self-start px-5 py-2.5 rounded-full text-sm font-semibold text-white shadow-sm hover:opacity-95 transition-opacity"
-          style={{ backgroundColor: NAVY }}
-        >
-          <Edit2 size={16} />
-          Edit Profile
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            suppressHydrationWarning
+            className="inline-flex items-center gap-2 self-start px-5 py-2.5 rounded-full text-sm font-semibold text-white shadow-sm hover:opacity-95 transition-opacity"
+            style={{ backgroundColor: NAVY }}
+          >
+            <Edit2 size={16} />
+            Edit Profile
+          </button>
+        ) : null}
       </div>
 
       <div className="px-6 sm:px-8 pt-3 sm:pt-3.5 pb-0 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-b border-slate-200">
@@ -316,18 +325,20 @@ const StudentProfileView: React.FC<StudentProfileViewProps> = ({
             )}
           </div>
 
-          <div
-            className={cn(
-              'rounded-xl px-4 py-3 text-sm font-semibold border',
-              student.hasCompletedPP
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                : 'bg-red-50 text-red-700 border-red-200'
-            )}
-          >
-            {student.hasCompletedPP
-              ? 'You have completed the Professional Practice.'
-              : 'You have not completed the Professional Practice yet.'}
-          </div>
+          {!readOnly ? (
+            <div
+              className={cn(
+                'rounded-xl px-4 py-3 text-sm font-semibold border',
+                student.hasCompletedPP
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : 'bg-red-50 text-red-700 border-red-200'
+              )}
+            >
+              {student.hasCompletedPP
+                ? 'You have completed the Professional Practice.'
+                : 'You have not completed the Professional Practice yet.'}
+            </div>
+          ) : null}
         </div>
 
         <div className="min-w-0 lg:order-1">

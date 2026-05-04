@@ -13,6 +13,7 @@ import ProfileEditor from './ProfileEditor';
 import StudentProfileView from './StudentProfileView';
 import UnderDevelopment from './UnderDevelopment';
 import SubmitApplicationModal from './SubmitApplicationModal';
+import NotificationsPanel from './NotificationsPanel';
 import { ApplicationFormData } from './SubmitApplicationModal';
 import {
   Briefcase,
@@ -30,18 +31,20 @@ import {
   Wallet,
   X,
   XCircle,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
 import type {
   Application,
+  CompanyProfileFromApi,
   Opportunity,
   Student,
   StudentExperience,
   StudentProfileFile,
   StudentProject,
 } from '../types';
-import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
+import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import {
   createStudentExperience,
   createStudentProject,
@@ -62,14 +65,17 @@ import {
   uploadStudentCv,
 } from '@/src/lib/auth/userAccount';
 import { fetchStudentApplications, fetchStudentOpportunities, getApiBaseUrl, type ApplicationResponse, type StudentOpportunityFilters } from '@/src/lib/auth/opportunities';
+import { fetchStudentOpportunityDetail, fetchStudentCompanyProfile, fetchStudentCompanyOpportunities } from '@/src/lib/auth/company';
+import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
+import OpportunityDetailView from '@/src/components/OpportunityDetailView';
+import CompanyProfileTabbedView from '@/src/components/CompanyProfileTabbedView';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
+import StudentBestMatchesTeaser from '@/src/components/StudentBestMatchesTeaser';
 import {
   formatDbDuration,
   formatDbWorkType,
   formatDeadline,
-  formatOpportunityType,
   formatRelativePosted,
-  formatTargetUniversitiesDisplay,
 } from '@/src/lib/opportunityFormat';
 
 interface StudentDashboardProps {
@@ -78,6 +84,8 @@ interface StudentDashboardProps {
   currentUserRoleLabel: string;
   currentStudent?: Student | null;
   onToggleSidebar?: () => void;
+  /** Switch main tab (e.g. open company browse from an application). */
+  onNavigateTab?: (tab: string) => void;
 }
 
 type OpportunityFilterState = {
@@ -293,13 +301,16 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   currentUserRoleLabel,
   currentStudent,
   onToggleSidebar,
+  onNavigateTab,
 }) => {
+  const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [student, setStudent] = useState<Student>(currentStudent ?? createPlaceholderStudent());
   const [opportunityFilters, setOpportunityFilters] = useState<OpportunityFilterState>(EMPTY_FILTERS);
   const [discoveredLocations, setDiscoveredLocations] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
-  const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
+  const [applicationListingDetail, setApplicationListingDetail] = useState<Opportunity | null>(null);
+  const [applicationListingDetailLoading, setApplicationListingDetailLoading] = useState(false);
   const [applicationOpportunity, setApplicationOpportunity] = useState<{ id: number; title: string; company: string } | null>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [isLoadingOpportunities, setIsLoadingOpportunities] = useState(false);
@@ -311,6 +322,22 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [showApplicationFilters, setShowApplicationFilters] = useState(false);
   const [opportunityById, setOpportunityById] = useState<Map<string, Opportunity>>(() => new Map());
   const [selectedApplication, setSelectedApplication] = useState<ApplicationResponse | null>(null);
+
+  const [selectedExploreOpportunityId, setSelectedExploreOpportunityId] = useState<string | null>(null);
+  const [exploreOpportunityDetail, setExploreOpportunityDetail] = useState<Opportunity | null>(null);
+  const [exploreOpportunityLoading, setExploreOpportunityLoading] = useState(false);
+  const [exploreOpportunityError, setExploreOpportunityError] = useState<string | null>(null);
+
+  const [companyBrowseId, setCompanyBrowseId] = useState<string | null>(null);
+  const [companyBrowseSection, setCompanyBrowseSection] = useState<'about' | 'opportunities'>('about');
+  const [companyBrowseProfile, setCompanyBrowseProfile] = useState<CompanyProfileFromApi | null>(null);
+  const [companyBrowseOpportunities, setCompanyBrowseOpportunities] = useState<Opportunity[]>([]);
+  const [companyBrowseLoading, setCompanyBrowseLoading] = useState(false);
+
+  const [bestMatchesList, setBestMatchesList] = useState<Opportunity[]>([]);
+  const [bestMatchesLoading, setBestMatchesLoading] = useState(false);
+  const [showPremiumExploreBanner, setShowPremiumExploreBanner] = useState(true);
+
   const [pdfPreview, setPdfPreview] = useState<{
     title: string;
     url: string | null;
@@ -371,21 +398,22 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   useEffect(() => {
     if (!currentStudent) return;
-    setStudent(currentStudent);
+    setStudent((prev) => {
+      const merged: Student = { ...prev, ...currentStudent };
+      if (currentStudent.canApplyForPP === undefined && prev.canApplyForPP !== undefined) {
+        merged.canApplyForPP = prev.canApplyForPP;
+      }
+      return merged;
+    });
     setIsEditingProfile(false);
   }, [currentStudent]);
 
   const withAccessToken = async <T,>(work: (accessToken: string) => Promise<T>): Promise<T> => {
-    const supabase = getSupabaseBrowserClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      throw new Error('Could not find the current session token.');
+    const token = await getSessionAccessToken();
+    if (!token) {
+      throw new Error('Could not find the current session token. Try signing out and back in.');
     }
-
-    return work(session.access_token);
+    return work(token);
   };
 
   const reloadStudentProfile = useCallback(async () => {
@@ -400,6 +428,10 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       toast.error(e instanceof Error ? e.message : 'Could not refresh profile.');
     }
   }, []);
+
+  useEffect(() => {
+    void reloadStudentProfile();
+  }, [reloadStudentProfile]);
 
   const loadOpportunities = useCallback(async (filters: OpportunityFilterState) => {
     setIsLoadingOpportunities(true);
@@ -430,16 +462,11 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         return Array.from(s).sort((a, b) => a.localeCompare(b));
       });
 
-      const withSkillMatches = data.filter((o) => (o.skillMatchCount ?? 0) > 0);
-      const visible = applyClientOpportunityFilters(withSkillMatches, filters);
+      const visible = applyClientOpportunityFilters(data, filters);
       setOpportunities(visible);
-      setSelectedOpportunity((current) =>
-        current ? (visible.find((item) => item.id === current.id) ?? null) : null
-      );
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Could not load opportunities.';
       setOpportunities([]);
-      setSelectedOpportunity(null);
       setOpportunitiesError(message);
     } finally {
       setIsLoadingOpportunities(false);
@@ -476,6 +503,134 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     if (!student?.id) return;
     void loadApplications();
   }, [loadApplications, student.id]);
+
+  useEffect(() => {
+    if (!student?.id || activeTab !== 'best-matches') return;
+    let cancelled = false;
+    setBestMatchesLoading(true);
+    void (async () => {
+      try {
+        await withAccessToken(async (token) => {
+          const { data, errorMessage } = await fetchStudentOpportunities(token, {});
+          if (cancelled) return;
+          if (!data || errorMessage) {
+            toast.error(errorMessage || 'Could not load opportunities.');
+            setBestMatchesList([]);
+            return;
+          }
+          setOpportunityById((prev) => {
+            const next = new Map(prev);
+            data.forEach((o) => next.set(String(o.id), o));
+            return next;
+          });
+          const matches = data
+            .filter((o) => (o.skillMatchCount ?? 0) > 0)
+            .sort((a, b) => (b.skillMatchCount ?? 0) - (a.skillMatchCount ?? 0));
+          setBestMatchesList(matches);
+        });
+      } catch {
+        if (!cancelled) {
+          toast.error('Could not load best matches.');
+          setBestMatchesList([]);
+        }
+      } finally {
+        if (!cancelled) setBestMatchesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, student?.id]);
+
+  useEffect(() => {
+    if (activeTab !== 'opportunities') {
+      setSelectedExploreOpportunityId(null);
+      setExploreOpportunityDetail(null);
+      setExploreOpportunityError(null);
+      setCompanyBrowseId(null);
+      setCompanyBrowseSection('about');
+      setCompanyBrowseProfile(null);
+      setCompanyBrowseOpportunities([]);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const oid = selectedApplication?.opportunityId;
+    if (oid == null) {
+      setApplicationListingDetail(null);
+      setApplicationListingDetailLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setApplicationListingDetailLoading(true);
+    setApplicationListingDetail(null);
+    void (async () => {
+      try {
+        await withAccessToken(async (accessToken) => {
+          const { data, errorMessage } = await fetchStudentOpportunityDetail(accessToken, String(oid));
+          if (cancelled) return;
+          if (data) {
+            setApplicationListingDetail(data);
+          } else {
+            toast.error(errorMessage || 'Could not load opportunity details.');
+          }
+        });
+      } catch {
+        if (!cancelled) {
+          toast.error('Could not load opportunity details.');
+        }
+      } finally {
+        if (!cancelled) {
+          setApplicationListingDetailLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedApplication?.opportunityId, selectedApplication?.applicationId]);
+
+  useEffect(() => {
+    if (!selectedExploreOpportunityId) {
+      setExploreOpportunityDetail(null);
+      setExploreOpportunityError(null);
+      setExploreOpportunityLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setExploreOpportunityLoading(true);
+    setExploreOpportunityError(null);
+    setExploreOpportunityDetail(null);
+    void (async () => {
+      try {
+        await withAccessToken(async (accessToken) => {
+          const { data, errorMessage } = await fetchStudentOpportunityDetail(
+            accessToken,
+            selectedExploreOpportunityId
+          );
+          if (cancelled) return;
+          if (data) {
+            setExploreOpportunityDetail(data);
+            setExploreOpportunityError(null);
+          } else {
+            setExploreOpportunityDetail(null);
+            setExploreOpportunityError(errorMessage || 'Could not load full opportunity details.');
+          }
+        });
+      } catch {
+        if (!cancelled) {
+          setExploreOpportunityError('Could not load full opportunity details.');
+        }
+      } finally {
+        if (!cancelled) {
+          setExploreOpportunityLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedExploreOpportunityId]);
 
   const handleApply = (opp: Opportunity) => {
     setApplicationOpportunity({ id: typeof opp.id === 'string' ? parseInt(opp.id) : opp.id, title: opp.title, company: opp.companyName ?? '' });
@@ -517,6 +672,37 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       toast.error('Failed to submit application.');
     }
   };
+
+  const loadCompanyBrowseForId = useCallback(async (companyId: string) => {
+    setCompanyBrowseLoading(true);
+    setCompanyBrowseSection('about');
+    setCompanyBrowseProfile(null);
+    setCompanyBrowseOpportunities([]);
+    try {
+      await withAccessToken(async (token) => {
+        const [profRes, oppRes] = await Promise.all([
+          fetchStudentCompanyProfile(token, companyId),
+          fetchStudentCompanyOpportunities(token, companyId),
+        ]);
+        if (profRes.data && !profRes.errorMessage) {
+          setCompanyBrowseProfile(profRes.data);
+        } else {
+          toast.error(profRes.errorMessage || 'Could not load company profile.');
+          setCompanyBrowseId(null);
+        }
+        if (oppRes.data && !oppRes.errorMessage) {
+          setCompanyBrowseOpportunities(oppRes.data);
+        } else if (oppRes.errorMessage && profRes.data) {
+          toast.error(oppRes.errorMessage || 'Could not load opportunities.');
+        }
+      });
+    } catch {
+      toast.error('Could not load company.');
+      setCompanyBrowseId(null);
+    } finally {
+      setCompanyBrowseLoading(false);
+    }
+  }, []);
 
   const locationRadioOptions = useMemo(() => {
     if (discoveredLocations.length > 0) return discoveredLocations.slice(0, 6);
@@ -754,203 +940,6 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     </div>
   );
 
-  const renderOpportunityDetails = () => {
-    if (!selectedOpportunity) {
-      return (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-sm text-slate-500">
-          Select an opportunity to view its details.
-        </div>
-      );
-    }
-
-    return (
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-8 border-b border-slate-100 bg-slate-50/60">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="px-3 py-1 rounded-full bg-[#002B5B]/10 text-[11px] font-bold uppercase tracking-wider text-[#002B5B]">
-                  {formatOpportunityType(selectedOpportunity.type)}
-                </span>
-                <span className="px-3 py-1 rounded-full bg-emerald-50 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-                  {selectedOpportunity.skillMatchCount || 0} skill match{selectedOpportunity.skillMatchCount === 1 ? '' : 'es'}
-                </span>
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold text-slate-900">{selectedOpportunity.title}</h3>
-                <p className="text-sm font-semibold text-[#20948B] mt-1">{selectedOpportunity.companyName}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              disabled={hasAppliedToOpportunity(selectedOpportunity)}
-              onClick={() => handleApply(selectedOpportunity)}
-              className={cn(
-                'px-5 py-3 rounded-xl text-sm font-bold transition-colors',
-                hasAppliedToOpportunity(selectedOpportunity)
-                  ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                  : 'bg-[#002B5B] text-white hover:bg-[#001F42]'
-              )}
-            >
-              {hasAppliedToOpportunity(selectedOpportunity) ? 'Applied' : 'Apply Now'}
-            </button>
-          </div>
-        </div>
-
-        <div className="p-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Deadline</div>
-              <div className="text-sm font-semibold text-slate-900">{formatDeadline(selectedOpportunity.deadline)}</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Location</div>
-              <div className="text-sm font-semibold text-slate-900">{selectedOpportunity.location || 'Not specified'}</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Reference code</div>
-              <div className="text-sm font-semibold text-slate-900">{selectedOpportunity.code || '—'}</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Workplace</div>
-              <div className="text-sm font-semibold text-slate-900">
-                {selectedOpportunity.workMode || '—'}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Employment type</div>
-              <div className="text-sm font-semibold text-slate-900">
-                {formatDbWorkType(selectedOpportunity.workType)}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Duration</div>
-              <div className="text-sm font-semibold text-slate-900">
-                {formatDbDuration(selectedOpportunity.duration)}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Start date</div>
-              <div className="text-sm font-semibold text-slate-900">
-                {selectedOpportunity.startDate ? formatDeadline(selectedOpportunity.startDate) : '—'}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Posted</div>
-              <div className="text-sm font-semibold text-slate-900">{formatPostedLabel(selectedOpportunity.createdAt)}</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Open positions</div>
-              <div className="text-sm font-semibold text-slate-900">
-                {selectedOpportunity.positionCount != null ? String(selectedOpportunity.positionCount) : '—'}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Monthly salary</div>
-              <div className="text-sm font-semibold text-slate-900">
-                {selectedOpportunity.salaryMonthly != null && selectedOpportunity.salaryMonthly > 0
-                  ? `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(selectedOpportunity.salaryMonthly)} / month`
-                  : '—'}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4 md:col-span-1">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
-                Target universities
-              </div>
-              <div className="text-sm font-semibold text-slate-900">
-                {formatTargetUniversitiesDisplay(selectedOpportunity)}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Overview</h4>
-            <p className="text-sm leading-7 text-slate-600">
-              {selectedOpportunity.description || 'No description was provided for this opportunity.'}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div>
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Required Skills</h4>
-              <div className="flex flex-wrap gap-2">
-                {(selectedOpportunity.requiredSkills || []).length ? (
-                  selectedOpportunity.requiredSkills.map((skill) => (
-                    <span key={skill} className="px-3 py-1 rounded-lg bg-[#002B5B]/10 text-xs font-bold text-[#002B5B]">
-                      {skill}
-                    </span>
-                  ))
-                ) : (
-                  <p className="text-sm text-slate-500">No skill requirements were provided.</p>
-                )}
-              </div>
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Experience</h4>
-              <p className="text-sm leading-7 text-slate-600">
-                {selectedOpportunity.requiredExperience || 'No experience requirement was provided.'}
-              </p>
-            </div>
-          </div>
-
-          {selectedOpportunity.niceToHave?.trim() ? (
-            <div>
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Nice to have</h4>
-              <div className="text-sm leading-7 text-slate-600 whitespace-pre-wrap rounded-2xl bg-slate-50 p-4">
-                {selectedOpportunity.niceToHave}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div>
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Qualifications</h4>
-              <p className="text-sm leading-7 text-slate-600">
-                {(selectedOpportunity.requiredSkills || []).length
-                  ? `Candidates should be comfortable with ${selectedOpportunity.requiredSkills.join(', ')}.`
-                  : 'Qualifications were not specified separately for this opportunity.'}
-              </p>
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Compensation notes</h4>
-              <p className="text-sm leading-7 text-slate-600">
-                {selectedOpportunity.isPaid === false
-                  ? 'This role is listed as unpaid.'
-                  : selectedOpportunity.isPaid === true
-                    ? 'This role is listed as paid; see monthly salary above if provided.'
-                    : 'Paid status was not specified for this listing.'}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderOpportunityModal = () => {
-    if (!selectedOpportunity) return null;
-
-    return (
-      <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-950/50">
-        <div className="flex min-h-full justify-center px-4 pb-16 pt-[max(1rem,env(safe-area-inset-top,0px))] sm:px-6 sm:pb-20 sm:pt-8">
-          <div className="w-full max-w-5xl sm:my-4">
-          <div className="mb-4 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setSelectedOpportunity(null)}
-              className="inline-flex items-center justify-center gap-2 min-h-11 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-800 shadow-md border border-slate-200 hover:bg-slate-50"
-            >
-              <X size={22} strokeWidth={2.25} className="shrink-0" aria-hidden />
-              Close
-            </button>
-          </div>
-          {renderOpportunityDetails()}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const applicationStudentFormProps = {
     fullName: student.fullName,
     email: student.email,
@@ -962,57 +951,300 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     cvFileName: student.extendedProfile?.cvFilename ?? 'No CV uploaded',
   };
 
-  const applicationListingDetails = (app: ApplicationResponse): ReactNode => {
-    const oppId = app.opportunityId != null ? String(app.opportunityId) : '';
-    const opp = opportunityById.get(oppId);
-    if (!opp) {
+  const renderApplicationListingDetails = (): ReactNode => {
+    if (applicationListingDetailLoading) {
+      return <p className="text-sm text-gray-600">Loading listing details…</p>;
+    }
+    if (!applicationListingDetail) {
       return (
         <p className="text-sm text-gray-600 rounded-md bg-gray-50 px-3 py-2">
           Full listing details are unavailable for this application.
         </p>
       );
     }
+    const opp = applicationListingDetail;
+    const meta = [
+      opp.location,
+      opp.workMode,
+      formatDbWorkType(opp.workType),
+      formatDbDuration(opp.duration),
+    ].filter(Boolean);
+    const overviewItems = [
+      ['Target universities', opp.targetUniversities?.map((u) => u.name).join(', ') || 'All universities'],
+      ['Application deadline', formatDeadline(opp.deadline)],
+      ['Start date', formatDeadline(opp.startDate)],
+      ['Positions', opp.positionCount != null ? String(opp.positionCount) : '—'],
+    ];
+    const companyButton = (
+      <button
+        type="button"
+        className="font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
+        onClick={() => {
+          const cid = opp.companyId;
+          setSelectedApplication(null);
+          onNavigateTab?.('opportunities');
+          setSelectedExploreOpportunityId(null);
+          setExploreOpportunityDetail(null);
+          setCompanyBrowseId(cid);
+          void loadCompanyBrowseForId(cid);
+        }}
+      >
+        {opp.companyName}
+      </button>
+    );
+
     return (
-      <div className="space-y-3">
-        <h4 className="text-sm font-semibold text-gray-900">Listing details</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Location</div>
-            <div className="font-medium text-gray-900">{opp.location || '—'}</div>
+      <div>
+        <h4 className="text-base font-bold text-slate-950">Opportunity</h4>
+        <div className="mt-3 flex flex-col gap-5 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-4">
+              <div className="mt-1 h-12 w-12 shrink-0 rounded-xl bg-[#002B5B]" aria-hidden />
+              <div className="min-w-0">
+                <h5 className="text-xl font-bold text-[#0E2A50]">{opp.title}</h5>
+                <div className="mt-0.5 text-sm">{companyButton}</div>
+                {meta.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    {meta.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
+                ) : null}
+                {opp.requiredSkills?.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {opp.requiredSkills.slice(0, 5).map((skill) => (
+                      <span key={skill} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3 text-sm text-slate-600">
+              {opp.description ? (
+                <div>
+                  <p className="font-semibold text-slate-900">About the role</p>
+                  <p className="mt-1 leading-6">{opp.description}</p>
+                </div>
+              ) : null}
+              {opp.responsibilities?.length ? (
+                <div>
+                  <p className="font-semibold text-slate-900">Responsibilities</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    {opp.responsibilities.slice(0, 3).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
           </div>
-          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Workplace</div>
-            <div className="font-medium text-gray-900">{formatWorkMode(opp.workMode) || opp.workMode || '—'}</div>
-          </div>
-          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Employment type</div>
-            <div className="font-medium text-gray-900">{formatDbWorkType(opp.workType)}</div>
-          </div>
-          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Duration</div>
-            <div className="font-medium text-gray-900">{formatDbDuration(opp.duration)}</div>
-          </div>
-          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Reference code</div>
-            <div className="font-medium text-gray-900">{opp.code || '—'}</div>
-          </div>
-          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Deadline</div>
-            <div className="font-medium text-gray-900">{formatDeadline(opp.deadline)}</div>
+
+          <div className="w-full border-t border-slate-100 pt-4 lg:w-64 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            <p className="text-sm font-bold text-slate-950">Overview</p>
+            <div className="mt-3 space-y-3">
+              {overviewItems.map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-700">{value || '—'}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
     );
   };
 
-  const renderOpportunities = () => (
+  const renderBestMatches = () => (
+    <div className="space-y-6">
+      <StudentBestMatchesTeaser
+        loading={bestMatchesLoading}
+        matches={bestMatchesList}
+        onViewDetails={(opp) => {
+          onNavigateTab?.('opportunities');
+          setCompanyBrowseSection('about');
+          setCompanyBrowseId(null);
+          setCompanyBrowseProfile(null);
+          setCompanyBrowseOpportunities([]);
+          setSelectedExploreOpportunityId(String(opp.id));
+        }}
+        onApply={handleApply}
+        hasAppliedToOpportunity={hasAppliedToOpportunity}
+        onUpgrade={() =>
+          toast.message('Premium coming soon', {
+            description: 'Unlock every skill-ranked opportunity when subscriptions launch.',
+          })
+        }
+        onGoToProfile={() => onNavigateTab?.('profile')}
+      />
+    </div>
+  );
+
+  const renderOpportunities = () => {
+    if (selectedExploreOpportunityId) {
+      const listOpp = opportunityById.get(selectedExploreOpportunityId) ?? null;
+      const displayOpp = exploreOpportunityDetail ?? listOpp;
+      if (exploreOpportunityLoading && !exploreOpportunityDetail && !listOpp) {
+        return (
+          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+            Loading opportunity details…
+          </div>
+        );
+      }
+      if (exploreOpportunityError && !exploreOpportunityDetail && !listOpp) {
+        return (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-8 text-sm text-red-800">
+              {exploreOpportunityError}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedExploreOpportunityId(null);
+                setExploreOpportunityDetail(null);
+                setExploreOpportunityError(null);
+              }}
+              className="text-sm font-semibold text-[#002B5B] hover:underline"
+            >
+              ← Back
+            </button>
+          </div>
+        );
+      }
+      if (!displayOpp) {
+        return null;
+      }
+      return (
+        <OpportunityDetailView
+          variant="student"
+          opportunity={displayOpp}
+          onBack={() => {
+            setSelectedExploreOpportunityId(null);
+            setExploreOpportunityDetail(null);
+            setExploreOpportunityError(null);
+          }}
+          onApply={handleApply}
+          applyDisabled={hasAppliedToOpportunity(displayOpp)}
+          applyLabel={hasAppliedToOpportunity(displayOpp) ? 'Applied' : 'Apply Now'}
+          onCompanyNameClick={() => {
+            const cid = displayOpp.companyId;
+            setSelectedExploreOpportunityId(null);
+            setExploreOpportunityDetail(null);
+            setCompanyBrowseId(cid);
+            void loadCompanyBrowseForId(cid);
+          }}
+          showApplicationStats={false}
+        />
+      );
+    }
+
+    if (companyBrowseId) {
+      if (companyBrowseLoading && !companyBrowseProfile) {
+        return (
+          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+            Loading company profile…
+          </div>
+        );
+      }
+      if (!companyBrowseProfile) {
+        return null;
+      }
+      return (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => {
+              setCompanyBrowseId(null);
+              setCompanyBrowseProfile(null);
+              setCompanyBrowseOpportunities([]);
+              setCompanyBrowseSection('about');
+            }}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-[#0E2A50] hover:text-[#002B5B]"
+          >
+            ← Back to opportunities
+          </button>
+
+          <CompanyProfileTabbedView
+            profile={companyBrowseProfile}
+            section={companyBrowseSection}
+            onSectionChange={setCompanyBrowseSection}
+            canEditProfile={false}
+            aboutLoading={false}
+            opportunitiesPanel={
+              <>
+                <h3 className="text-3xl font-bold text-slate-900 mb-4">
+                  {companyBrowseOpportunities.length} Opportunities Available
+                </h3>
+                <div className="space-y-3">
+                  {!companyBrowseOpportunities.length ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-10 text-center text-sm text-slate-500">
+                      No visible opportunities from this company right now.
+                    </div>
+                  ) : (
+                    companyBrowseOpportunities.map((opp) => (
+                      <OpportunityRecordCard
+                        key={opp.id}
+                        opportunity={opp}
+                        onViewDetails={() => setSelectedExploreOpportunityId(String(opp.id))}
+                        showApply={!hasAppliedToOpportunity(opp)}
+                        onApply={() => handleApply(opp)}
+                      />
+                    ))
+                  )}
+                </div>
+              </>
+            }
+          />
+        </div>
+      );
+    }
+
+    return (
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold text-[#002B5B] tracking-tight">Explore Opportunities</h2>
         <p className="text-sm text-slate-500 mt-1.5">
-          Discover internships that match your skills and interests.
+          Browse every opening you are eligible for — filter by location, work mode, and more.
         </p>
       </div>
+
+      {showPremiumExploreBanner ? (
+        <div className="relative rounded-2xl border border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-amber-50/40 p-4 pr-12 shadow-sm ring-1 ring-amber-100/70">
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={() => setShowPremiumExploreBanner(false)}
+            className="absolute right-2 top-2 rounded-lg p-1.5 text-amber-900/50 hover:bg-amber-100/80 hover:text-amber-950"
+          >
+            <X size={18} />
+          </button>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3 min-w-0">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 ring-1 ring-amber-200/80">
+                <Sparkles size={20} strokeWidth={2} aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-amber-950">
+                  Premium — AI-ranked picks for your profile
+                </p>
+                <p className="mt-1 text-sm text-slate-600 leading-snug">
+                  See your top skill matches first; unlock the full ranked list with Premium when it launches.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateTab?.('best-matches')}
+              className="shrink-0 rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-700"
+            >
+              View Best Matches
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex gap-3 items-stretch mb-2">
         <div className="relative flex-1">
@@ -1084,7 +1316,20 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-base font-bold text-[#002B5B] leading-snug">{opp.title}</h3>
-                  <p className="text-slate-600 text-sm font-medium mt-0.5">{opp.companyName}</p>
+                  <p className="text-slate-600 text-sm font-medium mt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedExploreOpportunityId(null);
+                        setExploreOpportunityDetail(null);
+                        setCompanyBrowseId(String(opp.companyId));
+                        void loadCompanyBrowseForId(String(opp.companyId));
+                      }}
+                      className="text-left hover:text-[#002B5B] hover:underline"
+                    >
+                      {opp.companyName}
+                    </button>
+                  </p>
                   <p className="text-xs text-slate-400 mt-1">{formatRelativePosted(opp.createdAt)}</p>
                 </div>
               </div>
@@ -1136,7 +1381,13 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setSelectedOpportunity(opp)}
+                    onClick={() => {
+                      setCompanyBrowseSection('about');
+                      setCompanyBrowseId(null);
+                      setCompanyBrowseProfile(null);
+                      setCompanyBrowseOpportunities([]);
+                      setSelectedExploreOpportunityId(String(opp.id));
+                    }}
                     suppressHydrationWarning
                     className="px-4 py-2 border-2 border-[#002B5B] text-[#002B5B] bg-white rounded-xl text-sm font-bold hover:bg-slate-50 transition-all whitespace-nowrap"
                   >
@@ -1163,9 +1414,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
       )}
 
-      {selectedOpportunity ? renderOpportunityModal() : null}
     </div>
-  );
+    );
+  };
 
   const renderApplications = () => {
     const formatDate = (iso: string | null) => {
@@ -1671,6 +1922,8 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         return renderProfile();
       case 'opportunities':
         return renderOpportunities();
+      case 'best-matches':
+        return renderBestMatches();
       case 'applications':
         return renderApplications();
       default:
@@ -1686,6 +1939,17 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}
+      notificationUnreadCount={unreadCount}
+      notificationPanel={(close) => (
+        <NotificationsPanel
+          onClose={() => {
+            void refreshUnreadNotifications();
+            close();
+          }}
+          onUnreadMayHaveChanged={refreshUnreadNotifications}
+          className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
+        />
+      )}
       topBarVariant={profileBrowseMode ? 'brand' : 'default'}
       hidePageIntro={profileBrowseMode}
     >
@@ -1696,6 +1960,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
           student={applicationStudentFormProps}
           onClose={() => setApplicationOpportunity(null)}
           onSubmit={handleSubmitApplication}
+          canApplyForPP={student.canApplyForPP !== false}
         />
       )}
       {selectedApplication && (
@@ -1720,7 +1985,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             applicationType: selectedApplication.applicationType,
             accuracyConfirmed: selectedApplication.accuracyConfirmed ?? null,
           }}
-          listingDetails={applicationListingDetails(selectedApplication)}
+          listingDetails={renderApplicationListingDetails()}
         />
       )}
     </Dashboard>

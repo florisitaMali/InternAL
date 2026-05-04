@@ -1,8 +1,11 @@
 package com.internaal.service;
 
+import com.internaal.dto.CompanyOpportunityDetailResponse;
+import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.StudentOpportunitiesResponse;
 import com.internaal.dto.TargetUniversityOption;
+import com.internaal.entity.Role;
 import com.internaal.entity.Opportunity;
 import com.internaal.entity.TargetUniversity;
 import com.internaal.entity.UserAccount;
@@ -28,14 +31,17 @@ public class StudentOpportunityService {
     private final StudentProfileRepository studentProfileRepository;
     private final OpportunityRepository opportunityRepository;
     private final ApplicationRepository applicationRepository;
+    private final CompanyOpportunityService companyOpportunityService;
 
     public StudentOpportunityService(
             StudentProfileRepository studentProfileRepository,
             OpportunityRepository opportunityRepository,
-            ApplicationRepository applicationRepository) {
+            ApplicationRepository applicationRepository,
+            CompanyOpportunityService companyOpportunityService) {
         this.studentProfileRepository = studentProfileRepository;
         this.opportunityRepository = opportunityRepository;
         this.applicationRepository = applicationRepository;
+        this.companyOpportunityService = companyOpportunityService;
     }
 
     public StudentOpportunitiesResponse listForStudent(UserAccount user, OpportunityQuery query) {
@@ -53,6 +59,77 @@ public class StudentOpportunityService {
 
         List<String> studentSkills = studentProfileRepository.findSkillsByStudentId(studentId);
         List<Opportunity> rows = opportunityRepository.findForStudent(universityId, query);
+
+        List<Integer> opportunityIds = rows.stream()
+                .map(Opportunity::id)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Integer, Integer> applicantCounts = applicationRepository.countApplicationsByOpportunityIds(opportunityIds);
+
+        List<OpportunityResponseItem> items = rows.stream()
+                .sorted(Comparator
+                        .comparingInt((Opportunity o) -> -skillMatchCount(o, studentSkills))
+                        .thenComparing(o -> o.deadline() != null ? o.deadline() : LocalDate.MAX)
+                        .thenComparing(Opportunity::title, String.CASE_INSENSITIVE_ORDER))
+                .map(o -> toDto(o, studentSkills, applicantCounts.getOrDefault(o.id(), 0)))
+                .collect(Collectors.toList());
+
+        return new StudentOpportunitiesResponse(items);
+    }
+
+    public CompanyOpportunityDetailResponse getOpportunityDetail(UserAccount user, int opportunityId) {
+        if (user == null || user.getRole() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        if (user.getRole() != Role.STUDENT && user.getRole() != Role.UNIVERSITY_ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Student access required");
+        }
+        int studentId;
+        try {
+            studentId = Integer.parseInt(user.getLinkedEntityId());
+        } catch (Exception e) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Account linked_entity_id must be a numeric student id"
+            );
+        }
+        Integer universityId = studentProfileRepository.findUniversityIdByStudentId(studentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Student profile not found"));
+
+        Opportunity o = opportunityRepository.findVisibleForStudent(opportunityId, universityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
+
+        List<String> studentSkills = studentProfileRepository.findSkillsByStudentId(studentId);
+        int match = skillMatchCount(o, studentSkills);
+        OpportunityResponseItem item = companyOpportunityService.toResponseItem(o, match);
+        return new CompanyOpportunityDetailResponse(
+                item,
+                new OpportunityApplicationStatsDto(0, 0, 0, 0)
+        );
+    }
+
+    public StudentOpportunitiesResponse listForStudentForCompany(UserAccount user, int companyId) {
+        if (user == null || user.getRole() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        if (user.getRole() != Role.STUDENT && user.getRole() != Role.UNIVERSITY_ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Student access required");
+        }
+        int studentId;
+        try {
+            studentId = Integer.parseInt(user.getLinkedEntityId());
+        } catch (Exception e) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Account linked_entity_id must be a numeric student id"
+            );
+        }
+        Integer universityId = studentProfileRepository.findUniversityIdByStudentId(studentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Student profile not found"));
+
+        List<String> studentSkills = studentProfileRepository.findSkillsByStudentId(studentId);
+        List<Opportunity> rows = opportunityRepository.findVisibleForStudentByCompany(companyId, universityId);
 
         List<Integer> opportunityIds = rows.stream()
                 .map(Opportunity::id)

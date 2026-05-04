@@ -71,13 +71,41 @@ public class CompanyRepository {
         return byCompanyId.isPresent() ? byCompanyId : getCompanyRow(companyId, userJwt, "id");
     }
 
+    /**
+     * Resolve company row using the caller JWT first; if RLS blocks the read, fall back to service role (when configured).
+     */
+    public Optional<JsonNode> findByCompanyIdReadable(int companyId, String userJwt) {
+        Optional<JsonNode> first = findByCompanyId(companyId, userJwt);
+        if (first.isPresent()) {
+            return first;
+        }
+        if (supabaseServiceRoleKey == null || supabaseServiceRoleKey.isBlank()) {
+            return Optional.empty();
+        }
+        HttpHeaders h = serviceRoleReadHeaders();
+        Optional<JsonNode> a = getCompanyRowWithHeaders(companyId, "company_id", h);
+        return a.isPresent() ? a : getCompanyRowWithHeaders(companyId, "id", h);
+    }
+
+    private HttpHeaders serviceRoleReadHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("apikey", supabaseServiceRoleKey);
+        headers.set("Authorization", "Bearer " + supabaseServiceRoleKey);
+        headers.set("Content-Type", "application/json");
+        return headers;
+    }
+
     private Optional<JsonNode> getCompanyRow(int companyId, String userJwt, String eqColumn) {
+        return getCompanyRowWithHeaders(companyId, eqColumn, authHeaders(userJwt));
+    }
+
+    private Optional<JsonNode> getCompanyRowWithHeaders(int companyId, String eqColumn, HttpHeaders headers) {
         String url = supabaseUrl + "/rest/v1/company?" + eqColumn + "=eq." + companyId + "&select=*";
         try {
             ResponseEntity<String> response = restTemplate.exchange(
                     url,
                     HttpMethod.GET,
-                    new HttpEntity<>(authHeaders(userJwt)),
+                    new HttpEntity<>(headers),
                     String.class
             );
             if (!response.getStatusCode().is2xxSuccessful()) {

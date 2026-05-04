@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.internaal.dto.ApplicationRequest;
 import com.internaal.dto.ApplicationResponse;
+import com.internaal.dto.StudentBrief;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Repository;
@@ -14,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,6 +23,9 @@ import java.util.stream.Collectors;
 
 @Repository
 public class ApplicationRepository {
+
+    private static final String PROFESSIONAL_PRACTICE_TYPE = "PROFESSIONAL_PRACTICE";
+    private static final String INDIVIDUAL_GROWTH_TYPE = "INDIVIDUAL_GROWTH";
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -114,6 +119,74 @@ public class ApplicationRepository {
         return Optional.empty();
     }
 
+    /**
+     * Loads {@code university_id} and {@code full_name} for routing university-scoped notifications (e.g. PPA).
+     */
+    public Optional<StudentBrief> findStudentBrief(Integer studentId) {
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId
+                + "&select=university_id,full_name&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        Optional<JsonNode> row = opt.flatMap(arr ->
+                arr.isArray() && arr.size() > 0 ? Optional.of(arr.get(0)) : Optional.empty());
+        return row.map(node -> new StudentBrief(intValue(node, "university_id"), textValue(node, "full_name")));
+    }
+
+    /**
+     * When {@code false}, professional practice must not be stored (client is overridden to individual growth).
+     * Missing or null PP-eligibility defaults to {@code true} for backward compatibility.
+     */
+    public boolean studentMayApplyForProfessionalPractice(Integer studentId) {
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId
+                + "&select=*&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        Optional<JsonNode> row = opt.flatMap(arr ->
+                arr.isArray() && arr.size() > 0 ? Optional.of(arr.get(0)) : Optional.empty());
+        if (row.isEmpty()) {
+            return true;
+        }
+        Boolean allow = readCanApplyForPpFlag(row.get());
+        return allow == null || allow;
+    }
+
+    /** Same name-resolution as {@link com.internaal.repository.StudentProfileRepository} for PostgREST JSON keys. */
+    private Boolean readCanApplyForPpFlag(JsonNode row) {
+        if (row == null || row.isNull()) {
+            return null;
+        }
+        final String target = "canapplyforpp";
+        var fields = row.fields();
+        while (fields.hasNext()) {
+            var e = fields.next();
+            String norm = e.getKey().replace("_", "").toLowerCase();
+            if (target.equals(norm) && !e.getValue().isNull()) {
+                return e.getValue().asBoolean();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Reads the student's Professional Practice gate flag.
+     * Forward-compatible: future Postgres triggers maintain this column when the university's admin's
+     * isActive flips. Today the application layer maintains it inside SystemAdminUniversityRepository.
+     * Returns {@code true} when missing or null so a misread doesn't accidentally block applications.
+     */
+    public boolean canStudentApplyForPP(Integer studentId) {
+        if (studentId == null) {
+            return true;
+        }
+        // select=* avoids URL-encoded quoted column names which Spring's URI template
+        // processing can mangle. We read canApplyForPP by exact case in Java below.
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId
+                + "&select=*&limit=1";
+        Optional<JsonNode> arr = fetchArray(url);
+        if (arr.isEmpty() || !arr.get().isArray() || arr.get().isEmpty()) {
+            return true;
+        }
+        JsonNode flag = arr.get().get(0).get("canApplyForPP");
+        return flag == null || flag.isNull() || flag.asBoolean(true);
+    }
+
     private Optional<JsonNode> findApplicationRow(Integer studentId, Integer opportunityId) {
         String select = APPLICATION_SELECT_BASE + ",opportunity(title),company(name)";
         String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
@@ -166,6 +239,11 @@ public class ApplicationRepository {
         String normalizedType = request.getApplicationType()
                 .toUpperCase()
                 .replace(" ", "_");
+
+        if (!studentMayApplyForProfessionalPractice(studentId)
+                && PROFESSIONAL_PRACTICE_TYPE.equals(normalizedType)) {
+            normalizedType = INDIVIDUAL_GROWTH_TYPE;
+        }
 
         ObjectNode body = objectMapper.createObjectNode();
         body.put("student_id", studentId);
@@ -226,10 +304,19 @@ public class ApplicationRepository {
     }
 
     private String buildCompanyApplicationsUrl(Integer companyId, boolean withEmbeds) {
+        String studentEmbed = "student(full_name,email,phone,study_year,cgpa,"
+                + "university(name),department(name),studyfield(name),"
+                + "studentprofile(skills,cv_url,cv_filename))";
         String select = withEmbeds
-                ? APPLICATION_SELECT_BASE + ",opportunity(title),company(name),student(full_name)"
+                ? APPLICATION_SELECT_BASE + ",opportunity(title),company(name)," + studentEmbed
                 : APPLICATION_SELECT_BASE;
+        // Hide PROFESSIONAL_PRACTICE applications until they're PPA-approved.
+        // INDIVIDUAL_GROWTH applications are always visible to the company.
+        String visibilityFilter =
+                "or=(application_type.eq.INDIVIDUAL_GROWTH,"
+                        + "and(application_type.eq.PROFESSIONAL_PRACTICE,is_approved_by_ppa.eq.true))";
         return supabaseUrl + "/rest/v1/application?company_id=eq." + companyId
+                + "&" + visibilityFilter
                 + "&select=" + select
                 + "&order=created_at.desc";
     }
@@ -301,6 +388,59 @@ public class ApplicationRepository {
         return parseApplicationArrayJson(body);
     }
 
+    /**
+     * Returns true if the student has applied to at least one of the given company's
+     * opportunities. Used by the company-side "view applicant profile" authorization.
+     */
+    public boolean studentHasAppliedToCompany(int studentId, int companyId) {
+        String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
+                + "&company_id=eq." + companyId
+                + "&select=application_id&limit=1";
+        return fetchArray(url).map(arr -> arr.isArray() && arr.size() > 0).orElse(false);
+    }
+
+    /**
+     * Lightweight ownership read used before mutating an application: returns just enough columns
+     * for the service layer to decide between 404 / 403 / 409.
+     */
+    public Optional<JsonNode> findApplicationOwnership(int applicationId) {
+        String url = supabaseUrl + "/rest/v1/application?application_id=eq." + applicationId
+                + "&select=application_id,company_id,is_approved_by_company&limit=1";
+        return fetchArray(url).flatMap(arr ->
+                arr.isArray() && arr.size() > 0 ? Optional.of(arr.get(0)) : Optional.empty());
+    }
+
+    /**
+     * Flips {@code is_approved_by_company} on the given application. Returns the updated row mapped
+     * to {@link ApplicationResponse}, or empty if the PATCH matched zero rows. The service layer is
+     * responsible for ownership and already-decided checks BEFORE calling this.
+     */
+    public Optional<ApplicationResponse> setCompanyDecision(int applicationId, boolean approved) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("is_approved_by_company", approved);
+        HttpHeaders headers = createServiceHeaders();
+        headers.set("Prefer", "return=representation");
+        String url = supabaseUrl + "/rest/v1/application?application_id=eq." + applicationId;
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.PATCH,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
+                    String.class);
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                return Optional.empty();
+            }
+            JsonNode root = objectMapper.readTree(response.getBody());
+            if (!root.isArray() || root.size() == 0) {
+                return Optional.empty();
+            }
+            return Optional.of(mapToResponse(root.get(0)));
+        } catch (RestClientResponseException e) {
+            throw supabaseError(url, e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to update application decision: " + e.getMessage());
+        }
+    }
+
     public List<ApplicationResponse> findByCompanyId(Integer companyId) {
         String body = tryGetApplicationsFromUrl(buildCompanyApplicationsUrl(companyId, true), true)
                 .orElseGet(() -> tryGetApplicationsFromUrl(buildCompanyApplicationsUrl(companyId, false), false)
@@ -364,6 +504,31 @@ public class ApplicationRepository {
         JsonNode student = node.get("student");
         if (student != null && !student.isNull()) {
             r.setStudentName(textValue(student, "full_name"));
+            r.setStudentEmail(textValue(student, "email"));
+            r.setStudentPhone(textValue(student, "phone"));
+            r.setStudentStudyYear(intValue(student, "study_year"));
+            JsonNode cgpaNode = student.get("cgpa");
+            if (cgpaNode != null && !cgpaNode.isNull() && cgpaNode.isNumber()) {
+                r.setStudentCgpa(cgpaNode.asDouble());
+            }
+            JsonNode uniNode = student.get("university");
+            if (uniNode != null && !uniNode.isNull()) {
+                r.setStudentUniversityName(textValue(uniNode, "name"));
+            }
+            JsonNode deptNode = student.get("department");
+            if (deptNode != null && !deptNode.isNull()) {
+                r.setStudentFacultyName(textValue(deptNode, "name"));
+            }
+            JsonNode fieldNode = student.get("studyfield");
+            if (fieldNode != null && !fieldNode.isNull()) {
+                r.setStudentFieldName(textValue(fieldNode, "name"));
+            }
+            JsonNode profileNode = student.get("studentprofile");
+            if (profileNode != null && !profileNode.isNull()) {
+                r.setStudentSkills(textValue(profileNode, "skills"));
+                r.setStudentCvUrl(textValue(profileNode, "cv_url"));
+                r.setStudentCvFilename(textValue(profileNode, "cv_filename"));
+            }
         }
 
         return r;

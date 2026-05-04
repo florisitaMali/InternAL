@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Logo from './Logo';
 import { Lock, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -18,19 +18,36 @@ const passwordSchema = z
     path: ['confirm'],
   });
 
-const ResetPasswordPage: React.FC = () => {
+export type ResetPasswordPageVariant = 'recovery' | 'invite';
+
+export interface ResetPasswordPageProps {
+  /** recovery = password reset email (sign out after save). invite = PPA onboarding (keep session, go to app). */
+  variant?: ResetPasswordPageVariant;
+}
+
+const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recovery' }) => {
   const router = useRouter();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<'loading' | 'ready' | 'invalid'>('loading');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Keep the latest session tokens so we can restore them if autoRefreshToken clears the session. */
+  const sessionTokensRef = useRef<{ access: string; refresh: string } | null>(null);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
 
     const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
     const q = new URLSearchParams(hash);
+
+    // Capture invite tokens from the URL hash BEFORE Supabase removes the fragment.
+    const hashAccess = q.get('access_token');
+    const hashRefresh = q.get('refresh_token');
+    if (hashAccess && hashRefresh) {
+      sessionTokensRef.current = { access: hashAccess, refresh: hashRefresh };
+    }
+
     if (q.get('error')) {
       setStatus('invalid');
       return;
@@ -56,8 +73,16 @@ const ResetPasswordPage: React.FC = () => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      // Keep sessionTokensRef up-to-date with any refreshed tokens.
+      if (session?.access_token && session?.refresh_token) {
+        sessionTokensRef.current = { access: session.access_token, refresh: session.refresh_token };
+      }
       if (cancelled || !session) return;
-      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
+      if (
+        event === 'PASSWORD_RECOVERY' ||
+        event === 'SIGNED_IN' ||
+        (variant === 'invite' && event === 'INITIAL_SESSION')
+      ) {
         setStatus('ready');
       }
     });
@@ -92,7 +117,7 @@ const ResetPasswordPage: React.FC = () => {
       window.clearTimeout(final);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [variant]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +136,32 @@ const ResetPasswordPage: React.FC = () => {
 
     setIsSubmitting(true);
     const supabase = getSupabaseBrowserClient();
-    const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
+
+    // Ensure session is active before calling updateUser – invite sessions can be wiped
+    // by Supabase's autoRefreshToken if the invite grant was already consumed server-side.
+    if (variant === 'invite') {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (!currentSession && sessionTokensRef.current) {
+        const { error: restoreError } = await supabase.auth.setSession({
+          access_token: sessionTokensRef.current.access,
+          refresh_token: sessionTokensRef.current.refresh,
+        });
+        if (restoreError) {
+          setIsSubmitting(false);
+          toast.error('Your invitation session has expired. Please ask for a new invite link.');
+          return;
+        }
+      }
+    }
+
+    const { error } = await supabase.auth.updateUser(
+      variant === 'invite'
+        ? {
+            password: parsed.data.password,
+            data: { invite_password_completed: true },
+          }
+        : { password: parsed.data.password }
+    );
     setIsSubmitting(false);
 
     if (error) {
@@ -119,9 +169,18 @@ const ResetPasswordPage: React.FC = () => {
       return;
     }
 
-    toast.success('Password updated successfully.');
-    await supabase.auth.signOut();
-    router.replace('/');
+    if (variant === 'invite') {
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        console.warn('[set-password] refreshSession after update:', refreshError.message);
+      }
+      toast.success('Password saved. Welcome to InternAL.');
+      router.replace('/');
+    } else {
+      toast.success('Password updated successfully.');
+      await supabase.auth.signOut();
+      router.replace('/');
+    }
   };
 
   if (status === 'loading') {
@@ -137,7 +196,9 @@ const ResetPasswordPage: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] p-6">
         <div className="bg-white p-10 rounded-[32px] shadow-xl border border-slate-100 max-w-md text-center">
           <Logo size="lg" className="mx-auto mb-6" />
-          <p className="text-slate-800 font-medium">Invalid or expired reset link.</p>
+          <p className="text-slate-800 font-medium">
+            {variant === 'invite' ? 'Invalid or expired invitation link.' : 'Invalid or expired reset link.'}
+          </p>
           <button
             type="button"
             onClick={() => router.replace('/')}
@@ -161,8 +222,14 @@ const ResetPasswordPage: React.FC = () => {
         <div className="bg-white p-10 rounded-[32px] shadow-2xl shadow-indigo-500/5 border border-slate-100">
           <div className="flex flex-col items-center mb-10 text-center">
             <Logo size="lg" className="mb-6" />
-            <h1 className="text-2xl font-bold text-[#002B5B] tracking-tight">Set new password</h1>
-            <p className="text-slate-500 text-sm mt-2">Choose a strong password for your account.</p>
+            <h1 className="text-2xl font-bold text-[#002B5B] tracking-tight">
+              {variant === 'invite' ? 'Create your password' : 'Set new password'}
+            </h1>
+            <p className="text-slate-500 text-sm mt-2">
+              {variant === 'invite'
+                ? 'You must choose a password before using the app. After you save it, sign in anytime with this email and password — the invitation link is only for this one-time setup.'
+                : 'Choose a strong password for your account.'}
+            </p>
           </div>
 
           <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
@@ -209,7 +276,7 @@ const ResetPasswordPage: React.FC = () => {
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
               ) : (
                 <>
-                  Update password
+                  {variant === 'invite' ? 'Save password and continue' : 'Update password'}
                   <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
                 </>
               )}

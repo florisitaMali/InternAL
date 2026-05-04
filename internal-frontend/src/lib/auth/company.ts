@@ -1,8 +1,10 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
+import type { StudentProfileResponse } from '@/src/lib/auth/userAccount';
 import type { CompanyProfileFromApi, Opportunity, OpportunityApplicationStats } from '@/src/types';
 import {
   formatDeadline,
   formatDurationCodeLabel,
+  formatPostedDisplay,
   normalizePostedAtFromApi,
   formatWorkTypeLabel,
   responsibilitiesFromNiceToHave,
@@ -75,6 +77,8 @@ function mapOpportunity(item: ApiOpportunityItem): Opportunity {
   const workType = item.workType ?? undefined;
   const duration = item.duration ?? undefined;
   const niceToHave = item.niceToHave ?? undefined;
+  const postedAt = normalizePostedAtFromApi(item.postedAt);
+  const exp = item.requiredExperience?.trim();
   return {
     id: String(item.id),
     companyId: String(item.companyId),
@@ -105,7 +109,9 @@ function mapOpportunity(item: ApiOpportunityItem): Opportunity {
     durationLabel: formatDurationCodeLabel(duration),
     startDateLabel: item.startDate ? formatDeadline(item.startDate) : undefined,
     responsibilities: responsibilitiesFromNiceToHave(niceToHave),
-    postedAt: normalizePostedAtFromApi(item.postedAt),
+    requirements: exp ? exp.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : undefined,
+    postedAt,
+    postedLabel: postedAt ? formatPostedDisplay(postedAt) : undefined,
   };
 }
 
@@ -140,7 +146,7 @@ async function fetchBackendJson<T>(path: string, accessToken: string): Promise<{
 async function sendBackendJson<T>(
   path: string,
   accessToken: string,
-  method: 'PUT',
+  method: 'PUT' | 'PATCH',
   body: unknown
 ): Promise<{ data: T | null; errorMessage: string | null }> {
   const token = normalizeBearerToken(accessToken);
@@ -148,14 +154,17 @@ async function sendBackendJson<T>(
     return { data: null, errorMessage: 'Not signed in. Refresh the page or sign in again.' };
   }
   try {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    };
+    if (body !== undefined && body !== null) {
+      headers['Content-Type'] = 'application/json';
+    }
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: body === undefined || body === null ? undefined : JSON.stringify(body),
       cache: 'no-store',
     });
     const raw = await response.text();
@@ -204,6 +213,40 @@ export async function fetchCompanyApplications(
   return fetchBackendJson<ApplicationResponse[]>('/api/company/applications', accessToken);
 }
 
+export async function approveCompanyApplication(
+  accessToken: string,
+  applicationId: number
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<ApplicationResponse>(
+    `/api/company/applications/${applicationId}/approve`,
+    accessToken,
+    'PATCH',
+    null
+  );
+}
+
+export async function rejectCompanyApplication(
+  accessToken: string,
+  applicationId: number
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<ApplicationResponse>(
+    `/api/company/applications/${applicationId}/reject`,
+    accessToken,
+    'PATCH',
+    null
+  );
+}
+
+export async function fetchCompanyStudentProfile(
+  accessToken: string,
+  studentId: number
+): Promise<{ data: StudentProfileResponse | null; errorMessage: string | null }> {
+  return fetchBackendJson<StudentProfileResponse>(
+    `/api/company/students/${studentId}/profile`,
+    accessToken
+  );
+}
+
 export async function fetchCompanyOpportunities(
   accessToken: string
 ): Promise<{ data: Opportunity[] | null; errorMessage: string | null }> {
@@ -236,4 +279,49 @@ export async function fetchCompanyOpportunityDetail(
     rejected: data.applicationStats.rejected,
   };
   return { data: { ...opp, applicationStats: stats }, errorMessage: null };
+}
+
+export async function fetchStudentOpportunityDetail(
+  accessToken: string,
+  opportunityId: string
+): Promise<{ data: Opportunity | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await fetchBackendJson<CompanyOpportunityDetailResponse>(
+    `/api/student/opportunities/${encodeURIComponent(opportunityId)}`,
+    accessToken
+  );
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not load opportunity.' };
+  }
+  const opp = mapOpportunity(data.opportunity);
+  const stats: OpportunityApplicationStats = {
+    total: data.applicationStats.total,
+    inReview: data.applicationStats.inReview,
+    approved: data.applicationStats.approved,
+    rejected: data.applicationStats.rejected,
+  };
+  return { data: { ...opp, applicationStats: stats }, errorMessage: null };
+}
+
+export async function fetchStudentCompanyProfile(
+  accessToken: string,
+  companyId: string
+): Promise<{ data: CompanyProfileFromApi | null; errorMessage: string | null }> {
+  return fetchBackendJson<CompanyProfileFromApi>(
+    `/api/student/companies/${encodeURIComponent(companyId)}/profile`,
+    accessToken
+  );
+}
+
+export async function fetchStudentCompanyOpportunities(
+  accessToken: string,
+  companyId: string
+): Promise<{ data: Opportunity[] | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await fetchBackendJson<CompanyOpportunitiesResponse>(
+    `/api/student/companies/${encodeURIComponent(companyId)}/opportunities`,
+    accessToken
+  );
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not load opportunities.' };
+  }
+  return { data: (data.opportunities || []).map(mapOpportunity), errorMessage: null };
 }

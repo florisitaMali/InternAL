@@ -653,10 +653,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       <div className="space-y-6">
         <div>
           <h2 className="text-3xl font-bold text-[#002B5B] tracking-tight">Explore opportunities</h2>
-          <p className="text-sm text-slate-500 mt-1.5">
-            All published internships on the platform (not limited to listings that target your university). Target
-            universities for each role are shown on the card so you can see who can apply.
-          </p>
           <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#002B5B]/10 px-2.5 py-1 text-xs font-semibold text-[#002B5B]">
             <span>{opportunityCountLabel}</span>
             <span className="h-1 w-1 rounded-full bg-[#002B5B]/50" />
@@ -1121,7 +1117,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
 
   return (
     <Dashboard
-      title={`Hello, ${currentUserName}`}
+      title=""
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}

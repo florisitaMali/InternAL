@@ -169,9 +169,9 @@ public class UniversityAdminService {
     public List<AdminOpportunitySummaryResponse> listOpportunitySummaries(
             UserAccount user, String status, int limit) {
         requireAdmin(user);
-        parseUniversityId(user);
+        int universityId = parseUniversityId(user);
         List<AdminOpportunitySummaryResponse> rows = universityAdminRepository.listOpportunitySummariesForUniversityAdmin(
-                status, Math.min(Math.max(limit, 1), 200));
+                universityId, status, Math.min(Math.max(limit, 1), 200));
         if (rows.isEmpty()) {
             return rows;
         }
@@ -199,8 +199,8 @@ public class UniversityAdminService {
 
     public OpportunityResponseItem getOpportunityDetailForUniversity(UserAccount user, int opportunityId) {
         requireAdmin(user);
-        parseUniversityId(user);
-        Opportunity o = universityAdminRepository.findPublishedOpportunityByIdForUniversityAdmin(opportunityId)
+        int universityId = parseUniversityId(user);
+        Opportunity o = universityAdminRepository.findPublishedOpportunityForUniversity(opportunityId, universityId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
         Map<Integer, Integer> counts = applicationRepository.countApplicationsByOpportunityIds(List.of(opportunityId));
         int applicantCount = counts.getOrDefault(opportunityId, 0);

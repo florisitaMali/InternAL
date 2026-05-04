@@ -51,6 +51,8 @@ interface SubmitApplicationModalProps {
   viewFields?: ApplicationViewFields;
   /** Shown below the form in view mode (e.g. listing details). */
   listingDetails?: ReactNode;
+  /** When false, application type choice is hidden and submit uses Individual Growth. */
+  canApplyForPP?: boolean;
 }
 
 const APPLICATION_TYPES = ["Professional Practice", "Individual Growth"] as const;
@@ -90,8 +92,10 @@ export default function SubmitApplicationModal({
   viewReview,
   viewFields,
   listingDetails,
+  canApplyForPP = true,
 }: SubmitApplicationModalProps) {
   const isView = mode === "view";
+  const showApplicationTypeChoice = isView || canApplyForPP;
 
   const [phoneNumber, setPhoneNumber] = useState("");
   const [selectedType, setSelectedType] = useState<ApplicationType>("Professional Practice");
@@ -104,7 +108,16 @@ export default function SubmitApplicationModal({
     setConfirmed(viewFields.accuracyConfirmed === true);
   }, [isView, viewFields]);
 
+  useEffect(() => {
+    if (isView || canApplyForPP) return;
+    setSelectedType("Individual Growth");
+  }, [isView, canApplyForPP]);
+
   const canSubmit = confirmed && selectedType !== null;
+  const inputDisabled = isView;
+  const status = viewReview?.status ?? "PENDING";
+  const isIndividualGrowthOnly = !isView && !canApplyForPP;
+  const isIndividualGrowthApplication = selectedType === "Individual Growth";
 
   const handleSubmit = () => {
     if (!canSubmit || !onSubmit) return;
@@ -118,240 +131,275 @@ export default function SubmitApplicationModal({
     return `${n}th`;
   };
 
-  const fieldReadOnly = isView ? "bg-gray-100 text-gray-800 cursor-default" : "bg-gray-50";
-  const inputDisabled = isView;
+  const statusClass =
+    status === "APPROVED"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+      : status === "REJECTED"
+        ? "bg-red-50 text-red-700 ring-red-200"
+        : "bg-blue-50 text-[#1B2A4A] ring-blue-200";
+
+  const approvalClass = (approved: boolean | null, currentStatus: string | null) => {
+    if (approved === true) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    if (approved === false) return "border-red-200 bg-red-50 text-red-700";
+    if (currentStatus === "WAITING") return "border-amber-200 bg-amber-50 text-amber-700";
+    return "border-slate-200 bg-slate-50 text-slate-600";
+  };
+
+  const DetailField = ({
+    label,
+    value,
+    className = "",
+  }: {
+    label: string;
+    value: ReactNode;
+    className?: string;
+  }) => (
+    <div className={`min-w-0 ${className}`}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 min-h-5 truncate text-sm font-semibold text-slate-900">{value || "-"}</div>
+    </div>
+  );
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-black/40"
+      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-950/50 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="submit-application-modal-title"
     >
-      {/* Top-aligned + scroll: avoids clipping header/X when modal is taller than the viewport (centered flex pushes top above fold). */}
-      <div className="flex min-h-full justify-center px-4 pb-16 pt-[max(1rem,env(safe-area-inset-top,0px))] sm:px-6 sm:pb-20 sm:pt-8">
-        <div className="relative w-full max-w-5xl rounded-lg bg-white shadow-xl sm:my-4">
-        {/* ── Header ── */}
-        <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
-          <h2 id="submit-application-modal-title" className="text-2xl font-bold text-gray-900 pr-2 min-w-0">
-            {isView ? "Your application" : "Submit Application"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 hover:border-gray-300 active:bg-gray-200"
-          >
-            <X size={22} strokeWidth={2.25} aria-hidden />
-          </button>
-        </div>
-
-        <div className="px-6 pb-6 space-y-4">
-          {isView && viewReview ? (
-            <div className="rounded-md border border-gray-200 bg-slate-50 px-4 py-3 text-sm space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-gray-700">
-                  <span className="font-semibold text-gray-900">ID:</span> {formatAppId(viewReview.applicationId)}
-                </span>
-                <span
-                  className={`px-2.5 py-0.5 rounded text-xs font-bold uppercase tracking-wide ${
-                    viewReview.status === "APPROVED"
-                      ? "bg-emerald-600 text-white"
-                      : viewReview.status === "REJECTED"
-                        ? "bg-red-600 text-white"
-                        : "bg-[#1B2A4A] text-white"
-                  }`}
-                >
-                  {viewReview.status ?? "PENDING"}
-                </span>
+      <div className="flex min-h-full justify-center px-3 pb-12 pt-[max(1rem,env(safe-area-inset-top,0px))] sm:px-6 sm:pb-16 sm:pt-8">
+        <div className="relative w-full max-w-5xl overflow-hidden rounded-2xl bg-slate-50 shadow-2xl ring-1 ring-white/10 sm:my-4">
+          <div className="bg-[#1B2A4A] px-5 py-5 text-white sm:px-7">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-100">
+                  {isView ? "Application review" : "Application form"}
+                </p>
+                <h2 id="submit-application-modal-title" className="mt-1 truncate text-2xl font-bold">
+                  {opportunity.title}
+                </h2>
+                <p className="mt-1 text-sm text-blue-100">{opportunity.company}</p>
               </div>
-              <div className="text-gray-600">
-                <span className="font-medium text-gray-800">Submitted:</span>{" "}
-                {formatSubmittedDate(viewReview.createdAt)}
-              </div>
-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-gray-700">
-                <span>
-                  <span className="font-medium text-gray-800">PPA:</span>{" "}
-                  {approvalLabel(viewReview.isApprovedByPPA ?? null, viewReview.status)}
-                </span>
-                <span>
-                  <span className="font-medium text-gray-800">Company:</span>{" "}
-                  {approvalLabel(viewReview.isApprovedByCompany ?? null, viewReview.status)}
-                </span>
-              </div>
-            </div>
-          ) : null}
-
-          {/* ── Section 1 — Application Details ── */}
-          <div className="rounded-md border border-[#1B2A4A] overflow-hidden">
-            <div className="bg-[#1B2A4A] px-4 py-1.5">
-              <span className="text-white text-xs font-semibold tracking-widest uppercase">
-                Application Details
-              </span>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
+              >
+                <X size={22} strokeWidth={2.25} aria-hidden />
+              </button>
             </div>
 
-            <div className="bg-white px-4 py-3 space-y-3">
-              <div className="flex justify-between text-sm font-medium text-gray-900 gap-4 flex-wrap">
-                <span>Role: {opportunity.title}</span>
-                <span>Company: {opportunity.company}</span>
-              </div>
-
-              <div className="grid grid-cols-4 gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-gray-600">Full Name:</span>
-                  <div className={`border border-gray-300 rounded px-2 py-1 text-sm ${fieldReadOnly}`}>
-                    {student.fullName}
-                  </div>
+            {isView && viewReview ? (
+              <div className="mt-5 grid gap-3 sm:grid-cols-4">
+                <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/15">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Application ID</div>
+                  <div className="mt-1 text-sm font-bold">{formatAppId(viewReview.applicationId)}</div>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-gray-600">Email:</span>
-                  <div
-                    className={`border border-gray-300 rounded px-2 py-1 text-sm truncate ${fieldReadOnly}`}
-                  >
-                    {student.email}
-                  </div>
+                <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/15">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Submitted</div>
+                  <div className="mt-1 text-sm font-bold">{formatSubmittedDate(viewReview.createdAt)}</div>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-gray-600">University:</span>
-                  <div
-                    className={`border border-gray-300 rounded px-2 py-1 text-sm truncate ${fieldReadOnly}`}
-                  >
-                    {student.university}
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-gray-600">Phone Number:</span>
-                  {isView ? (
-                    <div className={`border border-gray-300 rounded px-2 py-1 text-sm ${fieldReadOnly}`}>
-                      {phoneNumber.trim() ? phoneNumber : "—"}
-                    </div>
-                  ) : (
-                    <input
-                      type="tel"
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      placeholder="number"
-                      className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-[#1B2A4A]"
-                    />
-                  )}
+                <div className="rounded-xl bg-white/10 px-3 py-2 ring-1 ring-white/15 sm:col-span-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-100">Current Status</div>
+                  <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wide ring-1 ${statusClass}`}>
+                    {status}
+                  </span>
                 </div>
               </div>
-            </div>
+            ) : null}
           </div>
 
-          {/* ── Sections 2 & 3 — side by side ── */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-md border border-gray-300 overflow-hidden">
-              <div className="px-4 py-1.5 border-b border-gray-300">
-                <span className="text-sm font-semibold text-gray-900">Academic Standing</span>
-              </div>
-              <div className="px-4 py-3 space-y-2.5">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-800">Study Field:</span>
-                  <span className="text-gray-700">{student.studyField}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-800">Current Study Year:</span>
-                  <span className="bg-gray-200 text-gray-700 rounded-full px-3 py-0.5 text-xs font-medium">
-                    {ordinalYear(student.studyYear)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-800">CGPA:</span>
-                  <span className="bg-gray-200 text-gray-700 rounded-full px-3 py-0.5 text-xs font-medium">
-                    {student.cgpa} / 4
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-4">
-              <div className="rounded-md border border-gray-300 overflow-hidden">
-                <div className="px-4 py-1.5 border-b border-gray-300">
-                  <span className="text-sm font-semibold text-gray-900">CV Management</span>
-                </div>
-                <div className="px-4 py-3">
-                  <p className="text-sm text-gray-700">
-                    <span className="font-medium">Current CV: </span>
-                    {isView ? (
-                      <span className="text-[#1B2A4A]">{student.cvFileName}</span>
-                    ) : (
-                      <button type="button" className="text-[#1B2A4A] underline hover:opacity-75 text-sm">
-                        {student.cvFileName}
-                      </button>
-                    )}
+          <div className="space-y-4 px-4 py-5 sm:px-7 sm:py-6">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-slate-950">Application information</h3>
+                  <p className="text-sm text-slate-500">
+                    Profile, academic standing, CV, and consent are grouped here for review.
                   </p>
                 </div>
+                {isView ? (
+                  <span className="mt-2 inline-flex w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 sm:mt-0">
+                    Read-only review
+                  </span>
+                ) : null}
               </div>
 
-              <div className="rounded-md border border-gray-300 overflow-hidden">
-                <div className="px-4 py-1.5 border-b border-gray-300">
-                  <span className="text-sm font-semibold text-gray-900">Review and Consent</span>
+              <div className="mt-5 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800">Student profile</h4>
+                  <div className="mt-3 grid gap-x-5 gap-y-4 sm:grid-cols-2">
+                    <DetailField label="Full name" value={student.fullName} />
+                    <DetailField label="Email" value={student.email} />
+                    <DetailField label="University" value={student.university} />
+                    <div className="min-w-0">
+                      <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Phone number
+                      </label>
+                      {isView ? (
+                        <div className="mt-1 min-h-5 text-sm font-semibold text-slate-900">
+                          {phoneNumber.trim() ? phoneNumber : "-"}
+                        </div>
+                      ) : (
+                        <input
+                          type="tel"
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          placeholder="Enter phone number"
+                          className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#1B2A4A] focus:bg-white focus:ring-2 focus:ring-[#1B2A4A]/15"
+                        />
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="px-4 py-3">
-                  <label
-                    className={`flex items-start gap-2 ${inputDisabled ? "cursor-default" : "cursor-pointer"}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={confirmed}
-                      disabled={inputDisabled}
-                      onChange={(e) => setConfirmed(e.target.checked)}
-                      className="mt-0.5 accent-[#1B2A4A] disabled:opacity-100"
-                    />
-                    <span className="text-xs text-gray-700">
-                      I have read all pre-filled information and confirm it as accurate.
-                    </span>
-                  </label>
+
+                <div className="border-t border-slate-100 pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+                  <h4 className="text-sm font-bold text-slate-800">Academic and documents</h4>
+                  <div className="mt-3 grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-1">
+                  <DetailField label="Study field" value={student.studyField} />
+                  <DetailField label="Study year" value={ordinalYear(student.studyYear)} />
+                  <DetailField label="CGPA" value={`${student.cgpa} / 4`} />
+                    <DetailField label="Current CV" value={<span className="text-[#1B2A4A]">{student.cvFileName}</span>} />
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* ── Section 4 — Application Type ── */}
-          <div className="flex items-center gap-8 px-1 flex-wrap">
-            {APPLICATION_TYPES.map((type) => (
-              <label
-                key={type}
-                className={`flex items-center gap-2 ${inputDisabled ? "cursor-default" : "cursor-pointer"}`}
+              <div className="mt-5 border-t border-slate-100 pt-4">
+                <label
+                  className={`flex gap-3 rounded-xl px-3 py-3 ${
+                    inputDisabled
+                      ? "cursor-default bg-slate-50"
+                      : "cursor-pointer bg-blue-50/40 transition hover:bg-blue-50"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={confirmed}
+                    disabled={inputDisabled}
+                    onChange={(e) => setConfirmed(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 accent-[#1B2A4A] disabled:opacity-100"
+                  />
+                  <span className="text-sm text-slate-700">
+                    I have reviewed the pre-filled information and confirm it is accurate.
+                    {isView ? (
+                      <span className="mt-1 block text-xs font-medium text-slate-500">
+                        Confirmation recorded: {confirmed ? "Yes" : "No"}
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-slate-950">Application type</h3>
+                  <p className="text-sm text-slate-500">
+                    {isView
+                      ? "This is the type saved for your submitted application."
+                      : canApplyForPP
+                        ? "Choose where this application should be routed."
+                        : "This application will be submitted as Individual Growth."}
+                  </p>
+                </div>
+                {isIndividualGrowthOnly ? (
+                  <span className="inline-flex w-fit rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                    Individual Growth only
+                  </span>
+                ) : null}
+              </div>
+
+              {isView ? (
+                <div className={`mt-4 grid gap-4 border-t border-slate-100 pt-4 ${isIndividualGrowthApplication ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+                  <DetailField label="Submitted type" value={selectedType} />
+                  {viewReview ? (
+                    <>
+                      {!isIndividualGrowthApplication ? (
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">PPA review</div>
+                          <span className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${approvalClass(viewReview.isApprovedByPPA ?? null, viewReview.status)}`}>
+                            {approvalLabel(viewReview.isApprovedByPPA ?? null, viewReview.status)}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Company review</div>
+                        <span className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${approvalClass(viewReview.isApprovedByCompany ?? null, viewReview.status)}`}>
+                          {approvalLabel(viewReview.isApprovedByCompany ?? null, viewReview.status)}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              ) : showApplicationTypeChoice ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {APPLICATION_TYPES.map((type) => {
+                    const checked = selectedType === type;
+                    return (
+                      <label
+                        key={type}
+                        className={`rounded-xl border px-4 py-3 transition ${
+                          checked
+                            ? "border-[#1B2A4A] bg-blue-50 ring-2 ring-[#1B2A4A]/15"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        } ${inputDisabled ? "cursor-default" : "cursor-pointer"}`}
+                      >
+                        <span className="flex items-start gap-3">
+                          <input
+                            type="radio"
+                            name="applicationType"
+                            value={type}
+                            checked={checked}
+                            disabled={inputDisabled}
+                            onChange={() => setSelectedType(type)}
+                            className="mt-1 accent-[#1B2A4A] disabled:opacity-100"
+                          />
+                          <span>
+                            <span className="block text-sm font-bold text-slate-950">{type}</span>
+                            <span className="mt-1 block text-xs leading-5 text-slate-500">
+                              {type === "Professional Practice"
+                                ? "Send to PPA for professional practice review."
+                                : "Send directly as an individual growth application."}
+                            </span>
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Your profile is not eligible for Professional Practice selection, so this application will be saved as
+                  Individual Growth automatically.
+                </div>
+              )}
+            </section>
+
+            {isView && listingDetails ? (
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">{listingDetails}</section>
+            ) : null}
+
+            {!isView ? (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                className="w-full rounded-xl bg-[#1B2A4A] py-3.5 text-sm font-bold text-white shadow-lg shadow-[#1B2A4A]/20 transition hover:bg-[#162240] disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none"
               >
-                <input
-                  type="radio"
-                  name="applicationType"
-                  value={type}
-                  checked={selectedType === type}
-                  disabled={inputDisabled}
-                  onChange={() => setSelectedType(type)}
-                  className="accent-[#1B2A4A] disabled:opacity-100"
-                />
-                <span className="text-sm text-gray-800">{type}</span>
-              </label>
-            ))}
+                Submit Application
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full rounded-xl bg-[#1B2A4A] py-3.5 text-sm font-bold text-white shadow-lg shadow-[#1B2A4A]/20 transition hover:bg-[#162240]"
+              >
+                Close
+              </button>
+            )}
           </div>
-
-          {isView && listingDetails ? (
-            <div className="pt-2 border-t border-gray-200">{listingDetails}</div>
-          ) : null}
-
-          {!isView ? (
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-              className="w-full bg-[#1B2A4A] text-white font-semibold py-3 rounded-md hover:bg-[#162240] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Submit Application
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full bg-[#1B2A4A] text-white font-semibold py-3 rounded-md hover:bg-[#162240] transition-colors"
-            >
-              Close
-            </button>
-          )}
-        </div>
         </div>
       </div>
     </div>

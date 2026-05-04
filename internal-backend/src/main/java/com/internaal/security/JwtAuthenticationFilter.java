@@ -113,9 +113,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // ✅ Step 6: Extract user identifier (email or sub)
+            // ✅ Step 6: Extract user identifier (email required for useraccount RLS lookup)
             String userIdentifier = claims.getStringClaim("email");
-            if (userIdentifier == null) {
+            if (userIdentifier == null || userIdentifier.isBlank()) {
                 sendError(response, HttpStatus.UNAUTHORIZED, "No user identifier in token");
                 return;
             }
@@ -128,6 +128,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             user = account.get();
+            String sub = claims.getSubject();
+            if (sub != null && !sub.isBlank()) {
+                user.setSupabaseUserId(sub);
+            }
 
             // ✅ Step 8: Validate role and linked entity
             if (user.getRole() == null) {

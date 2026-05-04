@@ -73,6 +73,8 @@ public class UserAccountRepository {
                     ? Role.valueOf(node.get("role").asText()) : null);
             user.setLinkedEntityId(node.has("linked_entity_id") && !node.get("linked_entity_id").isNull()
                     ? node.get("linked_entity_id").asText() : null);
+            user.setSupabaseUserId(node.has("supabase_user_id") && !node.get("supabase_user_id").isNull()
+                    ? node.get("supabase_user_id").asText() : null);
             user.setActive(!node.has("isActive") || node.get("isActive").isNull()
                     || node.get("isActive").asBoolean(true));
             return Optional.of(user);

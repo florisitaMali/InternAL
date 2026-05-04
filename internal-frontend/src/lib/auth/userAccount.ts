@@ -5,6 +5,7 @@ import type {
   StudentProfileFile,
   StudentProject,
 } from '@/src/types';
+import { fetchPpaProfile } from '@/src/lib/auth/ppa';
 
 export type CurrentUserResponse = {
   userId: number;
@@ -27,6 +28,7 @@ export type StudentProfileResponse = {
   studyYear: number | null;
   cgpa: number | null;
   hasCompletedPp: boolean | null;
+  canApplyForPP: boolean | null;
   accessStartDate: string | null;
   accessEndDate: string | null;
   description: string | null;
@@ -329,6 +331,16 @@ function mapStudentProfileFile(file: StudentProfileFileResponse): StudentProfile
   };
 }
 
+/** Backend / PostgREST may use camelCase or lowercase keys for the same column. */
+function pickCanApplyForPPFromProfile(profile: StudentProfileResponse): boolean | null {
+  const raw = profile as Record<string, unknown>;
+  for (const key of ['canApplyForPP', 'canapplyforpp', 'can_apply_for_pp'] as const) {
+    const v = raw[key];
+    if (typeof v === 'boolean') return v;
+  }
+  return null;
+}
+
 export function mapStudentProfileToStudent(profile: StudentProfileResponse): Student {
   return {
     id: String(profile.studentId),
@@ -345,6 +357,7 @@ export function mapStudentProfileToStudent(profile: StudentProfileResponse): Stu
     studyYear: profile.studyYear ?? 0,
     cgpa: profile.cgpa ?? 0,
     hasCompletedPP: Boolean(profile.hasCompletedPp),
+    canApplyForPP: pickCanApplyForPPFromProfile(profile) ?? true,
     accessStartDate: profile.accessStartDate || undefined,
     accessEndDate: profile.accessEndDate || undefined,
     profilePhotoUrl: profile.photo?.trim() || undefined,
@@ -585,10 +598,15 @@ export async function uploadProfileCover(
   return sendBackendFormData<{ url: string }>('/api/student/profile/cover', accessToken, formData);
 }
 
+/**
+ * @param invitePasswordCompleted - Pass `session.user.user_metadata.invite_password_completed === true`.
+ *   For PPAs, when this is not true, skips `/api/ppa/me` so invite onboarding can still redirect to set-password.
+ */
 export async function loadCurrentAppUser(
   accessToken: string,
   fallbackEmail: string,
-  metadataName?: string
+  metadataName?: string,
+  invitePasswordCompleted?: boolean
 ): Promise<{ data: LoadedAppUser | null; errorMessage: string | null }> {
   const { data: user, errorMessage } = await fetchCurrentUser(accessToken);
   if (!user || errorMessage) {
@@ -609,6 +627,25 @@ export async function loadCurrentAppUser(
 
     studentProfile = mapStudentProfileToStudent(profile);
     displayName = studentProfile.fullName || displayName;
+  } else if (user.role === 'PPA') {
+    if (invitePasswordCompleted !== true) {
+      return {
+        data: {
+          user,
+          displayName,
+          studentProfile: null,
+        },
+        errorMessage: null,
+      };
+    }
+    const { data: ppaProfile, errorMessage: ppaError } = await fetchPpaProfile(accessToken);
+    if (!ppaProfile || ppaError) {
+      return {
+        data: null,
+        errorMessage: ppaError || 'Could not load PPA profile.',
+      };
+    }
+    displayName = ppaProfile.fullName?.trim() || displayName;
   }
 
   return {

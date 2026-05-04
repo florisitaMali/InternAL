@@ -69,6 +69,8 @@ export interface Student extends User {
   studyYear: number;
   cgpa: number;
   hasCompletedPP: boolean;
+  /** When false, application type is fixed to individual growth (no PP choice in the form). */
+  canApplyForPP?: boolean;
   accessStartDate?: string;
   accessEndDate?: string;
   /** Public or signed URL from `studentprofile.photo`. */
@@ -195,8 +197,18 @@ export interface Application {
   isApprovedByCompany?: boolean;
   createdAt: string;
   status: ApplicationStatus;
-  /** Enriched for company “view application” (mock today; wire from API later) */
+  /** Enriched for company “view application” modal. */
   studentEmail?: string;
+  studentPhone?: string;
+  studentUniversityName?: string;
+  studentFacultyName?: string;
+  studentFieldName?: string;
+  studentStudyYear?: number;
+  studentCgpa?: number;
+  /** Split from the comma-separated server value. */
+  studentSkills?: string[];
+  studentCvUrl?: string;
+  studentCvFilename?: string;
   opportunityDescription?: string;
   opportunityDeadline?: string;
   opportunityStartDate?: string;

@@ -83,6 +83,31 @@ public class StudentProfileRepository {
         }
     }
 
+    /**
+     * Service-role load of a student profile by id. Bypasses RLS so trusted backend
+     * flows (e.g. the company-side "view applicant profile" feature) can read any
+     * student's profile. Authorization MUST be enforced at the service layer before
+     * calling this — this method does not check who's allowed to see the data.
+     */
+    public Optional<StudentProfileResponse> findByStudentIdAsService(Integer studentId) {
+        try {
+            HttpHeaders headers = createServiceHeaders();
+            JsonNode studentNode = fetchSingleRow("student", "student_id", studentId, headers);
+            if (studentNode == null || studentNode.isNull()) {
+                return Optional.empty();
+            }
+            JsonNode profileNode = fetchSingleRow("studentprofile", "student_id", studentId, headers);
+            StudentProfileResponse response = mapProfileResponse(studentNode, profileNode);
+            response.setCertificationFiles(listCertificationFiles(studentId));
+            response.setProjects(fetchStudentProjects(studentId, createServiceHeaders()));
+            response.setExperiences(fetchStudentExperiences(studentId, createServiceHeaders()));
+            return Optional.of(response);
+        } catch (Exception e) {
+            log.error("Failed to load student profile (service): {}", e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
     public Optional<StudentProfileResponse> saveByStudentId(
             Integer studentId,
             String userJwt,
@@ -565,6 +590,8 @@ public class StudentProfileRepository {
         response.setCgpa(studentNode.has("cgpa") && !studentNode.get("cgpa").isNull()
                 ? studentNode.get("cgpa").decimalValue() : null);
         response.setHasCompletedPp(boolValue(studentNode, "has_completed_pp"));
+        Boolean canApplyForPp = readCanApplyForPpFlag(studentNode);
+        response.setCanApplyForPp(canApplyForPp != null ? canApplyForPp : Boolean.TRUE);
         response.setAccessStartDate(textValue(studentNode, "access_start_date"));
         response.setAccessEndDate(textValue(studentNode, "access_end_date"));
 
@@ -854,6 +881,26 @@ public class StudentProfileRepository {
 
     private Boolean boolValue(JsonNode node, String field) {
         return node != null && node.has(field) && !node.get(field).isNull() ? node.get(field).asBoolean() : null;
+    }
+
+    /**
+     * PostgREST uses Postgres column names in JSON — unquoted identifiers are lowercased ({@code canapplyforpp}),
+     * quoted camelCase stays mixed. This finds the PP-eligibility flag regardless.
+     */
+    private Boolean readCanApplyForPpFlag(JsonNode row) {
+        if (row == null || row.isNull()) {
+            return null;
+        }
+        final String target = "canapplyforpp";
+        var fields = row.fields();
+        while (fields.hasNext()) {
+            var e = fields.next();
+            String norm = e.getKey().replace("_", "").toLowerCase();
+            if (target.equals(norm) && !e.getValue().isNull()) {
+                return e.getValue().asBoolean();
+            }
+        }
+        return null;
     }
 
     private String textValue(JsonNode node, String field) {

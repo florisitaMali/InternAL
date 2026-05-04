@@ -1,5 +1,6 @@
 package com.internaal.controller;
 
+import com.internaal.dto.AdminPpaResponse;
 import com.internaal.dto.AdminStudentResponse;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.entity.UserAccount;
@@ -20,6 +21,12 @@ public class PpaController {
 
     public PpaController(PpaService ppaService) {
         this.ppaService = ppaService;
+    }
+
+    @GetMapping("/me")
+    @PreAuthorize("hasRole('PPA')")
+    public AdminPpaResponse me(@AuthenticationPrincipal UserAccount user) {
+        return ppaService.getMyProfile(user);
     }
 
     @GetMapping("/applications")

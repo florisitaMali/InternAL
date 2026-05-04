@@ -1,5 +1,6 @@
 package com.internaal.security;
 
+import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.UserAccountRepository;
 import com.nimbusds.jose.JWSVerifier;
@@ -137,7 +138,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 sendError(response, HttpStatus.FORBIDDEN, "Account has no role assigned");
                 return;
             }
-            if (user.getLinkedEntityId() == null) {
+            if (!user.isActive()) {
+                sendError(response, HttpStatus.FORBIDDEN,
+                        "Your account is deactivated. Contact your system administrator.");
+                return;
+            }
+            String requestPath = request.getRequestURI();
+            if (user.getRole() == Role.SYSTEM_ADMIN) {
+                boolean allowed = requestPath.startsWith("/api/sysadmin/")
+                        || "/api/health".equals(requestPath)
+                        || "/api/me".equals(requestPath);
+                if (!allowed) {
+                    sendError(response, HttpStatus.FORBIDDEN, "System admin endpoints only");
+                    return;
+                }
+            } else if (user.getLinkedEntityId() == null) {
                 sendError(response, HttpStatus.FORBIDDEN, "Account has no linked entity");
                 return;
             }

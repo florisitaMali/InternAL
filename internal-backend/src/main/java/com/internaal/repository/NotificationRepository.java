@@ -241,6 +241,7 @@ public class NotificationRepository {
             case COMPANY -> loadCompanySender(senderId, userJwt);
             case PPA -> loadPpaSender(senderId, userJwt);
             case UNIVERSITY_ADMIN -> loadUniversitySender(senderId, userJwt);
+            case SYSTEM_ADMIN -> SenderInfo.fallback("SYSTEM_ADMIN", senderId);
         };
         cache.put(cacheKey, loaded);
         return loaded;

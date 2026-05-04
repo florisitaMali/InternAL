@@ -51,6 +51,11 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'applications', label: 'Applications', icon: FileText },
       { id: 'profile', label: 'Company Profile', icon: Building2 },
     ],
+    SYSTEM_ADMIN: [
+      { id: 'admins', label: 'System Admins', icon: Users },
+      { id: 'universities', label: 'Universities', icon: Briefcase },
+      { id: 'audit', label: 'Audit Log', icon: FileText },
+    ],
   };
 
   const currentMenuItems = menuItems[role] || [];

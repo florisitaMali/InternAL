@@ -165,6 +165,28 @@ public class ApplicationRepository {
         return null;
     }
 
+    /**
+     * Reads the student's Professional Practice gate flag.
+     * Forward-compatible: future Postgres triggers maintain this column when the university's admin's
+     * isActive flips. Today the application layer maintains it inside SystemAdminUniversityRepository.
+     * Returns {@code true} when missing or null so a misread doesn't accidentally block applications.
+     */
+    public boolean canStudentApplyForPP(Integer studentId) {
+        if (studentId == null) {
+            return true;
+        }
+        // select=* avoids URL-encoded quoted column names which Spring's URI template
+        // processing can mangle. We read canApplyForPP by exact case in Java below.
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId
+                + "&select=*&limit=1";
+        Optional<JsonNode> arr = fetchArray(url);
+        if (arr.isEmpty() || !arr.get().isArray() || arr.get().isEmpty()) {
+            return true;
+        }
+        JsonNode flag = arr.get().get(0).get("canApplyForPP");
+        return flag == null || flag.isNull() || flag.asBoolean(true);
+    }
+
     private Optional<JsonNode> findApplicationRow(Integer studentId, Integer opportunityId) {
         String select = APPLICATION_SELECT_BASE + ",opportunity(title),company(name)";
         String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId

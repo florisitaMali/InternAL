@@ -7,12 +7,11 @@ import com.internaal.dto.CompanyOpportunityUpdateRequest;
 import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.TargetUniversitiesResponse;
-import com.internaal.dto.TargetUniversityOption;
 import com.internaal.entity.Opportunity;
-import com.internaal.entity.TargetUniversity;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.exception.ValidationException;
+import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyOpportunityWriteRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.OpportunityRepository;
@@ -33,12 +32,15 @@ public class CompanyOpportunityService {
 
     private final OpportunityRepository opportunityRepository;
     private final CompanyOpportunityWriteRepository writeRepository;
+    private final ApplicationRepository applicationRepository;
 
     public CompanyOpportunityService(
             OpportunityRepository opportunityRepository,
-            CompanyOpportunityWriteRepository writeRepository) {
+            CompanyOpportunityWriteRepository writeRepository,
+            ApplicationRepository applicationRepository) {
         this.opportunityRepository = opportunityRepository;
         this.writeRepository = writeRepository;
+        this.applicationRepository = applicationRepository;
     }
 
     public CompanyOpportunitiesResponse list(UserAccount user) {
@@ -61,7 +63,9 @@ public class CompanyOpportunityService {
         int companyId = parseCompanyId(user);
         Opportunity o = opportunityRepository.findByIdAndCompanyId(opportunityId, companyId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
-        return new CompanyOpportunityDetailResponse(toItem(o, 0), emptyStats());
+        OpportunityApplicationStatsDto stats =
+                applicationRepository.statsForCompanyOpportunity(companyId, opportunityId);
+        return new CompanyOpportunityDetailResponse(toItem(o, 0), stats);
     }
 
     /**
@@ -233,7 +237,9 @@ public class CompanyOpportunityService {
                         HttpStatus.BAD_GATEWAY,
                         "Opportunity could not be reloaded after update."
                 ));
-        return new CompanyOpportunityDetailResponse(toItem(updated, 0), emptyStats());
+        OpportunityApplicationStatsDto stats =
+                applicationRepository.statsForCompanyOpportunity(companyId, opportunityId);
+        return new CompanyOpportunityDetailResponse(toItem(updated, 0), stats);
     }
 
     public void delete(UserAccount user, int opportunityId) {
@@ -437,54 +443,7 @@ public class CompanyOpportunityService {
         return s.trim();
     }
 
-    private static List<Integer> targetUniversityIds(Opportunity o) {
-        if (o.targetUniversities() == null) {
-            return List.of();
-        }
-        return o.targetUniversities().stream().map(TargetUniversity::id).toList();
-    }
-
-    private static List<TargetUniversityOption> targetUniversityOptions(Opportunity o) {
-        if (o.targetUniversities() == null || o.targetUniversities().isEmpty()) {
-            return List.of();
-        }
-        return o.targetUniversities().stream()
-                .map(t -> new TargetUniversityOption(
-                        t.id(),
-                        t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id())))
-                .toList();
-    }
-
     private static OpportunityResponseItem toItem(Opportunity o, int skillMatchCount) {
-        String typeStr = o.type();
-        String wm = o.workMode() == null ? null : o.workMode().toApiValue();
-        String wt = o.workType();
-        return new OpportunityResponseItem(
-                o.id(),
-                o.companyId(),
-                o.companyName(),
-                o.title(),
-                o.description(),
-                o.requiredSkills(),
-                o.requiredExperience(),
-                o.deadline(),
-                o.startDate(),
-                targetUniversityIds(o),
-                targetUniversityOptions(o),
-                typeStr,
-                o.location(),
-                o.isPaid(),
-                wm,
-                o.positionCount(),
-                wt,
-                o.duration(),
-                o.salaryMonthly(),
-                o.niceToHave(),
-                o.draft(),
-                o.postedAt(),
-                skillMatchCount,
-                o.code(),
-                o.createdAt(),
-                0);
+        return OpportunityMapper.toResponseItem(o, skillMatchCount);
     }
 }

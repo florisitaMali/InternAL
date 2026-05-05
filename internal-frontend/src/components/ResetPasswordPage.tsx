@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Logo from './Logo';
 import { Lock, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -32,15 +32,22 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<'loading' | 'ready' | 'invalid'>('loading');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Keep the latest session tokens so we can restore them if autoRefreshToken clears the session. */
+  const sessionTokensRef = useRef<{ access: string; refresh: string } | null>(null);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
 
     const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
     const q = new URLSearchParams(hash);
-    // #region agent log
-    fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'B',location:'ResetPasswordPage.tsx:useEffect',message:'ResetPasswordPage mounted',data:{variant,hashType:q.get('type'),hasAccessToken:hash.includes('access_token'),hasError:!!q.get('error'),pathname:typeof window!=='undefined'?window.location.pathname:'?'},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+
+    // Capture invite tokens from the URL hash BEFORE Supabase removes the fragment.
+    const hashAccess = q.get('access_token');
+    const hashRefresh = q.get('refresh_token');
+    if (hashAccess && hashRefresh) {
+      sessionTokensRef.current = { access: hashAccess, refresh: hashRefresh };
+    }
+
     if (q.get('error')) {
       setStatus('invalid');
       return;
@@ -66,9 +73,10 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'B',location:'ResetPasswordPage.tsx:onAuthStateChange',message:'auth state change in ResetPasswordPage',data:{event,hasSession:!!session},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      // Keep sessionTokensRef up-to-date with any refreshed tokens.
+      if (session?.access_token && session?.refresh_token) {
+        sessionTokensRef.current = { access: session.access_token, refresh: session.refresh_token };
+      }
       if (cancelled || !session) return;
       if (
         event === 'PASSWORD_RECOVERY' ||
@@ -128,6 +136,24 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
 
     setIsSubmitting(true);
     const supabase = getSupabaseBrowserClient();
+
+    // Ensure session is active before calling updateUser – invite sessions can be wiped
+    // by Supabase's autoRefreshToken if the invite grant was already consumed server-side.
+    if (variant === 'invite') {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (!currentSession && sessionTokensRef.current) {
+        const { error: restoreError } = await supabase.auth.setSession({
+          access_token: sessionTokensRef.current.access,
+          refresh_token: sessionTokensRef.current.refresh,
+        });
+        if (restoreError) {
+          setIsSubmitting(false);
+          toast.error('Your invitation session has expired. Please ask for a new invite link.');
+          return;
+        }
+      }
+    }
+
     const { error } = await supabase.auth.updateUser(
       variant === 'invite'
         ? {
@@ -145,7 +171,7 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({ variant = 'recove
 
     if (variant === 'invite') {
       const { error: refreshError } = await supabase.auth.refreshSession();
-      if (refreshError && process.env.NODE_ENV === 'development') {
+      if (refreshError) {
         console.warn('[set-password] refreshSession after update:', refreshError.message);
       }
       toast.success('Password saved. Welcome to InternAL.');

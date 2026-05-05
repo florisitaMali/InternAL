@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.internaal.dto.ApplicationRequest;
 import com.internaal.dto.ApplicationResponse;
+import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.StalePpaReminderRow;
 import com.internaal.dto.StudentBrief;
 import org.springframework.beans.factory.annotation.Value;
@@ -170,6 +171,28 @@ public class ApplicationRepository {
         return null;
     }
 
+    /**
+     * Reads the student's Professional Practice gate flag.
+     * Forward-compatible: future Postgres triggers maintain this column when the university's admin's
+     * isActive flips. Today the application layer maintains it inside SystemAdminUniversityRepository.
+     * Returns {@code true} when missing or null so a misread doesn't accidentally block applications.
+     */
+    public boolean canStudentApplyForPP(Integer studentId) {
+        if (studentId == null) {
+            return true;
+        }
+        // select=* avoids URL-encoded quoted column names which Spring's URI template
+        // processing can mangle. We read canApplyForPP by exact case in Java below.
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId
+                + "&select=*&limit=1";
+        Optional<JsonNode> arr = fetchArray(url);
+        if (arr.isEmpty() || !arr.get().isArray() || arr.get().isEmpty()) {
+            return true;
+        }
+        JsonNode flag = arr.get().get(0).get("canApplyForPP");
+        return flag == null || flag.isNull() || flag.asBoolean(true);
+    }
+
     private Optional<JsonNode> findApplicationRow(Integer studentId, Integer opportunityId) {
         String select = APPLICATION_COMPANY_EMBEDS;
         String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
@@ -288,7 +311,7 @@ public class ApplicationRepository {
     private static final String APPLICATION_COMPANY_EMBEDS =
             APPLICATION_SELECT_BASE
                     + ",opportunity(title),company(name),student(full_name,email,phone,study_year,cgpa,"
-                    + "university(name),department(name),studyfield(name),studentprofile(cv_filename))";
+                    + "university(name),department(name),studyfield(name),studentprofile(skills,cv_url,cv_filename))";
 
     private String buildApplicationsUrl(Integer studentId, boolean withEmbeds) {
         String select = withEmbeds
@@ -300,8 +323,14 @@ public class ApplicationRepository {
     }
 
     private String buildCompanyApplicationsUrl(Integer companyId, boolean withEmbeds) {
+        // Hide PROFESSIONAL_PRACTICE applications until they're PPA-approved.
+        // INDIVIDUAL_GROWTH applications are always visible to the company.
+        String visibilityFilter =
+                "or=(application_type.eq.INDIVIDUAL_GROWTH,"
+                        + "and(application_type.eq.PROFESSIONAL_PRACTICE,is_approved_by_ppa.eq.true))";
         String select = withEmbeds ? APPLICATION_COMPANY_EMBEDS : APPLICATION_SELECT_BASE;
         return supabaseUrl + "/rest/v1/application?company_id=eq." + companyId
+                + "&" + visibilityFilter
                 + "&select=" + select
                 + "&order=created_at.desc";
     }
@@ -373,6 +402,59 @@ public class ApplicationRepository {
         return parseApplicationArrayJson(body);
     }
 
+    /**
+     * Returns true if the student has applied to at least one of the given company's
+     * opportunities. Used by the company-side "view applicant profile" authorization.
+     */
+    public boolean studentHasAppliedToCompany(int studentId, int companyId) {
+        String url = supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
+                + "&company_id=eq." + companyId
+                + "&select=application_id&limit=1";
+        return fetchArray(url).map(arr -> arr.isArray() && arr.size() > 0).orElse(false);
+    }
+
+    /**
+     * Lightweight ownership read used before mutating an application: returns just enough columns
+     * for the service layer to decide between 404 / 403 / 409.
+     */
+    public Optional<JsonNode> findApplicationOwnership(int applicationId) {
+        String url = supabaseUrl + "/rest/v1/application?application_id=eq." + applicationId
+                + "&select=application_id,company_id,is_approved_by_company&limit=1";
+        return fetchArray(url).flatMap(arr ->
+                arr.isArray() && arr.size() > 0 ? Optional.of(arr.get(0)) : Optional.empty());
+    }
+
+    /**
+     * Flips {@code is_approved_by_company} on the given application. Returns the updated row mapped
+     * to {@link ApplicationResponse}, or empty if the PATCH matched zero rows. The service layer is
+     * responsible for ownership and already-decided checks BEFORE calling this.
+     */
+    public Optional<ApplicationResponse> setCompanyDecision(int applicationId, boolean approved) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("is_approved_by_company", approved);
+        HttpHeaders headers = createServiceHeaders();
+        headers.set("Prefer", "return=representation");
+        String url = supabaseUrl + "/rest/v1/application?application_id=eq." + applicationId;
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.PATCH,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
+                    String.class);
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                return Optional.empty();
+            }
+            JsonNode root = objectMapper.readTree(response.getBody());
+            if (!root.isArray() || root.size() == 0) {
+                return Optional.empty();
+            }
+            return Optional.of(enrichCompanyApplicantProfile(mapToResponse(root.get(0))));
+        } catch (RestClientResponseException e) {
+            throw supabaseError(url, e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to update application decision: " + e.getMessage());
+        }
+    }
+
     public List<ApplicationResponse> findByCompanyId(Integer companyId) {
         String body = tryGetApplicationsFromUrl(buildCompanyApplicationsUrl(companyId, true), true)
                 .orElseGet(() -> tryGetApplicationsFromUrl(buildCompanyApplicationsUrl(companyId, false), false)
@@ -380,6 +462,36 @@ public class ApplicationRepository {
         List<ApplicationResponse> list = parseApplicationArrayJson(body);
         enrichCompanyApplicantsFromStudentTable(list);
         return list;
+    }
+
+    /**
+     * Counts all application rows for a company opportunity. Does not use the PPA “visibility” filter on
+     * {@link #findByCompanyId}, so detail-page totals include Professional Practice applications still pending PPA.
+     */
+    public OpportunityApplicationStatsDto statsForCompanyOpportunity(int companyId, int opportunityId) {
+        String url = supabaseUrl + "/rest/v1/application"
+                + "?company_id=eq." + companyId
+                + "&opportunity_id=eq." + opportunityId
+                + "&select=is_approved_by_company";
+        Optional<JsonNode> opt = fetchArray(url);
+        int total = 0;
+        int inReview = 0;
+        int approved = 0;
+        int rejected = 0;
+        if (opt.isPresent() && opt.get().isArray()) {
+            for (JsonNode row : opt.get()) {
+                total++;
+                Boolean c = boolValue(row, "is_approved_by_company");
+                if (Boolean.TRUE.equals(c)) {
+                    approved++;
+                } else if (Boolean.FALSE.equals(c)) {
+                    rejected++;
+                } else {
+                    inReview++;
+                }
+            }
+        }
+        return new OpportunityApplicationStatsDto(total, inReview, approved, rejected);
     }
 
     public List<ApplicationResponse> findAllApplications() {
@@ -479,18 +591,30 @@ public class ApplicationRepository {
         if (dept != null && !dept.isNull()) {
             String dn = textValue(dept, "name");
             if (dn != null && !dn.isBlank()) {
-                r.setStudentDepartmentName(dn.trim());
+                String t = dn.trim();
+                r.setStudentDepartmentName(t);
+                r.setStudentFacultyName(t);
             }
         }
         JsonNode studyfield = firstEmbed(student.get("studyfield"));
         if (studyfield != null && !studyfield.isNull()) {
             String sf = textValue(studyfield, "name");
             if (sf != null && !sf.isBlank()) {
-                r.setStudentStudyFieldName(sf.trim());
+                String t = sf.trim();
+                r.setStudentStudyFieldName(t);
+                r.setStudentFieldName(t);
             }
         }
         JsonNode profile = firstEmbed(student.get("studentprofile"));
         if (profile != null && !profile.isNull()) {
+            String skills = textValue(profile, "skills");
+            if (skills != null && !skills.isBlank()) {
+                r.setStudentSkills(skills.trim());
+            }
+            String cvUrl = textValue(profile, "cv_url");
+            if (cvUrl != null && !cvUrl.isBlank()) {
+                r.setStudentCvUrl(cvUrl.trim());
+            }
             String cv = textValue(profile, "cv_filename");
             if (cv != null && !cv.isBlank()) {
                 r.setStudentCvFilename(cv.trim());
@@ -529,6 +653,7 @@ public class ApplicationRepository {
     private Map<Integer, JsonNode> fetchStudentRowsForEnrichment(List<Integer> studentIds) {
         String inList = studentIds.stream().map(String::valueOf).collect(Collectors.joining(","));
         String[] trySelects = new String[] {
+                "student_id,full_name,email,phone,study_year,cgpa,university(name),studyfield(name),department(name),studentprofile(skills,cv_url,cv_filename)",
                 "student_id,full_name,email,phone,study_year,cgpa,university(name),studyfield(name),department(name),studentprofile(cv_filename)",
                 "student_id,full_name,email,phone,study_year,cgpa,university(name),studyfield(name),studentprofile(cv_filename)",
                 "student_id,full_name,email,phone,study_year,cgpa,university(name),studyfield(name)",

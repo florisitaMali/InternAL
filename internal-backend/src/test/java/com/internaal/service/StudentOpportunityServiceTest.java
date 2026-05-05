@@ -36,6 +36,7 @@ class StudentOpportunityServiceTest {
                 null,
                 null,
                 false,
+                null,
                 null);
     }
 

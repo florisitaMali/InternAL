@@ -5,6 +5,7 @@ type StudentOpportunityResponseItem = {
   id: number;
   companyId: number;
   companyName: string | null;
+  affiliatedUniversityName?: string | null;
   title: string | null;
   description: string | null;
   requiredSkills: string[] | null;
@@ -64,6 +65,7 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
     id: String(item.id),
     companyId: String(item.companyId),
     companyName: item.companyName || 'Unknown company',
+    affiliatedUniversityName: item.affiliatedUniversityName?.trim() || undefined,
     title: item.title || 'Untitled opportunity',
     description: item.description || '',
     requiredSkills: item.requiredSkills || [],
@@ -160,14 +162,17 @@ export type ApplicationResponse = {
   companyName: string | null;
   studentName?: string | null;
   createdAt: string | null;
-  /** Enriched when loaded with expanded student embed (e.g. company inbox). */
   studentEmail?: string | null;
   studentPhone?: string | null;
   studentUniversityName?: string | null;
   studentDepartmentName?: string | null;
   studentStudyFieldName?: string | null;
+  studentFacultyName?: string | null;
+  studentFieldName?: string | null;
   studentStudyYear?: number | null;
   studentCgpa?: number | null;
+  studentSkills?: string | null;
+  studentCvUrl?: string | null;
   studentCvFilename?: string | null;
 };
 

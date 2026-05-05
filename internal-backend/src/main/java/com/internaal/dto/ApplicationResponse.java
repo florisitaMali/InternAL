@@ -21,10 +21,18 @@ public class ApplicationResponse {
     private String studentEmail;
     private String studentPhone;
     private String studentUniversityName;
+    /** Department name from embedded {@code department}; mirrors faculty on some UIs. */
     private String studentDepartmentName;
+    /** Alias used by company dashboard labels ("Faculty"). */
+    private String studentFacultyName;
     private String studentStudyFieldName;
+    /** Alias used by company dashboard labels ("Field"). */
+    private String studentFieldName;
     private Integer studentStudyYear;
     private Double studentCgpa;
+    /** Raw {@code studentprofile.skills} text; frontend splits to a chip list. */
+    private String studentSkills;
+    private String studentCvUrl;
     /** From embedded {@code studentprofile.cv_filename}. */
     private String studentCvFilename;
 
@@ -82,14 +90,26 @@ public class ApplicationResponse {
     public String getStudentDepartmentName() { return studentDepartmentName; }
     public void setStudentDepartmentName(String studentDepartmentName) { this.studentDepartmentName = studentDepartmentName; }
 
+    public String getStudentFacultyName() { return studentFacultyName; }
+    public void setStudentFacultyName(String studentFacultyName) { this.studentFacultyName = studentFacultyName; }
+
     public String getStudentStudyFieldName() { return studentStudyFieldName; }
     public void setStudentStudyFieldName(String studentStudyFieldName) { this.studentStudyFieldName = studentStudyFieldName; }
+
+    public String getStudentFieldName() { return studentFieldName; }
+    public void setStudentFieldName(String studentFieldName) { this.studentFieldName = studentFieldName; }
 
     public Integer getStudentStudyYear() { return studentStudyYear; }
     public void setStudentStudyYear(Integer studentStudyYear) { this.studentStudyYear = studentStudyYear; }
 
     public Double getStudentCgpa() { return studentCgpa; }
     public void setStudentCgpa(Double studentCgpa) { this.studentCgpa = studentCgpa; }
+
+    public String getStudentSkills() { return studentSkills; }
+    public void setStudentSkills(String studentSkills) { this.studentSkills = studentSkills; }
+
+    public String getStudentCvUrl() { return studentCvUrl; }
+    public void setStudentCvUrl(String studentCvUrl) { this.studentCvUrl = studentCvUrl; }
 
     public String getStudentCvFilename() { return studentCvFilename; }
     public void setStudentCvFilename(String studentCvFilename) { this.studentCvFilename = studentCvFilename; }

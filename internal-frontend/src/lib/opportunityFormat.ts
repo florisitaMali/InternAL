@@ -22,6 +22,23 @@ export function formatOpportunityType(type?: string): string {
     .join(' ');
 }
 
+/** Spring/Jackson may serialize {@code LocalDate} as {@code [y,m,d]} in JSON. */
+export function coerceApiDateToIsoString(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'string') {
+    const t = value.trim();
+    return t.length > 0 ? t : undefined;
+  }
+  if (Array.isArray(value) && value.length >= 3) {
+    const y = Number(value[0]);
+    const m = Number(value[1]);
+    const d = Number(value[2]);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return undefined;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  return undefined;
+}
+
 export function formatDbDuration(duration?: string | null): string {
   if (!duration?.trim()) return '—';
   const m = /^(\d+)_MONTHS?$/i.exec(duration.trim());
@@ -113,6 +130,24 @@ export function formatDeadline(deadline?: string): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+/**
+ * Student “Explore” cards: normalise stored/API work mode labels for display.
+ */
+export function formatExploreWorkMode(mode?: string | null): string {
+  if (!mode?.trim()) return '';
+  const u = mode.trim().toUpperCase().replace(/-/g, '_').replace(/\s+/g, '_');
+  const map: Record<string, string> = {
+    REMOTE: 'Remote',
+    HYBRID: 'Hybrid',
+    IN_PERSON: 'In-person',
+    ON_SITE: 'On-site',
+    ONSITE: 'On-site',
+  };
+  if (map[u]) return map[u];
+  if (mode === 'Remote' || mode === 'Hybrid' || mode === 'On-site') return mode;
+  return mode;
 }
 
 export function getOpportunityCardInitials(name: string | undefined): string {

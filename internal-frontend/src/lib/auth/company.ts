@@ -1,4 +1,5 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
+import type { StudentProfileResponse } from '@/src/lib/auth/userAccount';
 import type { CompanyProfileFromApi, Opportunity, OpportunityApplicationStats } from '@/src/types';
 import {
   formatDeadline,
@@ -13,6 +14,7 @@ type ApiOpportunityItem = {
   id: number;
   companyId: number;
   companyName: string | null;
+  affiliatedUniversityName?: string | null;
   title: string | null;
   description: string | null;
   requiredSkills: string[] | null;
@@ -82,6 +84,7 @@ function mapOpportunity(item: ApiOpportunityItem): Opportunity {
     id: String(item.id),
     companyId: String(item.companyId),
     companyName: item.companyName || 'Unknown company',
+    affiliatedUniversityName: item.affiliatedUniversityName?.trim() || undefined,
     title: item.title || 'Untitled opportunity',
     description: item.description || '',
     requiredSkills: item.requiredSkills || [],
@@ -153,14 +156,17 @@ async function sendBackendJson<T>(
     return { data: null, errorMessage: 'Not signed in. Refresh the page or sign in again.' };
   }
   try {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+    };
+    if (body !== undefined && body !== null) {
+      headers['Content-Type'] = 'application/json';
+    }
     const response = await fetch(`${getApiBaseUrl()}${path}`, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+      headers,
+      body: body === undefined || body === null ? undefined : JSON.stringify(body),
       cache: 'no-store',
     });
     const raw = await response.text();
@@ -219,6 +225,40 @@ export async function patchCompanyApplicationDecision(
     accessToken,
     'PATCH',
     { approved }
+  );
+}
+
+export async function approveCompanyApplication(
+  accessToken: string,
+  applicationId: number
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<ApplicationResponse>(
+    `/api/company/applications/${applicationId}/approve`,
+    accessToken,
+    'PATCH',
+    null
+  );
+}
+
+export async function rejectCompanyApplication(
+  accessToken: string,
+  applicationId: number
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<ApplicationResponse>(
+    `/api/company/applications/${applicationId}/reject`,
+    accessToken,
+    'PATCH',
+    null
+  );
+}
+
+export async function fetchCompanyStudentProfile(
+  accessToken: string,
+  studentId: number
+): Promise<{ data: StudentProfileResponse | null; errorMessage: string | null }> {
+  return fetchBackendJson<StudentProfileResponse>(
+    `/api/company/students/${studentId}/profile`,
+    accessToken
   );
 }
 

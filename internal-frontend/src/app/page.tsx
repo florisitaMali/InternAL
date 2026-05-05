@@ -8,6 +8,7 @@ import UniversityAdminDashboard from '@/src/components/UniversityAdminDashboard'
 import PPADashboard from '@/src/components/PPADashboard';
 import StudentDashboard from '@/src/components/StudentDashboard';
 import CompanyDashboard from '@/src/components/CompanyDashboard';
+import SystemAdminDashboard from '@/src/components/SystemAdminDashboard';
 import LoginPage from '@/src/components/LoginPage';
 import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
 import { toast } from 'sonner';
@@ -22,6 +23,7 @@ const ROLE_LABELS: Record<Role, string> = {
   PPA: 'PPA',
   STUDENT: 'Student',
   COMPANY: 'Company',
+  SYSTEM_ADMIN: 'System Admin',
 };
 
 export default function Home() {
@@ -57,9 +59,6 @@ export default function Home() {
    */
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    // #region agent log
-    fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'A',location:'page.tsx:hashEffect',message:'root page.tsx hash effect running',data:{pathname:window.location.pathname,hash:window.location.hash.slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     const raw = window.location.hash.replace(/^#/, '');
     if (!raw) return;
     const params = new URLSearchParams(raw);
@@ -94,16 +93,19 @@ export default function Home() {
       }
 
       const meta = session.user.user_metadata as Record<string, unknown> | undefined;
-      // #region agent log
-      fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'C',location:'page.tsx:sync',message:'sync() called in root page',data:{pathname:typeof window!=='undefined'?window.location.pathname:'?',role:meta?.internaal_app_role,inviteDone:meta?.invite_password_completed},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       // Invited PPAs carry internaal_app_role in JWT — redirect before /api/me so a broken production API cannot block onboarding.
       if (meta?.internaal_app_role === 'PPA' && meta?.invite_password_completed !== true) {
-        // #region agent log
-        fetch('http://127.0.0.1:7601/ingest/679b732b-d66e-4ef5-8e05-cde1018560dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4a785e'},body:JSON.stringify({sessionId:'4a785e',hypothesisId:'C',location:'page.tsx:sync:ppaRedirect',message:'root page firing PPA invite redirect',data:{pathname:typeof window!=='undefined'?window.location.pathname:'?'},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         if (typeof window !== 'undefined') {
-          window.location.replace('/auth/set-password');
+          // Only redirect to set-password when arriving from an actual invite email link.
+          // A stale stored session (no invite hash) would create a redirect loop; sign out instead.
+          const hasInviteHash = window.location.hash.includes('type=invite') || window.location.hash.includes('access_token');
+          if (hasInviteHash) {
+            window.location.replace('/auth/set-password');
+          } else {
+            clearSupabaseAuthStorage();
+            try { await supabase!.auth.signOut({ scope: 'local' }); } catch { /* ignore */ }
+            resetLocalUserState();
+          }
         }
         return;
       }
@@ -226,6 +228,9 @@ export default function Home() {
     if ((role === 'STUDENT' || role === 'COMPANY') && activeTab === 'dashboard') {
       setActiveTab('opportunities');
     }
+    if (role === 'SYSTEM_ADMIN' && activeTab === 'dashboard') {
+      setActiveTab('universities');
+    }
   }, [isLoggedIn, role, activeTab]);
 
   /** Legacy sidebar tab id removed; migrate old sessions still on "notifications". */
@@ -341,6 +346,17 @@ export default function Home() {
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
             linkedEntityId={linkedEntityId}
+          />
+        );
+      case 'SYSTEM_ADMIN':
+        return (
+          <SystemAdminDashboard
+            activeTab={activeTab}
+            currentUserName={currentUserName}
+            currentUserRoleLabel={roleLabel}
+            onToggleSidebar={handleToggleSidebar}
+            accessToken={accessToken}
+            accessTokenRef={accessTokenRef}
           />
         );
       default:

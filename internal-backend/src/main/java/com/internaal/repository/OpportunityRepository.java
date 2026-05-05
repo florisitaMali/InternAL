@@ -81,7 +81,7 @@ public class OpportunityRepository {
                 + "required_skills,required_experience,deadline,start_date,type,"
                 + "position_count,job_location,work_mode,work_type,duration,salary_monthly,nice_to_have,"
                 + "is_draft,is_paid,created_at,"
-                + "company(name,location),"
+                + "company(name,location,university(name)),"
                 + "opportunitytarget(university_id,university(name))";
     }
 

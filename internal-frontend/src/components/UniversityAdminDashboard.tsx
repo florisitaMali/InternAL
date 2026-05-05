@@ -6,6 +6,7 @@ import Dashboard from './Dashboard';
 import AddStudentForm from './AddStudentForm';
 import ImportCSVForm from './ImportCSVForm';
 import UnderDevelopment from './UnderDevelopment';
+import OpportunityDetailView from '@/src/components/OpportunityDetailView';
 import {
   createAdminPpa,
   deleteAdminPpa,
@@ -15,14 +16,24 @@ import {
   fetchAdminDashboardStats,
   fetchAdminDepartments,
   fetchAdminOpportunities,
+  fetchAdminOpportunityDetail,
   fetchAdminPpas,
   fetchAdminStudents,
   fetchAdminStudyFields,
+  mapAdminOpportunityDetailToOpportunity,
+  mapAdminOpportunitySummaryToOpportunity,
   mapApplicationResponseToApplication,
   updateAdminPpa,
+  type AdminOpportunityRow,
 } from '@/src/lib/auth/admin';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
-import type { Application, DashboardStats, Department, PPAApprover, Student, StudyField } from '@/src/types';
+import {
+  formatDbDuration,
+  formatExploreWorkMode,
+  formatRelativePosted,
+  getOpportunityCardInitials,
+} from '@/src/lib/opportunityFormat';
+import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
 import { toast } from 'sonner';
 import { 
   Users, 
@@ -33,6 +44,8 @@ import {
   Upload, 
   Search,
   Building2,
+  Clock,
+  MapPin,
   Trash2,
   Edit2,
   X,
@@ -69,9 +82,12 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     ppaApprovers: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [adminOpportunities, setAdminOpportunities] = useState<
-    { opportunityId: number; title: string | null; companyName: string | null; deadline: string | null; type: string | null }[]
-  >([]);
+  const [adminOpportunities, setAdminOpportunities] = useState<AdminOpportunityRow[]>([]);
+  const [oppDeadlineFilter, setOppDeadlineFilter] = useState<'all' | 'active' | 'expired'>('all');
+  const [adminExploreSelectedId, setAdminExploreSelectedId] = useState<string | null>(null);
+  const [adminExploreDetail, setAdminExploreDetail] = useState<Opportunity | null>(null);
+  const [adminExploreDetailLoading, setAdminExploreDetailLoading] = useState(false);
+  const [adminExploreDetailError, setAdminExploreDetailError] = useState<string | null>(null);
   const [adminApplications, setAdminApplications] = useState<Application[]>([]);
   const [adminCompanies, setAdminCompanies] = useState<{ companyId: number; name: string; industry: string | null }[]>([]);
   const [ppas, setPpas] = useState<PPAApprover[]>([]);
@@ -108,7 +124,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           departmentsRes,
           fieldsRes,
           statsRes,
-          oppsRes,
           appsRes,
           companiesRes,
           ppasRes,
@@ -117,7 +132,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           fetchAdminDepartments(token),
           fetchAdminStudyFields(token),
           fetchAdminDashboardStats(token),
-          fetchAdminOpportunities(token, 100),
           fetchAdminApplications(token),
           fetchAdminCompanies(token, 10),
           fetchAdminPpas(token),
@@ -130,8 +144,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         else if (fieldsRes.data) setStudyFields(fieldsRes.data);
         if (statsRes.errorMessage) toast.error(statsRes.errorMessage);
         else if (statsRes.data) setStats(statsRes.data);
-        if (oppsRes.errorMessage) toast.error(oppsRes.errorMessage);
-        else if (oppsRes.data) setAdminOpportunities(oppsRes.data);
         if (appsRes.errorMessage) toast.error(appsRes.errorMessage);
         else if (appsRes.data) setAdminApplications(appsRes.data.map(mapApplicationResponseToApplication));
         if (companiesRes.errorMessage) toast.error(companiesRes.errorMessage);
@@ -149,6 +161,54 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     void loadData();
   }, [resolveAccessToken]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const token = await resolveAccessToken();
+      if (!token || cancelled) return;
+      const res = await fetchAdminOpportunities(token, { limit: 200, status: oppDeadlineFilter });
+      if (cancelled) return;
+      if (res.errorMessage) toast.error(res.errorMessage);
+      else if (res.data) setAdminOpportunities(res.data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [oppDeadlineFilter, resolveAccessToken]);
+
+  const adminOpportunityById = useMemo(() => {
+    const m = new Map<string, Opportunity>();
+    for (const row of adminOpportunities) {
+      m.set(String(row.opportunityId), mapAdminOpportunitySummaryToOpportunity(row));
+    }
+    return m;
+  }, [adminOpportunities]);
+
+  const openOpportunityDetail = useCallback(
+    async (id: number) => {
+      setAdminExploreSelectedId(String(id));
+      setAdminExploreDetail(null);
+      setAdminExploreDetailLoading(true);
+      setAdminExploreDetailError(null);
+      const token = await resolveAccessToken();
+      if (!token) {
+        setAdminExploreDetailLoading(false);
+        toast.error('Not signed in.');
+        setAdminExploreSelectedId(null);
+        return;
+      }
+      const res = await fetchAdminOpportunityDetail(token, id);
+      setAdminExploreDetailLoading(false);
+      if (res.errorMessage) {
+        setAdminExploreDetailError(res.errorMessage);
+        toast.error(res.errorMessage);
+      } else if (res.data) {
+        setAdminExploreDetail(mapAdminOpportunityDetailToOpportunity(res.data));
+      }
+    },
+    [resolveAccessToken]
+  );
+
   const filteredStudents = useMemo(
     () =>
       students.filter((student) =>
@@ -160,13 +220,28 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   const filteredAdminOpportunities = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return adminOpportunities;
-    return adminOpportunities.filter(
-      (o) =>
+    return adminOpportunities.filter((o) => {
+      const targets = (o.targetUniversityNames ?? []).join(' ').toLowerCase();
+      const skills = (o.requiredSkills ?? []).join(' ').toLowerCase();
+      const desc = (o.description ?? '').toLowerCase();
+      return (
         (o.title || '').toLowerCase().includes(q) ||
         (o.companyName || '').toLowerCase().includes(q) ||
-        (o.type || '').toLowerCase().includes(q)
-    );
+        (o.type || '').toLowerCase().includes(q) ||
+        (o.location || '').toLowerCase().includes(q) ||
+        (o.affiliatedUniversityName || '').toLowerCase().includes(q) ||
+        targets.includes(q) ||
+        skills.includes(q) ||
+        desc.includes(q)
+      );
+    });
   }, [adminOpportunities, searchTerm]);
+
+  const opportunityCountLabel = useMemo(() => {
+    if (oppDeadlineFilter === 'active') return 'Active opportunities';
+    if (oppDeadlineFilter === 'expired') return 'Expired opportunities';
+    return 'All opportunities';
+  }, [oppDeadlineFilter]);
 
   const filteredAdminApplications = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -526,53 +601,188 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     </div>
   );
 
-  const renderOpportunities = () => (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-        <h2 className="text-lg font-bold text-slate-900">All Internship Opportunities</h2>
-        <div className="flex gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search opportunities..." 
+  const renderOpportunities = () => {
+    if (adminExploreSelectedId) {
+      const listOpp = adminOpportunityById.get(adminExploreSelectedId) ?? null;
+      const displayOpp = adminExploreDetail ?? listOpp;
+      if (adminExploreDetailLoading && !adminExploreDetail && !listOpp) {
+        return (
+          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+            Loading opportunity details…
+          </div>
+        );
+      }
+      if (adminExploreDetailError && !adminExploreDetail && !listOpp) {
+        return (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-8 text-sm text-red-800">
+              {adminExploreDetailError}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setAdminExploreSelectedId(null);
+                setAdminExploreDetail(null);
+                setAdminExploreDetailError(null);
+              }}
+              className="text-sm font-semibold text-[#002B5B] hover:underline"
+            >
+              ← Back
+            </button>
+          </div>
+        );
+      }
+      if (!displayOpp) {
+        return null;
+      }
+      return (
+        <OpportunityDetailView
+          variant="student"
+          opportunity={displayOpp}
+          onBack={() => {
+            setAdminExploreSelectedId(null);
+            setAdminExploreDetail(null);
+            setAdminExploreDetailError(null);
+          }}
+          showApplicationStats={false}
+        />
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold text-[#002B5B] tracking-tight">Explore opportunities</h2>
+          <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#002B5B]/10 px-2.5 py-1 text-xs font-semibold text-[#002B5B]">
+            <span>{opportunityCountLabel}</span>
+            <span className="h-1 w-1 rounded-full bg-[#002B5B]/50" />
+            <span>{filteredAdminOpportunities.length}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="text"
+              placeholder="Search by title, company, skills, or location…"
               suppressHydrationWarning
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none w-64"
+              className="w-full pl-11 pr-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-[#002B5B]/30 focus:border-[#002B5B] outline-none shadow-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {(['all', 'active', 'expired'] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                suppressHydrationWarning
+                onClick={() => setOppDeadlineFilter(key)}
+                className={cn(
+                  'px-4 py-3 rounded-xl text-xs font-bold transition-all border shadow-sm',
+                  oppDeadlineFilter === key
+                    ? 'bg-[#001F42] text-white border-[#001F42]'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                )}
+              >
+                {key === 'all' ? 'All' : key === 'active' ? 'Active' : 'Expired'}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="divide-y divide-slate-100">
+
         {filteredAdminOpportunities.length === 0 ? (
-          <div className="p-8 text-sm text-slate-500">No opportunities found.</div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 space-y-2">
+            <h3 className="text-lg font-bold text-slate-900">No opportunities match this filter</h3>
+            <p className="text-sm text-slate-500">Try another deadline filter or broaden your search.</p>
+          </div>
         ) : (
-          filteredAdminOpportunities.map((opp) => (
-            <div key={opp.opportunityId} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-[#002B5B]/10 text-[#002B5B] rounded-lg flex items-center justify-center font-bold">
-                  {(opp.title || '?')[0]}
-                </div>
-                <div>
-                  <div className="font-bold text-slate-900">{opp.title || '—'}</div>
-                  <div className="text-xs text-slate-500">
-                    {opp.companyName || '—'} • Deadline: {opp.deadline || '—'}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {filteredAdminOpportunities.map((row) => {
+              const opp = adminOpportunityById.get(String(row.opportunityId));
+              if (!opp) return null;
+              return (
+                <div
+                  key={row.opportunityId}
+                  className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5 hover:shadow-md transition-shadow duration-200 flex flex-col"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0 w-14 h-14 bg-[#002B5B] rounded-lg flex items-center justify-center font-bold text-white text-sm tracking-wide">
+                      {getOpportunityCardInitials(opp.companyName)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-bold text-[#002B5B] leading-snug">{opp.title}</h3>
+                      <p className="text-slate-600 text-sm font-medium mt-0.5">{opp.companyName}</p>
+                      {opp.affiliatedUniversityName?.trim() ? (
+                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                          <GraduationCap size={12} className="text-slate-400 shrink-0" aria-hidden />
+                          <span>{opp.affiliatedUniversityName.trim()}</span>
+                        </p>
+                      ) : null}
+                      <p className="text-xs text-slate-400 mt-1">{formatRelativePosted(opp.createdAt)}</p>
+                    </div>
+                  </div>
+
+                  <p className="text-slate-600 text-sm mt-4 leading-relaxed line-clamp-2">
+                    {opp.description || 'No description provided.'}
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-xs text-slate-500">
+                    <span className="flex items-center gap-1.5">
+                      <MapPin size={14} className="flex-shrink-0 text-slate-400" />
+                      {opp.location?.trim() || '—'}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Building2 size={14} className="flex-shrink-0 text-slate-400" />
+                      {(opp.workMode && (formatExploreWorkMode(opp.workMode) || opp.workMode)) || '—'}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Clock size={14} className="flex-shrink-0 text-slate-400" />
+                      {opp.duration ? formatDbDuration(opp.duration) : '—'}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 min-h-[1.5rem]">
+                    {opp.requiredSkills && opp.requiredSkills.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {opp.requiredSkills.slice(0, 6).map((skill) => (
+                          <span
+                            key={skill}
+                            className="px-2.5 py-1 rounded-md bg-sky-100/90 text-xs font-semibold text-sky-900"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">No skills listed</p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-slate-100">
+                    <span className="text-xs font-medium text-slate-500">
+                      {typeof opp.applicantCount === 'number'
+                        ? `${opp.applicantCount} applicant${opp.applicantCount === 1 ? '' : 's'}`
+                        : '—'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void openOpportunityDetail(row.opportunityId)}
+                      suppressHydrationWarning
+                      className="px-4 py-2 border-2 border-[#002B5B] text-[#002B5B] bg-white rounded-xl text-sm font-bold hover:bg-slate-50 transition-all whitespace-nowrap"
+                    >
+                      View Details
+                    </button>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
-                  {opp.type || '—'}
-                </span>
-                <button suppressHydrationWarning className="text-[#002B5B] text-xs font-bold hover:underline">View Details</button>
-              </div>
-            </div>
-          ))
+              );
+            })}
+          </div>
         )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderApplications = () => (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -907,7 +1117,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
 
   return (
     <Dashboard
-      title={`Hello, ${currentUserName}`}
+      title=""
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}

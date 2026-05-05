@@ -7,9 +7,7 @@ import com.internaal.dto.CompanyOpportunityUpdateRequest;
 import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.TargetUniversitiesResponse;
-import com.internaal.dto.TargetUniversityOption;
 import com.internaal.entity.Opportunity;
-import com.internaal.entity.TargetUniversity;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.exception.ValidationException;
@@ -437,54 +435,7 @@ public class CompanyOpportunityService {
         return s.trim();
     }
 
-    private static List<Integer> targetUniversityIds(Opportunity o) {
-        if (o.targetUniversities() == null) {
-            return List.of();
-        }
-        return o.targetUniversities().stream().map(TargetUniversity::id).toList();
-    }
-
-    private static List<TargetUniversityOption> targetUniversityOptions(Opportunity o) {
-        if (o.targetUniversities() == null || o.targetUniversities().isEmpty()) {
-            return List.of();
-        }
-        return o.targetUniversities().stream()
-                .map(t -> new TargetUniversityOption(
-                        t.id(),
-                        t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id())))
-                .toList();
-    }
-
     private static OpportunityResponseItem toItem(Opportunity o, int skillMatchCount) {
-        String typeStr = o.type();
-        String wm = o.workMode() == null ? null : o.workMode().toApiValue();
-        String wt = o.workType();
-        return new OpportunityResponseItem(
-                o.id(),
-                o.companyId(),
-                o.companyName(),
-                o.title(),
-                o.description(),
-                o.requiredSkills(),
-                o.requiredExperience(),
-                o.deadline(),
-                o.startDate(),
-                targetUniversityIds(o),
-                targetUniversityOptions(o),
-                typeStr,
-                o.location(),
-                o.isPaid(),
-                wm,
-                o.positionCount(),
-                wt,
-                o.duration(),
-                o.salaryMonthly(),
-                o.niceToHave(),
-                o.draft(),
-                o.postedAt(),
-                skillMatchCount,
-                o.code(),
-                o.createdAt(),
-                0);
+        return OpportunityMapper.toResponseItem(o, skillMatchCount);
     }
 }

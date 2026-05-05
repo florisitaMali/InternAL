@@ -4,6 +4,7 @@ import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
 import com.internaal.dto.AdminDepartmentResponse;
 import com.internaal.dto.AdminOpportunitySummaryResponse;
+import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.AdminPpaCreateRequest;
 import com.internaal.dto.AdminPpaResponse;
 import com.internaal.dto.AdminPpaUpdateRequest;
@@ -13,13 +14,16 @@ import com.internaal.dto.AdminStudyFieldResponse;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
+import com.internaal.entity.Opportunity;
 import com.internaal.repository.ApplicationRepository;
+import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.UniversityAdminRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class UniversityAdminService {
@@ -162,9 +166,58 @@ public class UniversityAdminService {
         return universityAdminRepository.listCompanies(Math.min(Math.max(limit, 1), 50));
     }
 
-    public List<AdminOpportunitySummaryResponse> listOpportunitySummaries(UserAccount user, int limit) {
+    public List<AdminOpportunitySummaryResponse> listOpportunitySummaries(
+            UserAccount user, String status, int limit) {
         requireAdmin(user);
-        return universityAdminRepository.listOpportunitySummaries(Math.min(Math.max(limit, 1), 200));
+        int universityId = parseUniversityId(user);
+        List<AdminOpportunitySummaryResponse> rows = universityAdminRepository.listOpportunitySummariesForUniversityAdmin(
+                universityId, status, Math.min(Math.max(limit, 1), 200));
+        if (rows.isEmpty()) {
+            return rows;
+        }
+        List<Integer> ids = rows.stream().map(AdminOpportunitySummaryResponse::opportunityId).toList();
+        Map<Integer, Integer> counts = applicationRepository.countApplicationsByOpportunityIds(ids);
+        return rows.stream()
+                .map(r -> new AdminOpportunitySummaryResponse(
+                        r.opportunityId(),
+                        r.companyId(),
+                        r.title(),
+                        r.companyName(),
+                        r.affiliatedUniversityName(),
+                        r.deadline(),
+                        r.type(),
+                        r.targetUniversityNames(),
+                        r.description(),
+                        r.location(),
+                        r.workMode(),
+                        r.duration(),
+                        r.createdAt(),
+                        r.requiredSkills(),
+                        counts.getOrDefault(r.opportunityId(), 0)))
+                .toList();
+    }
+
+    public OpportunityResponseItem getOpportunityDetailForUniversity(UserAccount user, int opportunityId) {
+        requireAdmin(user);
+        int universityId = parseUniversityId(user);
+        Opportunity o = universityAdminRepository.findPublishedOpportunityForUniversity(opportunityId, universityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
+        Map<Integer, Integer> counts = applicationRepository.countApplicationsByOpportunityIds(List.of(opportunityId));
+        int applicantCount = counts.getOrDefault(opportunityId, 0);
+        return OpportunityMapper.toResponseItem(o, 0, applicantCount);
+    }
+
+    private static int parseUniversityId(UserAccount user) {
+        if (user.getLinkedEntityId() == null || user.getLinkedEntityId().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "University admin account is not linked to a university");
+        }
+        try {
+            return Integer.parseInt(user.getLinkedEntityId().trim());
+        } catch (NumberFormatException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "linked_entity_id must be a numeric university_id");
+        }
     }
 
     public List<ApplicationResponse> listAllApplications(UserAccount user) {

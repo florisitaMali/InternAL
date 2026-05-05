@@ -4,6 +4,7 @@ import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
 import com.internaal.dto.AdminDepartmentResponse;
 import com.internaal.dto.AdminOpportunitySummaryResponse;
+import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.AdminPpaCreateRequest;
 import com.internaal.dto.AdminPpaResponse;
 import com.internaal.dto.AdminPpaUpdateRequest;
@@ -113,8 +114,16 @@ public class UniversityAdminController {
     @GetMapping("/opportunities")
     public List<AdminOpportunitySummaryResponse> opportunities(
             @AuthenticationPrincipal UserAccount user,
-            @RequestParam(name = "limit", defaultValue = "100") int limit) {
-        return universityAdminService.listOpportunitySummaries(user, limit);
+            @RequestParam(name = "limit", defaultValue = "100") int limit,
+            @RequestParam(name = "status", defaultValue = "all") String status) {
+        return universityAdminService.listOpportunitySummaries(user, status, limit);
+    }
+
+    @GetMapping("/opportunities/{opportunityId}")
+    public OpportunityResponseItem opportunityDetail(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("opportunityId") int opportunityId) {
+        return universityAdminService.getOpportunityDetailForUniversity(user, opportunityId);
     }
 
     @GetMapping("/applications")

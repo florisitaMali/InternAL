@@ -11,6 +11,7 @@ public record OpportunityResponseItem(
         Integer id,
         Integer companyId,
         String companyName,
+        String affiliatedUniversityName,
         String title,
         String description,
         List<String> requiredSkills,

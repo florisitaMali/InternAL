@@ -238,6 +238,7 @@ public class CompanyService {
                 o.id(),
                 o.companyId(),
                 o.companyName(),
+                o.affiliatedUniversityName(),
                 o.title(),
                 o.description(),
                 o.requiredSkills(),

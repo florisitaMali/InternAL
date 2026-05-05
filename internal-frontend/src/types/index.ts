@@ -144,6 +144,8 @@ export interface Opportunity {
   id: string;
   companyId: string;
   companyName: string;
+  /** When the employer company is linked to a university in the database (PostgREST embed). */
+  affiliatedUniversityName?: string | null;
   title: string;
   description: string;
   requiredSkills: string[];

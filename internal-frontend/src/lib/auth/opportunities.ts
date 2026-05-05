@@ -5,6 +5,7 @@ type StudentOpportunityResponseItem = {
   id: number;
   companyId: number;
   companyName: string | null;
+  affiliatedUniversityName?: string | null;
   title: string | null;
   description: string | null;
   requiredSkills: string[] | null;
@@ -64,6 +65,7 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
     id: String(item.id),
     companyId: String(item.companyId),
     companyName: item.companyName || 'Unknown company',
+    affiliatedUniversityName: item.affiliatedUniversityName?.trim() || undefined,
     title: item.title || 'Untitled opportunity',
     description: item.description || '',
     requiredSkills: item.requiredSkills || [],

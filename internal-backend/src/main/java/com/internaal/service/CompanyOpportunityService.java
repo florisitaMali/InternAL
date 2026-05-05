@@ -11,6 +11,7 @@ import com.internaal.entity.Opportunity;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.exception.ValidationException;
+import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyOpportunityWriteRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.OpportunityRepository;
@@ -31,12 +32,15 @@ public class CompanyOpportunityService {
 
     private final OpportunityRepository opportunityRepository;
     private final CompanyOpportunityWriteRepository writeRepository;
+    private final ApplicationRepository applicationRepository;
 
     public CompanyOpportunityService(
             OpportunityRepository opportunityRepository,
-            CompanyOpportunityWriteRepository writeRepository) {
+            CompanyOpportunityWriteRepository writeRepository,
+            ApplicationRepository applicationRepository) {
         this.opportunityRepository = opportunityRepository;
         this.writeRepository = writeRepository;
+        this.applicationRepository = applicationRepository;
     }
 
     public CompanyOpportunitiesResponse list(UserAccount user) {
@@ -59,7 +63,9 @@ public class CompanyOpportunityService {
         int companyId = parseCompanyId(user);
         Opportunity o = opportunityRepository.findByIdAndCompanyId(opportunityId, companyId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
-        return new CompanyOpportunityDetailResponse(toItem(o, 0), emptyStats());
+        OpportunityApplicationStatsDto stats =
+                applicationRepository.statsForCompanyOpportunity(companyId, opportunityId);
+        return new CompanyOpportunityDetailResponse(toItem(o, 0), stats);
     }
 
     /**
@@ -231,7 +237,9 @@ public class CompanyOpportunityService {
                         HttpStatus.BAD_GATEWAY,
                         "Opportunity could not be reloaded after update."
                 ));
-        return new CompanyOpportunityDetailResponse(toItem(updated, 0), emptyStats());
+        OpportunityApplicationStatsDto stats =
+                applicationRepository.statsForCompanyOpportunity(companyId, opportunityId);
+        return new CompanyOpportunityDetailResponse(toItem(updated, 0), stats);
     }
 
     public void delete(UserAccount user, int opportunityId) {

@@ -42,7 +42,7 @@ public class ApplicationService {
         ApplicationResponse result = applicationRepository.save(studentId, request)
                 .orElseThrow(() -> new RuntimeException("Failed to submit application"));
         try {
-            notifyAfterSubmission(studentId, result);
+            notifyAfterSubmission(studentId, result, request);
         } catch (Exception e) {
             log.warn("Could not create application notification: {}", e.getMessage());
         }
@@ -55,12 +55,12 @@ public class ApplicationService {
      * Individual growth → company that owns the listing ({@code recipient_id} = {@code company_id},
      * matching {@code useraccount.linked_entity_id} for company accounts).
      */
-    private void notifyAfterSubmission(Integer studentId, ApplicationResponse application) {
+    private void notifyAfterSubmission(Integer studentId, ApplicationResponse application, ApplicationRequest originalRequest) {
         String normalized = normalizeApplicationType(application.getApplicationType());
         if (PROFESSIONAL_PRACTICE_TYPE.equals(normalized)) {
-            notifyPpaProfessionalPractice(studentId, application);
+            notifyPpaProfessionalPractice(studentId, application, originalRequest);
         } else if (INDIVIDUAL_GROWTH_TYPE.equals(normalized)) {
-            notifyCompanyIndividualGrowth(studentId, application);
+            notifyCompanyIndividualGrowth(studentId, application, originalRequest);
         }
     }
 
@@ -71,7 +71,7 @@ public class ApplicationService {
         return raw.trim().toUpperCase().replace(' ', '_');
     }
 
-    private void notifyPpaProfessionalPractice(Integer studentId, ApplicationResponse application) {
+    private void notifyPpaProfessionalPractice(Integer studentId, ApplicationResponse application, ApplicationRequest originalRequest) {
         Optional<StudentBrief> briefOpt = applicationRepository.findStudentBrief(studentId);
         if (briefOpt.isEmpty()) {
             log.warn("PPA notification skipped: no student row for student_id={}", studentId);
@@ -84,7 +84,7 @@ public class ApplicationService {
         }
 
         String studentName = resolveStudentName(studentId, brief, application);
-        String oppTitle = resolveOpportunityTitle(application);
+        String oppTitle = resolveOpportunityTitleForNotificationMessage(application, originalRequest);
 
         String message = studentName + " submitted a professional practice application for \"" + oppTitle + "\".";
 
@@ -93,14 +93,15 @@ public class ApplicationService {
                 brief.universityId(),
                 message,
                 Role.STUDENT,
-                studentId
+                studentId,
+                application.getApplicationId()
         );
         if (!ok) {
             log.warn("PPA notification insert returned false for student_id={}", studentId);
         }
     }
 
-    private void notifyCompanyIndividualGrowth(Integer studentId, ApplicationResponse application) {
+    private void notifyCompanyIndividualGrowth(Integer studentId, ApplicationResponse application, ApplicationRequest originalRequest) {
         Integer companyId = application.getCompanyId();
         if (companyId == null) {
             log.warn("Company notification skipped: application has no company_id");
@@ -111,7 +112,7 @@ public class ApplicationService {
         String studentName = briefOpt.map(this::nameFromBrief).filter(s -> !s.isBlank())
                 .orElseGet(() -> fallbackStudentName(application));
 
-        String oppTitle = resolveOpportunityTitle(application);
+        String oppTitle = resolveOpportunityTitleForNotificationMessage(application, originalRequest);
 
         String message = studentName + " submitted an individual growth application for \"" + oppTitle + "\".";
 
@@ -120,7 +121,8 @@ public class ApplicationService {
                 companyId,
                 message,
                 Role.STUDENT,
-                studentId
+                studentId,
+                application.getApplicationId()
         );
         if (!ok) {
             log.warn("Company notification insert returned false for student_id={}, company_id={}", studentId, companyId);
@@ -148,12 +150,29 @@ public class ApplicationService {
         return "A student";
     }
 
-    private static String resolveOpportunityTitle(ApplicationResponse application) {
-        String t = application.getOpportunityTitle();
-        if (t == null || t.isBlank()) {
-            return "an opportunity";
+    /**
+     * Uses the same opportunity id the student submitted first (request), then the saved row, then repository fallbacks.
+     * Ensures the notification message never relies solely on PostgREST embeds that may be missing on {@code application}.
+     */
+    private String resolveOpportunityTitleForNotificationMessage(ApplicationResponse application, ApplicationRequest originalRequest) {
+        String embedded = application.getOpportunityTitle();
+        if (embedded != null && !embedded.isBlank()) {
+            return embedded.trim();
         }
-        return t.trim();
+        Integer oid = null;
+        if (originalRequest != null && originalRequest.getOpportunityId() != null) {
+            oid = originalRequest.getOpportunityId();
+        }
+        if (oid == null) {
+            oid = application.getOpportunityId();
+        }
+        if (oid != null) {
+            Optional<String> fromDb = applicationRepository.findOpportunityTitleById(oid);
+            if (fromDb.isPresent()) {
+                return fromDb.get();
+            }
+        }
+        return applicationRepository.resolveOpportunityTitleForNotification(application);
     }
 
     public List<ApplicationResponse> getApplicationsByStudent(Integer studentId) {

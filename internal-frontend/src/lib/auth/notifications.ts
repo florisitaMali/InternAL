@@ -7,6 +7,8 @@ export type NotificationItem = {
   senderPhotoUrl: string | null;
   senderInitials: string;
   senderRole: string;
+  /** When set (e.g. decision on your application), student UI can open that application. */
+  applicationId?: number | null;
 };
 
 export type NotificationsListResponse = {

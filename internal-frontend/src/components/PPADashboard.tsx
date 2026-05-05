@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Dashboard from './Dashboard';
 import UnderDevelopment from './UnderDevelopment';
 import NotificationsPanel from './NotificationsPanel';
-import { fetchPpaApplications, fetchPpaStudents, fetchPpaMyStudents } from '@/src/lib/auth/ppa';
+import { fetchPpaApplications, fetchPpaStudents, fetchPpaMyStudents, patchPpaApplicationDecision } from '@/src/lib/auth/ppa';
 import { mapAdminStudentToStudent } from '@/src/lib/auth/admin';
 import type { AdminStudentRow } from '@/src/lib/auth/admin';
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
@@ -33,6 +33,7 @@ interface PPADashboardProps {
   currentUserName: string;
   currentUserRoleLabel: string;
   onToggleSidebar?: () => void;
+  onNavigateTab?: (tab: string) => void;
 }
 
 const PPADashboard: React.FC<PPADashboardProps> = ({
@@ -40,6 +41,7 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
   currentUserName,
   currentUserRoleLabel,
   onToggleSidebar,
+  onNavigateTab,
 }) => {
   const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [searchTerm, setSearchTerm] = useState('');
@@ -52,6 +54,8 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
   const [showStudentFilters, setShowStudentFilters] = useState(false);
   const [myStudentsSearch, setMyStudentsSearch] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<AdminStudentRow | null>(null);
+  const [decisionBusyId, setDecisionBusyId] = useState<number | null>(null);
+  const [notificationScrollApplicationId, setNotificationScrollApplicationId] = useState<number | null>(null);
   const [studentYearFilter, setStudentYearFilter] = useState<string[]>([]);
   const [studentFieldFilter, setStudentFieldFilter] = useState<string[]>([]);
   const [studentAppFilter, setStudentAppFilter] = useState<string[]>([]);
@@ -110,6 +114,42 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
     };
     void load();
   }, []);
+
+  useEffect(() => {
+    if (notificationScrollApplicationId == null) return;
+    if (activeTab !== 'applications') return;
+    const id = notificationScrollApplicationId;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`ppa-application-row-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setNotificationScrollApplicationId(null);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, notificationScrollApplicationId]);
+
+  const handlePpaDecision = async (app: ApplicationResponse, approved: boolean) => {
+    const id = app.applicationId;
+    if (id == null) {
+      toast.error('Missing application id.');
+      return;
+    }
+    setDecisionBusyId(id);
+    try {
+      const token = await getSessionAccessToken();
+      if (!token) {
+        toast.error('Not signed in.');
+        return;
+      }
+      const { data, errorMessage } = await patchPpaApplicationDecision(token, id, approved);
+      if (errorMessage || !data) {
+        toast.error(errorMessage || 'Could not update application.');
+        return;
+      }
+      setApplications((prev) => prev.map((a) => (a.applicationId === id ? data : a)));
+      toast.success(approved ? 'Application approved.' : 'Application rejected.');
+    } finally {
+      setDecisionBusyId(null);
+    }
+  };
 
   const filteredApplications = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -225,7 +265,11 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
               </tr>
             ) : (
               filteredApplications.map((app) => (
-                <tr key={app.applicationId ?? `${app.studentId}-${app.opportunityId}`} className="hover:bg-slate-50 transition-all group">
+                <tr
+                  key={app.applicationId ?? `${app.studentId}-${app.opportunityId}`}
+                  id={app.applicationId != null ? `ppa-application-row-${app.applicationId}` : undefined}
+                  className="hover:bg-slate-50 transition-all group"
+                >
                   <td className="px-6 py-4">
                     <div className="font-bold text-slate-900">{app.studentName || '—'}</div>
                     <div className="text-xs text-slate-500">ID: {app.studentId ?? '—'}</div>
@@ -258,14 +302,20 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
                     {app.isApprovedByPPA == null ? (
                       <div className="flex justify-end gap-2">
                         <button
+                          type="button"
                           suppressHydrationWarning
-                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20"
+                          disabled={decisionBusyId === app.applicationId}
+                          onClick={() => void handlePpaDecision(app, true)}
+                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:pointer-events-none"
                         >
                           Approve
                         </button>
                         <button
+                          type="button"
                           suppressHydrationWarning
-                          className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-500/20"
+                          disabled={decisionBusyId === app.applicationId}
+                          onClick={() => void handlePpaDecision(app, false)}
+                          className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-500/20 disabled:opacity-50 disabled:pointer-events-none"
                         >
                           Reject
                         </button>
@@ -701,6 +751,11 @@ userName={currentUserName}
             close();
           }}
           onUnreadMayHaveChanged={refreshUnreadNotifications}
+          onActivateApplication={(applicationId) => {
+            close();
+            onNavigateTab?.('applications');
+            setNotificationScrollApplicationId(applicationId);
+          }}
           className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
         />
       )}

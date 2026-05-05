@@ -215,6 +215,19 @@ export async function fetchCompanyApplications(
   return fetchBackendJson<ApplicationResponse[]>('/api/company/applications', accessToken);
 }
 
+export async function patchCompanyApplicationDecision(
+  accessToken: string,
+  applicationId: number,
+  approved: boolean
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<ApplicationResponse>(
+    `/api/company/applications/${encodeURIComponent(String(applicationId))}`,
+    accessToken,
+    'PATCH',
+    { approved }
+  );
+}
+
 export async function approveCompanyApplication(
   accessToken: string,
   applicationId: number

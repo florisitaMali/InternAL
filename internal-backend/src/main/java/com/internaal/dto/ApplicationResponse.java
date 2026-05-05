@@ -17,17 +17,23 @@ public class ApplicationResponse {
     private String companyName;
     /** Present when application is loaded with a {@code student} embed (company / admin / PPA views). */
     private String studentName;
-    /** Populated for the company-side View modal. All optional. */
+    /** From embedded {@code student} row (company application list / detail). */
     private String studentEmail;
     private String studentPhone;
     private String studentUniversityName;
+    /** Department name from embedded {@code department}; mirrors faculty on some UIs. */
+    private String studentDepartmentName;
+    /** Alias used by company dashboard labels ("Faculty"). */
     private String studentFacultyName;
+    private String studentStudyFieldName;
+    /** Alias used by company dashboard labels ("Field"). */
     private String studentFieldName;
     private Integer studentStudyYear;
     private Double studentCgpa;
     /** Raw {@code studentprofile.skills} text; frontend splits to a chip list. */
     private String studentSkills;
     private String studentCvUrl;
+    /** From embedded {@code studentprofile.cv_filename}. */
     private String studentCvFilename;
 
     public Integer getApplicationId() { return applicationId; }
@@ -81,8 +87,14 @@ public class ApplicationResponse {
     public String getStudentUniversityName() { return studentUniversityName; }
     public void setStudentUniversityName(String studentUniversityName) { this.studentUniversityName = studentUniversityName; }
 
+    public String getStudentDepartmentName() { return studentDepartmentName; }
+    public void setStudentDepartmentName(String studentDepartmentName) { this.studentDepartmentName = studentDepartmentName; }
+
     public String getStudentFacultyName() { return studentFacultyName; }
     public void setStudentFacultyName(String studentFacultyName) { this.studentFacultyName = studentFacultyName; }
+
+    public String getStudentStudyFieldName() { return studentStudyFieldName; }
+    public void setStudentStudyFieldName(String studentStudyFieldName) { this.studentStudyFieldName = studentStudyFieldName; }
 
     public String getStudentFieldName() { return studentFieldName; }
     public void setStudentFieldName(String studentFieldName) { this.studentFieldName = studentFieldName; }

@@ -1,5 +1,6 @@
 package com.internaal.controller;
 
+import com.internaal.dto.ApplicationDecisionRequest;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.dto.CompanyProfileResponse;
 import com.internaal.dto.CompanyProfileUpdateRequest;
@@ -61,6 +62,17 @@ public class CompanyController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
         }
         return companyService.listApplications(user);
+    }
+
+    @PatchMapping("/applications/{applicationId}")
+    public ApplicationResponse patchApplicationDecision(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable int applicationId,
+            @RequestBody ApplicationDecisionRequest body) {
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        return companyService.updateApplicationDecision(user, applicationId, body);
     }
 
     @PatchMapping("/applications/{applicationId}/approve")

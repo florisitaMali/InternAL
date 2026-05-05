@@ -1,6 +1,7 @@
 package com.internaal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.internaal.dto.ApplicationDecisionRequest;
 import com.internaal.dto.CompanyOpportunityDetailResponse;
 import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.OpportunityResponseItem;
@@ -15,6 +16,7 @@ import com.internaal.dto.StudentFileDownload;
 import com.internaal.dto.StudentProfileResponse;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyRepository;
+import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.OpportunityRepository;
 import com.internaal.repository.StudentProfileRepository;
 import org.springframework.http.HttpStatus;
@@ -34,6 +36,7 @@ public class CompanyService {
     private final CompanyRepository companyRepository;
     private final OpportunityRepository opportunityRepository;
     private final ApplicationRepository applicationRepository;
+    private final NotificationRepository notificationRepository;
     private final StudentProfileRepository studentProfileRepository;
     private final StudentProfileFileService studentProfileFileService;
 
@@ -41,11 +44,13 @@ public class CompanyService {
             CompanyRepository companyRepository,
             OpportunityRepository opportunityRepository,
             ApplicationRepository applicationRepository,
+            NotificationRepository notificationRepository,
             StudentProfileRepository studentProfileRepository,
             StudentProfileFileService studentProfileFileService) {
         this.companyRepository = companyRepository;
         this.opportunityRepository = opportunityRepository;
         this.applicationRepository = applicationRepository;
+        this.notificationRepository = notificationRepository;
         this.studentProfileRepository = studentProfileRepository;
         this.studentProfileFileService = studentProfileFileService;
     }
@@ -127,10 +132,9 @@ public class CompanyService {
     }
 
     /**
-     * Approves or rejects an application on behalf of the company. Verifies ownership and that the
-     * application hasn't already been decided before mutating.
+     * Verifies the application belongs to this company and has no company decision yet.
      */
-    public ApplicationResponse decideApplication(UserAccount user, int applicationId, boolean approved) {
+    private int assertCompanyMayDecide(UserAccount user, int applicationId) {
         int companyId = requireCompanyId(user);
         JsonNode row = applicationRepository.findApplicationOwnership(applicationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Application not found."));
@@ -143,9 +147,47 @@ public class CompanyService {
         if (decisionNode != null && !decisionNode.isNull()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This application has already been decided.");
         }
-        return applicationRepository.setCompanyDecision(applicationId, approved)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Could not update the application. Please try again."));
+        return companyId;
+    }
+
+    /** Persists company approve/reject on an application and notifies the student. */
+    public ApplicationResponse updateApplicationDecision(UserAccount user, int applicationId, ApplicationDecisionRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        int companyId = assertCompanyMayDecide(user, applicationId);
+        ApplicationResponse updated = applicationRepository
+                .patchApprovalByCompany(applicationId, companyId, body.approved())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Application not found or not linked to your company"));
+        notifyStudentOfCompanyDecision(updated, companyId, body.approved());
+        return updated;
+    }
+
+    /**
+     * Same as {@link #updateApplicationDecision} but used by approve/reject routes (no JSON body).
+     */
+    public ApplicationResponse decideApplication(UserAccount user, int applicationId, boolean approved) {
+        return updateApplicationDecision(user, applicationId, new ApplicationDecisionRequest(approved));
+    }
+
+    private void notifyStudentOfCompanyDecision(ApplicationResponse app, int companyId, boolean approved) {
+        Integer studentId = app.getStudentId();
+        Integer appId = app.getApplicationId();
+        if (studentId == null || appId == null) {
+            return;
+        }
+        String safeTitle = applicationRepository.resolveOpportunityTitleForNotification(app);
+        String message = approved
+                ? "Good news: Your application for \"" + safeTitle + "\" was approved."
+                : "Your application for \"" + safeTitle + "\" was not approved by the company.";
+        notificationRepository.insertNotification(
+                Role.STUDENT,
+                studentId,
+                message,
+                Role.COMPANY,
+                companyId,
+                appId);
     }
 
     /**
@@ -201,26 +243,7 @@ public class CompanyService {
     }
 
     private OpportunityApplicationStatsDto statsForOpportunity(int companyId, int opportunityId) {
-        List<ApplicationResponse> apps = applicationRepository.findByCompanyId(companyId);
-        int total = 0;
-        int inReview = 0;
-        int approved = 0;
-        int rejected = 0;
-        for (ApplicationResponse a : apps) {
-            if (a.getOpportunityId() == null || a.getOpportunityId() != opportunityId) {
-                continue;
-            }
-            total++;
-            Boolean c = a.getIsApprovedByCompany();
-            if (Boolean.TRUE.equals(c)) {
-                approved++;
-            } else if (Boolean.FALSE.equals(c)) {
-                rejected++;
-            } else {
-                inReview++;
-            }
-        }
-        return new OpportunityApplicationStatsDto(total, inReview, approved, rejected);
+        return applicationRepository.statsForCompanyOpportunity(companyId, opportunityId);
     }
 
     private static String resolveTypeDisplay(Opportunity o) {

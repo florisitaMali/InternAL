@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import React, { useState, useCallback, useEffect, useRef, useMemo, type MutableRefObject } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo, type MutableRefObject, type ReactNode } from 'react';
 import Image from 'next/image';
 import Dashboard from './Dashboard';
 import AddOpportunityForm from './AddOpportunityForm';
@@ -10,6 +10,7 @@ import NotificationsPanel from './NotificationsPanel';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
 import CompanyOpportunityManageRow from '@/src/components/CompanyOpportunityManageRow';
 import OpportunityDetailView from '@/src/components/OpportunityDetailView';
+import SubmitApplicationModal from './SubmitApplicationModal';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 import {
   uploadCompanyProfilePhoto,
@@ -66,6 +67,8 @@ import {
 import { cn } from '@/src/lib/utils';
 import {
   formatDeadline,
+  formatDbDuration,
+  formatDbWorkType,
   formatOpportunityType,
   formatPostedDisplay,
 } from '@/src/lib/opportunityFormat';
@@ -78,6 +81,7 @@ interface CompanyDashboardProps {
   currentUserRoleLabel: string;
   onToggleSidebar?: () => void;
   onNavigateTab?: (tab: string) => void;
+  onCloseSidebar?: () => void;
   accessToken?: string | null;
   accessTokenRef?: MutableRefObject<string | null>;
   linkedEntityId?: string | number | null;
@@ -89,6 +93,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   currentUserRoleLabel,
   onToggleSidebar,
   onNavigateTab,
+  onCloseSidebar,
   accessTokenRef,
   linkedEntityId,
 }) => {
@@ -99,6 +104,8 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [profileSection, setProfileSection] = useState<'about' | 'opportunities'>('about');
   const [selectedOpportunityDetail, setSelectedOpportunityDetail] = useState<Opportunity | null>(null);
   const [selectedApplicationDetail, setSelectedApplicationDetail] = useState<ApplicationResponse | null>(null);
+  const [applicationListingDetail, setApplicationListingDetail] = useState<Opportunity | null>(null);
+  const [applicationListingDetailLoading, setApplicationListingDetailLoading] = useState(false);
   const [selectedStudentProfile, setSelectedStudentProfile] = useState<ApplicationResponse | null>(null);
   const [studentProfileLoading, setStudentProfileLoading] = useState(false);
   const [studentProfileLoaded, setStudentProfileLoaded] = useState<Student | null>(null);
@@ -133,6 +140,44 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   isEditingProfileRef.current = isEditingProfile;
 
   useEffect(() => {
+    if (selectedApplicationDetail || isEditingProfile || selectedStudentProfile || pendingDecision) {
+      onCloseSidebar?.();
+    }
+  }, [selectedApplicationDetail, isEditingProfile, selectedStudentProfile, pendingDecision, onCloseSidebar]);
+
+  useEffect(() => {
+    const oid = selectedApplicationDetail?.opportunityId;
+    if (oid == null) {
+      setApplicationListingDetail(null);
+      setApplicationListingDetailLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setApplicationListingDetailLoading(true);
+    setApplicationListingDetail(null);
+    void (async () => {
+      try {
+        const accessToken = await getSessionAccessToken();
+        if (!accessToken || cancelled) return;
+        const { data, errorMessage } = await fetchCompanyOpportunityDetail(accessToken, String(oid));
+        if (cancelled) return;
+        if (data) {
+          setApplicationListingDetail(data);
+        } else {
+          toast.error(errorMessage || 'Could not load opportunity details.');
+        }
+      } catch {
+        if (!cancelled) toast.error('Could not load opportunity details.');
+      } finally {
+        if (!cancelled) setApplicationListingDetailLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedApplicationDetail?.opportunityId, selectedApplicationDetail?.applicationId]);
+
+  useEffect(() => {
     if (!profileLogoFile) {
       setLogoObjectUrl(null);
       return;
@@ -159,11 +204,11 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
   const postedDisplayLabel = (opp: Opportunity) => {
     if (opp.draft === true) {
-      return 'Draft — not posted. Students cannot see this listing yet.';
+      return 'Draft ΓÇö not posted. Students cannot see this listing yet.';
     }
     if (opp.postedLabel) return opp.postedLabel;
     if (opp.postedAt) return formatPostedDisplay(opp.postedAt);
-    return '—';
+    return 'ΓÇö';
   };
 
   const loadCompanyApplications = useCallback(async () => {
@@ -481,21 +526,111 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   };
 
   const formatApplicationTypeLabel = (t: string | null) => {
-    if (!t) return '—';
+    if (!t) return 'ΓÇö';
     if (t === 'PROFESSIONAL_PRACTICE') return 'Professional Practice';
     if (t === 'INDIVIDUAL_GROWTH') return 'Individual Growth';
     return t.replace(/_/g, ' ');
   };
 
-  const suffix = (year: number) => {
-    const v = year % 100;
-    if (v >= 11 && v <= 13) return 'th';
-    switch (year % 10) {
-      case 1: return 'st';
-      case 2: return 'nd';
-      case 3: return 'rd';
-      default: return 'th';
+  const studentPropsFromCompanyApplication = (api: ApplicationResponse) => ({
+    fullName: api.studentName?.trim() || '—',
+    email: api.studentEmail?.trim() || '—',
+    university: api.studentUniversityName?.trim() || '—',
+    department: (api.studentDepartmentName ?? api.studentFacultyName)?.trim() || '',
+    studyField: (api.studentStudyFieldName ?? api.studentFieldName)?.trim() || '',
+    studyYear: api.studentStudyYear ?? 1,
+    cgpa: api.studentCgpa ?? 0,
+    cvFileName: api.studentCvFilename?.trim() || 'No CV uploaded',
+  });
+
+  const renderCompanyApplicationListingDetails = (): ReactNode => {
+    if (applicationListingDetailLoading) {
+      return <p className="text-sm text-gray-600">Loading listing details…</p>;
     }
+    if (!applicationListingDetail) {
+      return (
+        <p className="text-sm text-gray-600 rounded-md bg-gray-50 px-3 py-2">
+          Full listing details are unavailable for this application.
+        </p>
+      );
+    }
+    const opp = applicationListingDetail;
+    const meta = [
+      opp.location,
+      opp.workMode,
+      formatDbWorkType(opp.workType),
+      formatDbDuration(opp.duration),
+    ].filter(Boolean);
+    const overviewItems = [
+      ['Target universities', opp.targetUniversities?.map((u) => u.name).join(', ') || 'All universities'],
+      ['Application deadline', formatDeadline(opp.deadline)],
+      ['Start date', formatDeadline(opp.startDate)],
+      ['Positions', opp.positionCount != null ? String(opp.positionCount) : '—'],
+    ];
+
+    return (
+      <div>
+        <h4 className="text-base font-bold text-slate-950">Opportunity</h4>
+        <div className="mt-3 flex flex-col gap-5 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-4">
+              <div className="mt-1 h-12 w-12 shrink-0 rounded-xl bg-[#002B5B]" aria-hidden />
+              <div className="min-w-0">
+                <h5 className="text-xl font-bold text-[#0E2A50]">{opp.title}</h5>
+                <div className="mt-0.5 text-sm font-semibold text-slate-700">{opp.companyName ?? '—'}</div>
+                {meta.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    {meta.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
+                ) : null}
+                {opp.requiredSkills?.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {opp.requiredSkills.slice(0, 5).map((skill) => (
+                      <span key={skill} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3 text-sm text-slate-600">
+              {opp.description ? (
+                <div>
+                  <p className="font-semibold text-slate-900">About the role</p>
+                  <p className="mt-1 leading-6">{opp.description}</p>
+                </div>
+              ) : null}
+              {opp.responsibilities?.length ? (
+                <div>
+                  <p className="font-semibold text-slate-900">Responsibilities</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    {opp.responsibilities.slice(0, 3).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="w-full border-t border-slate-100 pt-4 lg:w-64 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            <p className="text-sm font-bold text-slate-950">Overview</p>
+            <div className="mt-3 space-y-3">
+              {overviewItems.map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-700">{value || '—'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const formatAppliedDate = (value: string | null) => formatDeadline(value ?? undefined);
@@ -560,7 +695,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     />
   ) : null;
 
-  /** Full “My Opportunities” experience from the sidebar (wireframe layout). */
+  /** Full ΓÇ£My OpportunitiesΓÇ¥ experience from the sidebar (wireframe layout). */
   const renderSidebarOpportunitiesPage = () => {
     if (isAddingOpportunity) {
       return opportunityForm;
@@ -642,7 +777,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
         <div className="space-y-4">
           {oppListLoading ? (
-            <p className="text-sm text-slate-500">Loading opportunities…</p>
+            <p className="text-sm text-slate-500">Loading opportunitiesΓÇª</p>
           ) : opportunities.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 py-16 text-center">
               <p className="text-sm font-medium text-slate-600">No opportunities yet.</p>
@@ -693,7 +828,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       const url = URL.createObjectURL(blob);
       const win = window.open(url, '_blank', 'noopener,noreferrer');
       if (!win) {
-        // popup blocked → fall back to a download
+        // popup blocked ΓåÆ fall back to a download
         const a = document.createElement('a');
         a.href = url;
         a.download = fallbackName;
@@ -726,7 +861,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
         </button>
         {studentProfileLoading ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-16 text-center text-sm text-slate-500">
-            Loading profile…
+            Loading profileΓÇª
           </div>
         ) : studentProfileError ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-10 text-center text-sm text-rose-600">
@@ -764,7 +899,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
               if (!path) return;
               void downloadFile(path, file.originalFilename || file.displayName);
             }}
-            /* Edit/add/delete props omitted — StudentProfileView gates each affordance on its callback being defined. */
+            /* Edit/add/delete props omitted ΓÇö StudentProfileView gates each affordance on its callback being defined. */
           />
         ) : null}
       </div>
@@ -778,13 +913,6 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
     const apps = filteredCompanyApplications;
     const totalApps = companyApplications.length;
-    const detail = selectedApplicationDetail;
-
-    const skillsForApp = (a: ApplicationResponse): string[] => {
-      const raw = a.studentSkills;
-      if (!raw) return [];
-      return raw.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
-    };
 
     const statusPill = (status: string | null, isApprovedByCompany: boolean | null) => {
       const label = (status ?? 'WAITING').toUpperCase();
@@ -896,14 +1024,14 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                             onClick={() => setSelectedStudentProfile(app)}
                             className="font-medium text-slate-800 hover:underline focus:outline-none focus:ring-2 focus:ring-[#002B5B] rounded"
                           >
-                            {app.studentName ?? '—'}
+                            {app.studentName ?? 'ΓÇö'}
                           </button>
                         </td>
                         <td className="px-6 py-4 text-center text-sm text-slate-600">
                           {formatAppliedDate(app.createdAt)}
                         </td>
                         <td className="px-6 py-4 text-center text-sm text-slate-700">
-                          {app.opportunityTitle ?? '—'}
+                          {app.opportunityTitle ?? 'ΓÇö'}
                         </td>
                         <td className="px-6 py-4 text-center text-sm text-slate-600">
                           {formatApplicationTypeLabel(app.applicationType)}
@@ -931,133 +1059,34 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
           )}
         </div>
 
-        {/* View Application modal */}
-        {detail ? (() => {
-          const detailSkills = skillsForApp(detail);
-          const detailCvPath = detail.studentId != null ? `/api/company/students/${detail.studentId}/cv` : null;
-          const detailCvName = detail.studentCvFilename ?? 'cv.pdf';
-          const handleDetailDownload = async () => {
-            if (!detailCvPath) return;
-            const accessToken = await getSessionAccessToken();
-            if (!accessToken) {
-              toast.error('Not signed in.');
-              return;
-            }
-            const { errorMessage } = await downloadStudentProfileFile(accessToken, detailCvPath, detailCvName);
-            if (errorMessage) toast.error(errorMessage);
-          };
-          return (
-            <div
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
-              onClick={() => setSelectedApplicationDetail(null)}
-              role="presentation"
-            >
-              <div
-                className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-                role="dialog"
-                aria-modal="true"
-              >
-                {/* Header */}
-                <div className="sticky top-0 z-10 flex items-center justify-between gap-4 bg-[#002B5B] px-10 py-4">
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-lg font-bold text-white">{detail.studentName ?? 'Application'}</h2>
-                    {statusPill(detail.status, detail.isApprovedByCompany)}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedApplicationDetail(null)}
-                    className="rounded-lg p-1.5 text-white/80 hover:bg-white/10"
-                    aria-label="Close"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
+        {selectedApplicationDetail ? (
+          <SubmitApplicationModal
+            key={selectedApplicationDetail.applicationId ?? 'company-app-view'}
+            mode="view"
+            opportunity={{
+              title: selectedApplicationDetail.opportunityTitle ?? 'Opportunity',
+              company: selectedApplicationDetail.companyName ?? '',
+            }}
+            student={studentPropsFromCompanyApplication(selectedApplicationDetail)}
+            onClose={() => setSelectedApplicationDetail(null)}
+            viewReview={{
+              applicationId: selectedApplicationDetail.applicationId,
+              status: selectedApplicationDetail.status,
+              createdAt: selectedApplicationDetail.createdAt,
+              isApprovedByPPA: selectedApplicationDetail.isApprovedByPPA,
+              isApprovedByCompany: selectedApplicationDetail.isApprovedByCompany,
+            }}
+            viewFields={{
+              phoneNumber: selectedApplicationDetail.phoneNumber ?? selectedApplicationDetail.studentPhone,
+              applicationType: selectedApplicationDetail.applicationType,
+              accuracyConfirmed: selectedApplicationDetail.accuracyConfirmed ?? null,
+            }}
+            listingDetails={renderCompanyApplicationListingDetails()}
+            canApplyForPP
+          />
+        ) : null}
 
-                {/* Body */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-8 px-10 py-6">
-                  {/* Left column */}
-                  <section>
-                    <h3 className="pb-2 mb-4 border-b border-slate-200 text-base font-bold text-slate-900">
-                      Personal Information
-                    </h3>
-                    <dl className="grid grid-cols-2 gap-x-10 gap-y-4">
-                      <DetailField label="Email" value={detail.studentEmail} />
-                      <DetailField label="Phone" value={detail.studentPhone} />
-                      <DetailField label="University" value={detail.studentUniversityName} />
-                      <DetailField label="Faculty" value={detail.studentFacultyName} />
-                      <DetailField label="Year of study" value={detail.studentStudyYear ? `${detail.studentStudyYear}${suffix(detail.studentStudyYear)} year` : null} />
-                      <DetailField label="GPA" value={detail.studentCgpa != null ? `${detail.studentCgpa.toFixed(2)} / 4.00` : null} />
-                    </dl>
-
-                    <h3 className="pb-2 mt-8 mb-4 border-b border-slate-200 text-base font-bold text-slate-900">
-                      Application Details
-                    </h3>
-                    <dl className="grid grid-cols-1 gap-y-4">
-                      <DetailField label="Opportunity" value={detail.opportunityTitle} />
-                      <div className="grid grid-cols-2 gap-x-10">
-                        <DetailField label="Type" value={formatApplicationTypeLabel(detail.applicationType)} />
-                        <DetailField label="Date applied" value={formatAppliedDate(detail.createdAt)} />
-                      </div>
-                    </dl>
-                  </section>
-
-                  {/* Right column */}
-                  <section>
-                    <h3 className="pb-2 mb-4 border-b border-slate-200 text-base font-bold text-slate-900">
-                      Resume / CV
-                    </h3>
-                    {detailCvPath && detail.studentCvFilename ? (
-                      <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center flex-shrink-0">
-                            <FileText size={18} />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-800 truncate">
-                              {detail.studentCvFilename}
-                            </p>
-                            <p className="text-xs text-slate-400">PDF Document</p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleDetailDownload()}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#002B5B] hover:bg-[#001F42] px-4 py-2 text-xs font-bold text-white"
-                        >
-                          <Download size={14} />
-                          Download
-                        </button>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-400">No CV uploaded.</p>
-                    )}
-
-                    <h3 className="pb-2 mt-8 mb-4 border-b border-slate-200 text-base font-bold text-slate-900">
-                      Skills
-                    </h3>
-                    {detailSkills.length === 0 ? (
-                      <p className="text-xs text-slate-400">No skills listed.</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {detailSkills.map((s) => (
-                          <span
-                            key={s}
-                            className="px-3 py-1 rounded-full bg-slate-100 text-xs font-medium text-slate-700"
-                          >
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                </div>
-              </div>
-            </div>
-          );
-        })() : null}
-
-        {/* Fixed-position action menu — rendered outside the table so the last row's menu doesn't get clipped */}
+        {/* Fixed-position action menu ΓÇö rendered outside the table so the last row's menu doesn't get clipped */}
         {actionMenu ? (
           <>
             <div
@@ -1155,7 +1184,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                     pendingDecision.approved ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
                   )}
                 >
-                  {decidingId != null ? 'Working…' : pendingDecision.approved ? 'Approve' : 'Reject'}
+                  {decidingId != null ? 'WorkingΓÇª' : pendingDecision.approved ? 'Approve' : 'Reject'}
                 </button>
               </div>
             </div>
@@ -1164,16 +1193,6 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       </>
     );
   };
-
-  const DetailField: React.FC<{ label: string; value: string | number | null | undefined }> = ({ label, value }) => (
-    <div>
-      <dt className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</dt>
-      <dd className="mt-0.5 text-sm font-medium text-slate-800">
-        {value != null && String(value).trim() !== '' ? value : '—'}
-      </dd>
-    </div>
-  );
-
 
   const renderOpportunityDetail = (opportunity: Opportunity) => (
     <OpportunityDetailView
@@ -1440,7 +1459,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       </h3>
       <div className="space-y-3">
         {oppListLoading ? (
-          <p className="text-sm text-slate-500">Loading opportunities…</p>
+          <p className="text-sm text-slate-500">Loading opportunitiesΓÇª</p>
         ) : opportunities.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-10 text-center text-sm text-slate-500">
             You have not created any opportunities yet. Use <strong>My Opportunities</strong> in the sidebar to add one.

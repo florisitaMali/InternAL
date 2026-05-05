@@ -27,6 +27,12 @@ public class StudentProfileResponse {
     /** Matches DB column {@code hasPremium}. */
     @JsonProperty("hasPremium")
     private Boolean hasPremium;
+    /** Stripe subscription status from {@code premium_subscription_status} (e.g. active, canceled). */
+    @JsonProperty("premiumSubscriptionStatus")
+    private String premiumSubscriptionStatus;
+    /** ISO-8601 instant from {@code premium_current_period_end}. */
+    @JsonProperty("premiumCurrentPeriodEnd")
+    private String premiumCurrentPeriodEnd;
     private String accessStartDate;
     private String accessEndDate;
     private String description;
@@ -75,6 +81,14 @@ public class StudentProfileResponse {
     public void setCanApplyForPp(Boolean canApplyForPp) { this.canApplyForPp = canApplyForPp; }
     public Boolean getHasPremium() { return hasPremium; }
     public void setHasPremium(Boolean hasPremium) { this.hasPremium = hasPremium; }
+    public String getPremiumSubscriptionStatus() { return premiumSubscriptionStatus; }
+    public void setPremiumSubscriptionStatus(String premiumSubscriptionStatus) {
+        this.premiumSubscriptionStatus = premiumSubscriptionStatus;
+    }
+    public String getPremiumCurrentPeriodEnd() { return premiumCurrentPeriodEnd; }
+    public void setPremiumCurrentPeriodEnd(String premiumCurrentPeriodEnd) {
+        this.premiumCurrentPeriodEnd = premiumCurrentPeriodEnd;
+    }
     public String getAccessStartDate() { return accessStartDate; }
     public void setAccessStartDate(String accessStartDate) { this.accessStartDate = accessStartDate; }
     public String getAccessEndDate() { return accessEndDate; }

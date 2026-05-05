@@ -33,7 +33,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
-import { getSessionAccessToken, stashCheckoutAccessToken } from '@/src/lib/auth/getSessionAccessToken';
+import {
+  resolveBackendAccessToken,
+  stashCheckoutAccessToken,
+} from '@/src/lib/auth/getSessionAccessToken';
 import { useRouter } from 'next/navigation';
 import type {
   Application,
@@ -57,6 +60,7 @@ import {
   mapStudentProfileToStudent,
   patchCertificationMetadata,
   saveCurrentStudentProfile,
+  createPremiumBillingPortalSession,
   updateStudentExperience,
   updateStudentProject,
   uploadProfilePhoto,
@@ -115,6 +119,16 @@ const EMPTY_FILTERS: OpportunityFilterState = {
   salaryMin: '',
   salaryMax: '',
 };
+
+function formatPremiumPeriodEnd(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
 
 type FilterCheckboxProps = {
   checked: boolean;
@@ -407,17 +421,48 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       if (currentStudent.hasPremium === undefined && prev.hasPremium !== undefined) {
         merged.hasPremium = prev.hasPremium;
       }
+      if (
+        currentStudent.premiumSubscriptionStatus === undefined &&
+        prev.premiumSubscriptionStatus !== undefined
+      ) {
+        merged.premiumSubscriptionStatus = prev.premiumSubscriptionStatus;
+      }
+      if (
+        currentStudent.premiumCurrentPeriodEnd === undefined &&
+        prev.premiumCurrentPeriodEnd !== undefined
+      ) {
+        merged.premiumCurrentPeriodEnd = prev.premiumCurrentPeriodEnd;
+      }
       return merged;
     });
     setIsEditingProfile(false);
   }, [currentStudent]);
 
   const withAccessToken = async <T,>(work: (accessToken: string) => Promise<T>): Promise<T> => {
-    const token = await getSessionAccessToken();
-    if (!token) {
+    /** Prefer shell token from Home, then checkout stash, then Supabase session (same chain as /premium). */
+    const token = await resolveBackendAccessToken(accessToken ?? undefined);
+    if (!token?.trim()) {
       throw new Error('Could not find the current session token. Try signing out and back in.');
     }
-    return work(token);
+    return work(token.trim());
+  };
+
+  const openStripeBillingPortal = async () => {
+    try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const { url, errorMessage } = await withAccessToken((token) =>
+        createPremiumBillingPortalSession(token, {
+          returnUrl: `${origin}/premium/`,
+        })
+      );
+      if (!url || errorMessage) {
+        toast.error(errorMessage || 'Could not open billing portal.');
+        return;
+      }
+      window.location.href = url;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not open billing portal.');
+    }
   };
 
   const reloadStudentProfile = useCallback(async () => {
@@ -1239,7 +1284,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             >
               <X size={18} />
             </button>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-start gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200/80">
                   <Sparkles size={20} strokeWidth={2} aria-hidden />
@@ -1249,15 +1294,38 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <p className="mt-1 text-sm leading-snug text-slate-600">
                     Full skill-ranked Best Matches and Premium highlights are unlocked for your account.
                   </p>
+                  {(student.premiumSubscriptionStatus || student.premiumCurrentPeriodEnd) && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      {student.premiumSubscriptionStatus ? (
+                        <span className="font-medium text-slate-700">
+                          Status: {student.premiumSubscriptionStatus}
+                        </span>
+                      ) : null}
+                      {student.premiumCurrentPeriodEnd ? (
+                        <span className={student.premiumSubscriptionStatus ? ' ml-2' : ''}>
+                          Current period ends {formatPremiumPeriodEnd(student.premiumCurrentPeriodEnd)}
+                        </span>
+                      ) : null}
+                    </p>
+                  )}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => onNavigateTab?.('best-matches')}
-                className="shrink-0 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
-              >
-                View Best Matches
-              </button>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => void openStripeBillingPortal()}
+                  className="rounded-xl border border-emerald-700/40 bg-white px-5 py-2.5 text-sm font-bold text-emerald-900 shadow-sm hover:bg-emerald-50"
+                >
+                  Manage subscription
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab?.('best-matches')}
+                  className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
+                >
+                  View Best Matches
+                </button>
+              </div>
             </div>
           </div>
         ) : (
@@ -1791,6 +1859,40 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
     return (
       <>
+        {student.hasPremium ? (
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-emerald-950">Premium subscription</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {student.premiumSubscriptionStatus ? (
+                    <>
+                      Status:{' '}
+                      <span className="font-semibold text-slate-800">{student.premiumSubscriptionStatus}</span>
+                    </>
+                  ) : (
+                    <span className="text-slate-700">Your Premium subscription is active.</span>
+                  )}
+                  {student.premiumCurrentPeriodEnd ? (
+                    <span className="mt-1 block text-slate-600">
+                      Current billing period ends {formatPremiumPeriodEnd(student.premiumCurrentPeriodEnd)}
+                    </span>
+                  ) : null}
+                </p>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Cancel or update payment method in Stripe&apos;s secure billing portal.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void openStripeBillingPortal()}
+                className="shrink-0 rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 shadow-sm hover:bg-emerald-50"
+              >
+                Manage subscription
+              </button>
+            </div>
+          </div>
+        ) : null}
         <StudentProfileView
           student={student}
           projects={student.projects ?? []}

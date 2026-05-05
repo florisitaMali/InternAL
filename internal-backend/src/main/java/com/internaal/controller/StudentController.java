@@ -1,6 +1,8 @@
 package com.internaal.controller;
 
 import com.internaal.dto.CertificationMetadataUpdateRequest;
+import com.internaal.dto.PremiumBillingPortalRequest;
+import com.internaal.dto.PremiumCheckoutSessionRequest;
 import com.internaal.dto.PremiumMockPaymentRequest;
 import com.internaal.dto.StudentExperienceResponse;
 import com.internaal.dto.StudentExperienceUpsertRequest;
@@ -13,9 +15,12 @@ import com.internaal.dto.StudentProjectUpsertRequest;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.StudentProfileRepository;
+import com.internaal.service.PremiumCheckoutService;
 import com.internaal.service.StudentProfileFileService;
 import com.internaal.service.StudentProfileImageService;
+import com.stripe.exception.StripeException;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -50,14 +55,20 @@ public class StudentController {
     private final StudentProfileRepository studentProfileRepository;
     private final StudentProfileFileService studentProfileFileService;
     private final StudentProfileImageService studentProfileImageService;
+    private final PremiumCheckoutService premiumCheckoutService;
+
+    @Value("${app.premium.mock-payment-enabled:false}")
+    private boolean premiumMockPaymentEnabled;
 
     public StudentController(
             StudentProfileRepository studentProfileRepository,
             StudentProfileFileService studentProfileFileService,
-            StudentProfileImageService studentProfileImageService) {
+            StudentProfileImageService studentProfileImageService,
+            PremiumCheckoutService premiumCheckoutService) {
         this.studentProfileRepository = studentProfileRepository;
         this.studentProfileFileService = studentProfileFileService;
         this.studentProfileImageService = studentProfileImageService;
+        this.premiumCheckoutService = premiumCheckoutService;
     }
 
     @GetMapping("/profile")
@@ -94,15 +105,69 @@ public class StudentController {
         return ResponseEntity.ok(profile.get());
     }
 
+    @PostMapping("/premium/checkout-session")
+    public ResponseEntity<?> createPremiumCheckoutSession(
+            @AuthenticationPrincipal UserAccount user,
+            @RequestBody(required = false) PremiumCheckoutSessionRequest body) {
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthenticated"));
+        }
+        if (user.getRole() != Role.STUDENT) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Forbidden"));
+        }
+        Integer studentId = parseStudentId(user);
+        try {
+            String url = premiumCheckoutService.createCheckoutSession(studentId, body);
+            return ResponseEntity.ok(Map.of("url", url));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", e.getMessage()));
+        } catch (StripeException e) {
+            log.error("Stripe checkout session failed for student_id={}", studentId, e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", "Could not start checkout"));
+        }
+    }
+
+    @PostMapping("/premium/billing-portal")
+    public ResponseEntity<?> createPremiumBillingPortalSession(
+            @AuthenticationPrincipal UserAccount user,
+            @RequestBody(required = false) PremiumBillingPortalRequest body) {
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthenticated"));
+        }
+        if (user.getRole() != Role.STUDENT) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Forbidden"));
+        }
+        Integer studentId = parseStudentId(user);
+        try {
+            String url = premiumCheckoutService.createBillingPortalSession(studentId, body);
+            return ResponseEntity.ok(Map.of("url", url));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        } catch (StripeException e) {
+            log.error("Stripe billing portal session failed for student_id={}", studentId, e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", "Could not open billing portal"));
+        }
+    }
+
     /**
      * Demo endpoint: marks the student as Premium after a simulated payment.
-     * Replace with verified PSP/bank callback when integrating POK.
+     * Disabled unless {@code PREMIUM_MOCK_PAYMENT_ENABLED=true}.
      */
     @PostMapping("/premium/mock-payment")
     public ResponseEntity<?> mockPremiumPayment(
             @AuthenticationPrincipal UserAccount user,
             HttpServletRequest request,
             @RequestBody(required = false) PremiumMockPaymentRequest paymentRequest) {
+        if (!premiumMockPaymentEnabled) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of(
+                            "error",
+                            "Mock premium payment is disabled. Set PREMIUM_MOCK_PAYMENT_ENABLED=true for local demos."));
+        }
         if (user == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthenticated"));
         }

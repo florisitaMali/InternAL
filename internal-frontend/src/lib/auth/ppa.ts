@@ -71,3 +71,42 @@ export async function fetchPpaMyStudents(
 ): Promise<{ data: AdminStudentRow[] | null; errorMessage: string | null }> {
   return fetchJson<AdminStudentRow[]>('/api/ppa/my-students', accessToken);
 }
+
+export async function patchPpaApplicationDecision(
+  accessToken: string,
+  applicationId: number,
+  approved: boolean
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  const t = accessToken.trim();
+  if (!t) {
+    return { data: null, errorMessage: 'Not signed in.' };
+  }
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/ppa/applications/${encodeURIComponent(String(applicationId))}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${t}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ approved }),
+        cache: 'no-store',
+      }
+    );
+    const raw = await response.text();
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!response.ok) {
+      let msg = `Request failed with status ${response.status}`;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
+        const e = (parsed as { error?: unknown }).error;
+        if (typeof e === 'string' && e.trim()) msg = e.trim();
+      }
+      return { data: null, errorMessage: msg };
+    }
+    return { data: parsed as ApplicationResponse, errorMessage: null };
+  } catch (e) {
+    return { data: null, errorMessage: e instanceof Error ? e.message : 'Request failed' };
+  }
+}

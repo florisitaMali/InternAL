@@ -78,6 +78,7 @@ public class NotificationRepository {
                 String senderRoleStr = textValue(row, "sender_role");
                 Integer senderId = intValue(row, "sender_id");
                 SenderInfo sender = resolveSender(senderRoleStr, senderId, userJwt, senderCache);
+                Integer applicationId = intValue(row, "application_id");
 
                 items.add(new NotificationItemResponse(
                         id,
@@ -87,7 +88,8 @@ public class NotificationRepository {
                         sender.name(),
                         sender.photoUrl(),
                         sender.initials(),
-                        sender.roleLabel()
+                        sender.roleLabel(),
+                        applicationId
                 ));
             }
 
@@ -168,6 +170,19 @@ public class NotificationRepository {
             String message,
             Role senderRole,
             int senderId) {
+        return insertNotification(recipientRole, recipientId, message, senderRole, senderId, null);
+    }
+
+    /**
+     * @param applicationId optional FK for student deep-link (omit column when null).
+     */
+    public boolean insertNotification(
+            Role recipientRole,
+            int recipientId,
+            String message,
+            Role senderRole,
+            int senderId,
+            Integer applicationId) {
         if (!serviceRoleConfigured()) {
             log.warn("insertNotification skipped: SUPABASE_SERVICE_ROLE_KEY is not set");
             return false;
@@ -186,6 +201,9 @@ public class NotificationRepository {
             row.put("is_read", false);
             row.put("sender_role", senderRole.name());
             row.put("sender_id", senderId);
+            if (applicationId != null) {
+                row.put("application_id", applicationId);
+            }
 
             String url = supabaseUrl + "/rest/v1/notification";
             String payload = objectMapper.writeValueAsString(List.of(row));
@@ -241,6 +259,7 @@ public class NotificationRepository {
             case COMPANY -> loadCompanySender(senderId, userJwt);
             case PPA -> loadPpaSender(senderId, userJwt);
             case UNIVERSITY_ADMIN -> loadUniversitySender(senderId, userJwt);
+            case SYSTEM_ADMIN -> SenderInfo.fallback("SYSTEM_ADMIN", senderId);
         };
         cache.put(cacheKey, loaded);
         return loaded;

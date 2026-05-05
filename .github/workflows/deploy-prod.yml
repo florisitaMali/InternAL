@@ -38,4 +38,4 @@ jobs:
             NEXT_PUBLIC_API_BASE_URL=https://internalbania.com npm run build
             cd ../internal-backend
             mvn package -DskipTests
-            pm2 restart internalbania-backend
+            pm2 restart internalbania-prod-backend

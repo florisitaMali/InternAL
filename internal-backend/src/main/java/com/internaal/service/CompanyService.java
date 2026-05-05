@@ -1,6 +1,7 @@
 package com.internaal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.internaal.dto.ApplicationDecisionRequest;
 import com.internaal.dto.CompanyOpportunityDetailResponse;
 import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.OpportunityResponseItem;
@@ -11,9 +12,13 @@ import com.internaal.entity.Role;
 import com.internaal.entity.Opportunity;
 import com.internaal.entity.UserAccount;
 import com.internaal.dto.ApplicationResponse;
+import com.internaal.dto.StudentFileDownload;
+import com.internaal.dto.StudentProfileResponse;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyRepository;
+import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.OpportunityRepository;
+import com.internaal.repository.StudentProfileRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -31,14 +36,23 @@ public class CompanyService {
     private final CompanyRepository companyRepository;
     private final OpportunityRepository opportunityRepository;
     private final ApplicationRepository applicationRepository;
+    private final NotificationRepository notificationRepository;
+    private final StudentProfileRepository studentProfileRepository;
+    private final StudentProfileFileService studentProfileFileService;
 
     public CompanyService(
             CompanyRepository companyRepository,
             OpportunityRepository opportunityRepository,
-            ApplicationRepository applicationRepository) {
+            ApplicationRepository applicationRepository,
+            NotificationRepository notificationRepository,
+            StudentProfileRepository studentProfileRepository,
+            StudentProfileFileService studentProfileFileService) {
         this.companyRepository = companyRepository;
         this.opportunityRepository = opportunityRepository;
         this.applicationRepository = applicationRepository;
+        this.notificationRepository = notificationRepository;
+        this.studentProfileRepository = studentProfileRepository;
+        this.studentProfileFileService = studentProfileFileService;
     }
 
     public CompanyProfileResponse getProfile(UserAccount user) {
@@ -117,27 +131,119 @@ public class CompanyService {
         return applicationRepository.findByCompanyId(companyId);
     }
 
-    private OpportunityApplicationStatsDto statsForOpportunity(int companyId, int opportunityId) {
-        List<ApplicationResponse> apps = applicationRepository.findByCompanyId(companyId);
-        int total = 0;
-        int inReview = 0;
-        int approved = 0;
-        int rejected = 0;
-        for (ApplicationResponse a : apps) {
-            if (a.getOpportunityId() == null || a.getOpportunityId() != opportunityId) {
-                continue;
-            }
-            total++;
-            Boolean c = a.getIsApprovedByCompany();
-            if (Boolean.TRUE.equals(c)) {
-                approved++;
-            } else if (Boolean.FALSE.equals(c)) {
-                rejected++;
-            } else {
-                inReview++;
-            }
+    /**
+     * Verifies the application belongs to this company and has no company decision yet.
+     */
+    private int assertCompanyMayDecide(UserAccount user, int applicationId) {
+        int companyId = requireCompanyId(user);
+        JsonNode row = applicationRepository.findApplicationOwnership(applicationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Application not found."));
+        JsonNode companyNode = row.get("company_id");
+        Integer rowCompanyId = (companyNode == null || companyNode.isNull()) ? null : companyNode.asInt();
+        if (rowCompanyId == null || rowCompanyId != companyId) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Application does not belong to this company.");
         }
-        return new OpportunityApplicationStatsDto(total, inReview, approved, rejected);
+        JsonNode decisionNode = row.get("is_approved_by_company");
+        if (decisionNode != null && !decisionNode.isNull()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This application has already been decided.");
+        }
+        return companyId;
+    }
+
+    /** Persists company approve/reject on an application and notifies the student. */
+    public ApplicationResponse updateApplicationDecision(UserAccount user, int applicationId, ApplicationDecisionRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        int companyId = assertCompanyMayDecide(user, applicationId);
+        ApplicationResponse updated = applicationRepository
+                .patchApprovalByCompany(applicationId, companyId, body.approved())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Application not found or not linked to your company"));
+        notifyStudentOfCompanyDecision(updated, companyId, body.approved());
+        return updated;
+    }
+
+    /**
+     * Same as {@link #updateApplicationDecision} but used by approve/reject routes (no JSON body).
+     */
+    public ApplicationResponse decideApplication(UserAccount user, int applicationId, boolean approved) {
+        return updateApplicationDecision(user, applicationId, new ApplicationDecisionRequest(approved));
+    }
+
+    private void notifyStudentOfCompanyDecision(ApplicationResponse app, int companyId, boolean approved) {
+        Integer studentId = app.getStudentId();
+        Integer appId = app.getApplicationId();
+        if (studentId == null || appId == null) {
+            return;
+        }
+        String safeTitle = applicationRepository.resolveOpportunityTitleForNotification(app);
+        String message = approved
+                ? "Good news: Your application for \"" + safeTitle + "\" was approved."
+                : "Your application for \"" + safeTitle + "\" was not approved by the company.";
+        notificationRepository.insertNotification(
+                Role.STUDENT,
+                studentId,
+                message,
+                Role.COMPANY,
+                companyId,
+                appId);
+    }
+
+    /**
+     * Returns the read-only profile of a student who has applied to one of the company's
+     * opportunities. Authorization rule: any student that has any application for this company
+     * can be viewed (regardless of approval state).
+     */
+    public StudentProfileResponse getStudentProfile(UserAccount user, int studentId) {
+        int companyId = requireCompanyId(user);
+        if (!applicationRepository.studentHasAppliedToCompany(studentId, companyId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "This student has not applied to your opportunities.");
+        }
+        return studentProfileRepository.findByStudentIdAsService(studentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Student profile not found."));
+    }
+
+    /** Streams a student's CV to the company. Same authorization rule as {@link #getStudentProfile}. */
+    public StudentFileDownload downloadStudentCv(UserAccount user, int studentId) {
+        requireStudentApplicationOwnership(user, studentId);
+        try {
+            return studentProfileFileService.downloadCv(studentId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "CV not found."));
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not download CV.");
+        }
+    }
+
+    /** Streams one of a student's certifications to the company. */
+    public StudentFileDownload downloadStudentCertification(UserAccount user, int studentId, int certificationId) {
+        requireStudentApplicationOwnership(user, studentId);
+        try {
+            return studentProfileFileService.downloadCertification(studentId, certificationId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                            "Certification not found."));
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Could not download certification.");
+        }
+    }
+
+    private void requireStudentApplicationOwnership(UserAccount user, int studentId) {
+        int companyId = requireCompanyId(user);
+        if (!applicationRepository.studentHasAppliedToCompany(studentId, companyId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "This student has not applied to your opportunities.");
+        }
+    }
+
+    private OpportunityApplicationStatsDto statsForOpportunity(int companyId, int opportunityId) {
+        return applicationRepository.statsForCompanyOpportunity(companyId, opportunityId);
     }
 
     private static String resolveTypeDisplay(Opportunity o) {
@@ -155,6 +261,7 @@ public class CompanyService {
                 o.id(),
                 o.companyId(),
                 o.companyName(),
+                o.affiliatedUniversityName(),
                 o.title(),
                 o.description(),
                 o.requiredSkills(),

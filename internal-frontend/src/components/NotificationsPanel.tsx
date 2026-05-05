@@ -70,12 +70,15 @@ interface NotificationsPanelProps {
   className?: string;
   /** Called after mark read / mark all so the header bell badge can refresh without waiting for poll. */
   onUnreadMayHaveChanged?: () => void;
+  /** When set, row click (if notification has applicationId) marks read then opens the linked application. */
+  onActivateApplication?: (applicationId: number) => void;
 }
 
 const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
   onClose,
   className,
   onUnreadMayHaveChanged,
+  onActivateApplication,
 }) => {
   const [tab, setTab] = useState<TabKey>('unread');
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -145,6 +148,17 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
     } catch {
       toast.error('Could not mark as read');
     }
+  };
+
+  const handleRowClick = (n: NotificationItem) => {
+    const aid = n.applicationId;
+    if (aid == null || !onActivateApplication) return;
+    void (async () => {
+      if (!n.isRead) {
+        await handleMarkOne(n);
+      }
+      onActivateApplication(aid);
+    })();
   };
 
   const handleMarkAll = async () => {
@@ -250,8 +264,30 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {filtered.map((n) => (
-              <li key={n.notificationId} className="px-5 py-4 hover:bg-slate-50/80 transition-colors">
+            {filtered.map((n) => {
+              const canOpenApp =
+                onActivateApplication != null && n.applicationId != null && n.applicationId !== undefined;
+              return (
+              <li
+                key={n.notificationId}
+                className={cn(
+                  'px-5 py-4 transition-colors',
+                  canOpenApp ? 'cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50/80'
+                )}
+                {...(canOpenApp
+                  ? {
+                      role: 'button' as const,
+                      tabIndex: 0,
+                      onClick: () => handleRowClick(n),
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleRowClick(n);
+                        }
+                      },
+                    }
+                  : {})}
+              >
                 <div className="flex gap-3">
                   <div className="relative shrink-0">
                     <div className="h-11 w-11 rounded-full overflow-hidden bg-slate-200 ring-1 ring-slate-100">
@@ -285,7 +321,10 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
                           <button
                             type="button"
                             title="Mark as read"
-                            onClick={() => void handleMarkOne(n)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleMarkOne(n);
+                            }}
                             className="p-1 rounded-md text-[#002B5B] hover:bg-[#002B5B]/10 transition-colors"
                           >
                             <Check size={14} strokeWidth={2.5} />
@@ -298,7 +337,8 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
                   </div>
                 </div>
               </li>
-            ))}
+            );
+            })}
           </ul>
         )}
       </div>

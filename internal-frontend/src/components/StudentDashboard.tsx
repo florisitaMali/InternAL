@@ -17,7 +17,6 @@ import NotificationsPanel from './NotificationsPanel';
 import { ApplicationFormData } from './SubmitApplicationModal';
 import {
   Briefcase,
-  Building2,
   Calendar,
   CheckCircle,
   ChevronRight,
@@ -25,7 +24,6 @@ import {
   Eye,
   FileText,
   Filter,
-  MapPin,
   Search,
   Tag,
   Wallet,
@@ -71,6 +69,7 @@ import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnread
 import OpportunityDetailView from '@/src/components/OpportunityDetailView';
 import CompanyProfileTabbedView from '@/src/components/CompanyProfileTabbedView';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
+import StudentOpportunityExploreCard from '@/src/components/StudentOpportunityExploreCard';
 import StudentBestMatchesTeaser from '@/src/components/StudentBestMatchesTeaser';
 import {
   formatDbDuration,
@@ -89,6 +88,8 @@ interface StudentDashboardProps {
   onToggleSidebar?: () => void;
   /** Switch main tab (e.g. open company browse from an application). */
   onNavigateTab?: (tab: string) => void;
+  /** Collapse sidebar when an overlay modal opens (e.g. apply / view application). */
+  onCloseSidebar?: () => void;
 }
 
 type OpportunityFilterState = {
@@ -238,25 +239,6 @@ function getInitials(name: string | undefined): string {
     .toUpperCase();
 }
 
-function formatWorkMode(mode?: string | null): string {
-  if (!mode) return '';
-  const map: Record<string, string> = {
-    REMOTE: 'Remote',
-    HYBRID: 'Hybrid',
-    IN_PERSON: 'In-person',
-  };
-  return map[mode] ?? mode;
-}
-
-function formatPostedLabel(iso?: string | null): string {
-  if (!iso?.trim()) return '—';
-  const d = new Date(iso);
-  if (!Number.isNaN(d.getTime())) {
-    return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  }
-  return iso.length >= 10 ? iso.slice(0, 10) : iso;
-}
-
 function formatApplicationIdDisplay(id: number | null): string {
   return id != null ? `APP${String(id).padStart(3, '0')}` : '—';
 }
@@ -306,6 +288,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   accessToken,
   onToggleSidebar,
   onNavigateTab,
+  onCloseSidebar,
 }) => {
   const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -326,6 +309,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [showApplicationFilters, setShowApplicationFilters] = useState(false);
   const [opportunityById, setOpportunityById] = useState<Map<string, Opportunity>>(() => new Map());
   const [selectedApplication, setSelectedApplication] = useState<ApplicationResponse | null>(null);
+  const [pendingApplicationFocusId, setPendingApplicationFocusId] = useState<number | null>(null);
 
   const [selectedExploreOpportunityId, setSelectedExploreOpportunityId] = useState<string | null>(null);
   const [exploreOpportunityDetail, setExploreOpportunityDetail] = useState<Opportunity | null>(null);
@@ -406,6 +390,12 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       toast.error(e instanceof Error ? e.message : 'Could not open the file.');
     }
   };
+
+  useEffect(() => {
+    if (applicationOpportunity || selectedApplication || pdfPreview) {
+      onCloseSidebar?.();
+    }
+  }, [applicationOpportunity, selectedApplication, pdfPreview, onCloseSidebar]);
 
   useEffect(() => {
     if (!currentStudent) return;
@@ -517,6 +507,15 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
     if (!student?.id) return;
     void loadApplications();
   }, [loadApplications, student.id]);
+
+  useEffect(() => {
+    if (pendingApplicationFocusId == null) return;
+    const match = applications.find((a) => a.applicationId === pendingApplicationFocusId);
+    if (match) {
+      setSelectedApplication(match);
+      setPendingApplicationFocusId(null);
+    }
+  }, [applications, pendingApplicationFocusId]);
 
   useEffect(() => {
     if (!student?.id || activeTab !== 'best-matches') return;
@@ -1078,7 +1077,14 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         loading={bestMatchesLoading}
         matches={bestMatchesList}
         hasPremium={student.hasPremium === true}
-        onViewDetails={(opp) => {
+        onCompanyBrowse={(opp) => {
+          onNavigateTab?.('opportunities');
+          setSelectedExploreOpportunityId(null);
+          setExploreOpportunityDetail(null);
+          setCompanyBrowseId(String(opp.companyId));
+          void loadCompanyBrowseForId(String(opp.companyId));
+        }}
+        onOpenDetail={(opp) => {
           onNavigateTab?.('opportunities');
           setCompanyBrowseSection('about');
           setCompanyBrowseId(null);
@@ -1348,110 +1354,25 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       {!!opportunities.length && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {opportunities.map((opp) => (
-            <div
+            <StudentOpportunityExploreCard
               key={opp.id}
-              className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5 hover:shadow-md transition-shadow duration-200 flex flex-col"
-            >
-              <div className="flex items-start gap-4">
-                <div className="flex-shrink-0 w-14 h-14 bg-[#002B5B] rounded-lg flex items-center justify-center font-bold text-white text-sm tracking-wide">
-                  {getInitials(opp.companyName)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-base font-bold text-[#002B5B] leading-snug">{opp.title}</h3>
-                  <p className="text-slate-600 text-sm font-medium mt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedExploreOpportunityId(null);
-                        setExploreOpportunityDetail(null);
-                        setCompanyBrowseId(String(opp.companyId));
-                        void loadCompanyBrowseForId(String(opp.companyId));
-                      }}
-                      className="text-left hover:text-[#002B5B] hover:underline"
-                    >
-                      {opp.companyName}
-                    </button>
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">{formatRelativePosted(opp.createdAt)}</p>
-                </div>
-              </div>
-
-              <p className="text-slate-600 text-sm mt-4 leading-relaxed line-clamp-2">
-                {opp.description || 'No description provided.'}
-              </p>
-
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-xs text-slate-500">
-                {opp.location ? (
-                  <span className="flex items-center gap-1.5">
-                    <MapPin size={14} className="flex-shrink-0 text-slate-400" />
-                    {opp.location}
-                  </span>
-                ) : null}
-                {opp.workMode ? (
-                  <span className="flex items-center gap-1.5">
-                    <Building2 size={14} className="flex-shrink-0 text-slate-400" />
-                    {formatWorkMode(opp.workMode) || opp.workMode}
-                  </span>
-                ) : null}
-                {opp.duration ? (
-                  <span className="flex items-center gap-1.5">
-                    <Clock size={14} className="flex-shrink-0 text-slate-400" />
-                    {formatDbDuration(opp.duration)}
-                  </span>
-                ) : null}
-              </div>
-
-              {opp.requiredSkills && opp.requiredSkills.length > 0 ? (
-                <div className="flex flex-wrap gap-2 mt-4">
-                  {opp.requiredSkills.slice(0, 6).map((skill) => (
-                    <span
-                      key={skill}
-                      className="px-2.5 py-1 rounded-md bg-sky-100/90 text-xs font-semibold text-sky-900"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-
-              <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-slate-100">
-                <span className="text-xs font-medium text-slate-500">
-                  {typeof opp.applicantCount === 'number'
-                    ? `${opp.applicantCount} applicant${opp.applicantCount === 1 ? '' : 's'}`
-                    : '—'}
-                </span>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCompanyBrowseSection('about');
-                      setCompanyBrowseId(null);
-                      setCompanyBrowseProfile(null);
-                      setCompanyBrowseOpportunities([]);
-                      setSelectedExploreOpportunityId(String(opp.id));
-                    }}
-                    suppressHydrationWarning
-                    className="px-4 py-2 border-2 border-[#002B5B] text-[#002B5B] bg-white rounded-xl text-sm font-bold hover:bg-slate-50 transition-all whitespace-nowrap"
-                  >
-                    View Details
-                  </button>
-                  <button
-                    type="button"
-                    disabled={hasAppliedToOpportunity(opp)}
-                    onClick={() => handleApply(opp)}
-                    suppressHydrationWarning
-                    className={cn(
-                      'px-4 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap shadow-sm',
-                      hasAppliedToOpportunity(opp)
-                        ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                        : 'bg-[#002B5B] text-white hover:bg-[#001F42]'
-                    )}
-                  >
-                    {hasAppliedToOpportunity(opp) ? 'Applied' : 'Apply Now'}
-                  </button>
-                </div>
-              </div>
-            </div>
+              opportunity={opp}
+              hasApplied={hasAppliedToOpportunity(opp)}
+              onCompanyNameClick={() => {
+                setSelectedExploreOpportunityId(null);
+                setExploreOpportunityDetail(null);
+                setCompanyBrowseId(String(opp.companyId));
+                void loadCompanyBrowseForId(String(opp.companyId));
+              }}
+              onOpenDetail={() => {
+                setCompanyBrowseSection('about');
+                setCompanyBrowseId(null);
+                setCompanyBrowseProfile(null);
+                setCompanyBrowseOpportunities([]);
+                setSelectedExploreOpportunityId(String(opp.id));
+              }}
+              onApply={() => handleApply(opp)}
+            />
           ))}
         </div>
       )}
@@ -1989,6 +1910,12 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
             close();
           }}
           onUnreadMayHaveChanged={refreshUnreadNotifications}
+          onActivateApplication={(applicationId) => {
+            setPendingApplicationFocusId(applicationId);
+            void loadApplications();
+            onNavigateTab?.('applications');
+            close();
+          }}
           className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
         />
       )}

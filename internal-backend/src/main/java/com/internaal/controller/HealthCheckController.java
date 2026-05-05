@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -49,11 +50,11 @@ public class HealthCheckController {
 
     @GetMapping("/api/me")
     public ResponseEntity<Map<String, Object>> me(@AuthenticationPrincipal UserAccount user) {
-        return ResponseEntity.ok(Map.of(
-                "userId", user.getUserId(),
-                "email", user.getEmail(),
-                "role", user.getRole().name(),
-                "linkedEntityId", user.getLinkedEntityId()
-        ));
+        Map<String, Object> body = new HashMap<>();
+        body.put("userId", user.getUserId());
+        body.put("email", user.getEmail());
+        body.put("role", user.getRole().name());
+        body.put("linkedEntityId", user.getLinkedEntityId());
+        return ResponseEntity.ok(body);
     }
 }

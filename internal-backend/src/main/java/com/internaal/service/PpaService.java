@@ -2,12 +2,16 @@ package com.internaal.service;
 
 import com.internaal.dto.AdminPpaResponse;
 import com.internaal.dto.AdminStudentResponse;
+import com.internaal.dto.ApplicationDecisionRequest;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.ApplicationRepository;
+import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.PpaRepository;
 import com.internaal.repository.UniversityAdminRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -19,16 +23,21 @@ import java.util.stream.Collectors;
 @Service
 public class PpaService {
 
+    private static final Logger log = LoggerFactory.getLogger(PpaService.class);
+
     private final ApplicationRepository applicationRepository;
     private final UniversityAdminRepository universityAdminRepository;
     private final PpaRepository ppaRepository;
+    private final NotificationRepository notificationRepository;
 
     public PpaService(ApplicationRepository applicationRepository,
                       UniversityAdminRepository universityAdminRepository,
-                      PpaRepository ppaRepository) {
+                      PpaRepository ppaRepository,
+                      NotificationRepository notificationRepository) {
         this.applicationRepository = applicationRepository;
         this.universityAdminRepository = universityAdminRepository;
         this.ppaRepository = ppaRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     public AdminPpaResponse getMyProfile(UserAccount user) {
@@ -132,5 +141,48 @@ public class PpaService {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Could not resolve university for PPA"));
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PPA or university admin role required");
+    }
+
+    /**
+     * Persists PP approval/rejection and notifies the student (with optional {@code application_id} on the notification).
+     */
+    public ApplicationResponse updateApplicationDecision(UserAccount user, int applicationId, ApplicationDecisionRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        int universityId = requireUniversityScope(user);
+        ApplicationResponse updated = applicationRepository
+                .patchApprovalByPpa(applicationId, universityId, body.approved())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Application not found or not in your university PP queue"));
+        notifyStudentOfPpaDecision(updated, user, body.approved());
+        return updated;
+    }
+
+    private void notifyStudentOfPpaDecision(ApplicationResponse app, UserAccount actor, boolean approved) {
+        Integer studentId = app.getStudentId();
+        Integer applicationId = app.getApplicationId();
+        if (studentId == null || applicationId == null) {
+            return;
+        }
+        String safeTitle = applicationRepository.resolveOpportunityTitleForNotification(app);
+        String message = approved
+                ? "Your professional practice application for \"" + safeTitle + "\" was approved by the PP office."
+                : "Your professional practice application for \"" + safeTitle + "\" was not approved.";
+        int senderId;
+        try {
+            senderId = Integer.parseInt(actor.getLinkedEntityId());
+        } catch (Exception e) {
+            log.warn("notifyStudentOfPpaDecision: invalid linked_entity_id");
+            return;
+        }
+        Role senderRole = actor.getRole();
+        notificationRepository.insertNotification(
+                Role.STUDENT,
+                studentId,
+                message,
+                senderRole,
+                senderId,
+                applicationId);
     }
 }

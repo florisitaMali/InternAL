@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Sidebar from '@/src/components/Sidebar';
 import { Role, Student } from '@/src/types';
@@ -8,6 +8,7 @@ import UniversityAdminDashboard from '@/src/components/UniversityAdminDashboard'
 import PPADashboard from '@/src/components/PPADashboard';
 import StudentDashboard from '@/src/components/StudentDashboard';
 import CompanyDashboard from '@/src/components/CompanyDashboard';
+import SystemAdminDashboard from '@/src/components/SystemAdminDashboard';
 import LoginPage from '@/src/components/LoginPage';
 import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
 import { toast } from 'sonner';
@@ -23,6 +24,7 @@ const ROLE_LABELS: Record<Role, string> = {
   PPA: 'PPA',
   STUDENT: 'Student',
   COMPANY: 'Company',
+  SYSTEM_ADMIN: 'System Admin',
 };
 
 export default function Home() {
@@ -36,6 +38,8 @@ export default function Home() {
   const isSigningOutRef = useRef(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const accessTokenRef = useRef<string | null>(null);
   const [linkedEntityId, setLinkedEntityId] = useState<string | number | null>(null);
@@ -93,7 +97,16 @@ export default function Home() {
       // Invited PPAs carry internaal_app_role in JWT — redirect before /api/me so a broken production API cannot block onboarding.
       if (meta?.internaal_app_role === 'PPA' && meta?.invite_password_completed !== true) {
         if (typeof window !== 'undefined') {
-          window.location.replace('/auth/set-password');
+          // Only redirect to set-password when arriving from an actual invite email link.
+          // A stale stored session (no invite hash) would create a redirect loop; sign out instead.
+          const hasInviteHash = window.location.hash.includes('type=invite') || window.location.hash.includes('access_token');
+          if (hasInviteHash) {
+            window.location.replace('/auth/set-password');
+          } else {
+            clearSupabaseAuthStorage();
+            try { await supabase!.auth.signOut({ scope: 'local' }); } catch { /* ignore */ }
+            resetLocalUserState();
+          }
         }
         return;
       }
@@ -232,6 +245,9 @@ export default function Home() {
     if ((role === 'STUDENT' || role === 'COMPANY') && activeTab === 'dashboard') {
       setActiveTab('opportunities');
     }
+    if (role === 'SYSTEM_ADMIN' && activeTab === 'dashboard') {
+      setActiveTab('universities');
+    }
   }, [isLoggedIn, role, activeTab]);
 
   /** Legacy sidebar tab id removed; migrate old sessions still on "notifications". */
@@ -320,6 +336,7 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            onNavigateTab={setActiveTab}
           />
         );
       case 'STUDENT':
@@ -332,6 +349,7 @@ export default function Home() {
             accessToken={accessToken}
             onToggleSidebar={handleToggleSidebar}
             onNavigateTab={setActiveTab}
+            onCloseSidebar={closeSidebar}
           />
         );
       case 'COMPANY':
@@ -342,9 +360,21 @@ export default function Home() {
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
             onNavigateTab={setActiveTab}
+            onCloseSidebar={closeSidebar}
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
             linkedEntityId={linkedEntityId}
+          />
+        );
+      case 'SYSTEM_ADMIN':
+        return (
+          <SystemAdminDashboard
+            activeTab={activeTab}
+            currentUserName={currentUserName}
+            currentUserRoleLabel={roleLabel}
+            onToggleSidebar={handleToggleSidebar}
+            accessToken={accessToken}
+            accessTokenRef={accessTokenRef}
           />
         );
       default:

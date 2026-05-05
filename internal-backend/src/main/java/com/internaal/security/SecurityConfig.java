@@ -41,6 +41,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/health").permitAll()
+                .requestMatchers("/api/sysadmin/**").hasRole("SYSTEM_ADMIN")
                 .requestMatchers("/api/admin/**").hasRole("UNIVERSITY_ADMIN")
                 .requestMatchers("/api/student/**").authenticated()
                 .requestMatchers("/api/ppa/**").hasAnyRole("PPA", "UNIVERSITY_ADMIN")

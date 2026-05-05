@@ -83,6 +83,31 @@ public class StudentProfileRepository {
         }
     }
 
+    /**
+     * Service-role load of a student profile by id. Bypasses RLS so trusted backend
+     * flows (e.g. the company-side "view applicant profile" feature) can read any
+     * student's profile. Authorization MUST be enforced at the service layer before
+     * calling this — this method does not check who's allowed to see the data.
+     */
+    public Optional<StudentProfileResponse> findByStudentIdAsService(Integer studentId) {
+        try {
+            HttpHeaders headers = createServiceHeaders();
+            JsonNode studentNode = fetchSingleRow("student", "student_id", studentId, headers);
+            if (studentNode == null || studentNode.isNull()) {
+                return Optional.empty();
+            }
+            JsonNode profileNode = fetchSingleRow("studentprofile", "student_id", studentId, headers);
+            StudentProfileResponse response = mapProfileResponse(studentNode, profileNode);
+            response.setCertificationFiles(listCertificationFiles(studentId));
+            response.setProjects(fetchStudentProjects(studentId, createServiceHeaders()));
+            response.setExperiences(fetchStudentExperiences(studentId, createServiceHeaders()));
+            return Optional.of(response);
+        } catch (Exception e) {
+            log.error("Failed to load student profile (service): {}", e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
     public Optional<StudentProfileResponse> saveByStudentId(
             Integer studentId,
             String userJwt,

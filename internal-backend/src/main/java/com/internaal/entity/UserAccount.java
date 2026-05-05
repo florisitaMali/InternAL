@@ -9,6 +9,7 @@ public class UserAccount {
     private String linkedEntityId;
     /** Supabase Auth JWT "sub" (auth user id); optional until linked after first login. */
     private String supabaseUserId;
+    private boolean isActive = true;
 
     public UserAccount() {}
 
@@ -24,4 +25,6 @@ public class UserAccount {
     public void setLinkedEntityId(String linkedEntityId) { this.linkedEntityId = linkedEntityId; }
     public String getSupabaseUserId() { return supabaseUserId; }
     public void setSupabaseUserId(String supabaseUserId) { this.supabaseUserId = supabaseUserId; }
+    public boolean isActive() { return isActive; }
+    public void setActive(boolean isActive) { this.isActive = isActive; }
 }

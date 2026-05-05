@@ -4,5 +4,6 @@ public enum Role {
     UNIVERSITY_ADMIN,
     PPA,
     STUDENT,
-    COMPANY
+    COMPANY,
+    SYSTEM_ADMIN
 }

@@ -1,6 +1,7 @@
 package com.internaal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.internaal.dto.ApplicationDecisionRequest;
 import com.internaal.dto.CompanyOpportunityDetailResponse;
 import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.OpportunityResponseItem;
@@ -13,6 +14,7 @@ import com.internaal.entity.UserAccount;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyRepository;
+import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.OpportunityRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -31,14 +33,17 @@ public class CompanyService {
     private final CompanyRepository companyRepository;
     private final OpportunityRepository opportunityRepository;
     private final ApplicationRepository applicationRepository;
+    private final NotificationRepository notificationRepository;
 
     public CompanyService(
             CompanyRepository companyRepository,
             OpportunityRepository opportunityRepository,
-            ApplicationRepository applicationRepository) {
+            ApplicationRepository applicationRepository,
+            NotificationRepository notificationRepository) {
         this.companyRepository = companyRepository;
         this.opportunityRepository = opportunityRepository;
         this.applicationRepository = applicationRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     public CompanyProfileResponse getProfile(UserAccount user) {
@@ -115,6 +120,39 @@ public class CompanyService {
     public List<ApplicationResponse> listApplications(UserAccount user) {
         int companyId = requireCompanyId(user);
         return applicationRepository.findByCompanyId(companyId);
+    }
+
+    /** Persists company approve/reject on an application and notifies the student. */
+    public ApplicationResponse updateApplicationDecision(UserAccount user, int applicationId, ApplicationDecisionRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        int companyId = requireCompanyId(user);
+        ApplicationResponse updated = applicationRepository
+                .patchApprovalByCompany(applicationId, companyId, body.approved())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Application not found or not linked to your company"));
+        notifyStudentOfCompanyDecision(updated, companyId, body.approved());
+        return updated;
+    }
+
+    private void notifyStudentOfCompanyDecision(ApplicationResponse app, int companyId, boolean approved) {
+        Integer studentId = app.getStudentId();
+        Integer applicationId = app.getApplicationId();
+        if (studentId == null || applicationId == null) {
+            return;
+        }
+        String safeTitle = applicationRepository.resolveOpportunityTitleForNotification(app);
+        String message = approved
+                ? "Good news: Your application for \"" + safeTitle + "\" was approved."
+                : "Your application for \"" + safeTitle + "\" was not approved by the company.";
+        notificationRepository.insertNotification(
+                Role.STUDENT,
+                studentId,
+                message,
+                Role.COMPANY,
+                companyId,
+                applicationId);
     }
 
     private OpportunityApplicationStatsDto statsForOpportunity(int companyId, int opportunityId) {

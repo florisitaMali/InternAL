@@ -3,7 +3,7 @@
 import React from 'react';
 import { Sparkles } from 'lucide-react';
 import type { Opportunity } from '@/src/types';
-import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
+import StudentOpportunityExploreCard from '@/src/components/StudentOpportunityExploreCard';
 import { cn } from '@/src/lib/utils';
 
 /** Number of matches shown in full before the premium blur teaser. */
@@ -12,7 +12,12 @@ export const BEST_MATCHES_PREVIEW_COUNT = 2;
 type Props = {
   loading: boolean;
   matches: Opportunity[];
-  onViewDetails: (opp: Opportunity) => void;
+  /** When true, show full list with no paywall (premium). */
+  hasPremium?: boolean;
+  /** Opens company profile from Explore (same as Opportunities tab). */
+  onCompanyBrowse: (opp: Opportunity) => void;
+  /** Opens opportunity detail (switches to Explore tab + detail). */
+  onOpenDetail: (opp: Opportunity) => void;
   onApply: (opp: Opportunity) => void;
   hasAppliedToOpportunity: (opp: Opportunity) => boolean;
   onUpgrade: () => void;
@@ -22,7 +27,9 @@ type Props = {
 export default function StudentBestMatchesTeaser({
   loading,
   matches,
-  onViewDetails,
+  hasPremium = false,
+  onCompanyBrowse,
+  onOpenDetail,
   onApply,
   hasAppliedToOpportunity,
   onUpgrade,
@@ -31,6 +38,26 @@ export default function StudentBestMatchesTeaser({
   const preview = matches.slice(0, BEST_MATCHES_PREVIEW_COUNT);
   const locked = matches.slice(BEST_MATCHES_PREVIEW_COUNT);
   const lockedCount = locked.length;
+
+  const renderCard = (opp: Opportunity, interactive: boolean) => (
+    <StudentOpportunityExploreCard
+      key={opp.id}
+      opportunity={opp}
+      hasApplied={hasAppliedToOpportunity(opp)}
+      onCompanyNameClick={() => {
+        if (!interactive) return;
+        onCompanyBrowse(opp);
+      }}
+      onOpenDetail={() => {
+        if (!interactive) return;
+        onOpenDetail(opp);
+      }}
+      onApply={() => {
+        if (!interactive) return;
+        onApply(opp);
+      }}
+    />
+  );
 
   if (loading) {
     return (
@@ -64,6 +91,34 @@ export default function StudentBestMatchesTeaser({
     );
   }
 
+  if (hasPremium) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <div className="flex flex-wrap items-center gap-2 gap-y-1">
+            <Sparkles className="h-7 w-7 text-emerald-600" strokeWidth={1.75} aria-hidden />
+            <h2 className="text-2xl font-bold tracking-tight text-[#002B5B] md:text-3xl">Best Matches</h2>
+            <span
+              className={cn(
+                'rounded-full border border-emerald-300/80 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-900'
+              )}
+            >
+              Premium active
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">Full skill-ranked results — same layout as Explore.</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <p className="col-span-full text-xs font-bold uppercase tracking-widest text-emerald-800/90 md:col-span-2">
+            Your ranked picks
+          </p>
+          {matches.map((opp) => renderCard(opp, true))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -83,33 +138,20 @@ export default function StudentBestMatchesTeaser({
         </p>
       </div>
 
-      <div className="space-y-3">
-        <p className="text-xs font-bold uppercase tracking-widest text-amber-700/90">Your top picks</p>
-        {preview.map((opp) => (
-          <OpportunityRecordCard
-            key={opp.id}
-            opportunity={opp}
-            onViewDetails={() => onViewDetails(opp)}
-            showApply={!hasAppliedToOpportunity(opp)}
-            onApply={() => onApply(opp)}
-          />
-        ))}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <p className="col-span-full text-xs font-bold uppercase tracking-widest text-amber-700/90 md:col-span-2">
+          Your top picks
+        </p>
+        {preview.map((opp) => renderCard(opp, true))}
       </div>
 
       {lockedCount > 0 ? (
         <div className="relative overflow-hidden rounded-2xl border border-amber-200/90 bg-amber-50/20 shadow-inner ring-1 ring-amber-100/60">
           <div
-            className="pointer-events-none select-none space-y-3 px-3 py-4 opacity-[0.55] blur-[8px]"
+            className="pointer-events-none select-none space-y-0 px-3 py-4 opacity-[0.55] blur-[8px] md:grid md:grid-cols-2 md:gap-5"
             aria-hidden
           >
-            {locked.map((opp) => (
-              <OpportunityRecordCard
-                key={opp.id}
-                opportunity={opp}
-                onViewDetails={() => {}}
-                showApply={false}
-              />
-            ))}
+            {locked.map((opp) => renderCard(opp, false))}
           </div>
           <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-white/75 via-white/90 to-amber-50/95 px-4 py-10 backdrop-blur-[3px]">
             <div className="max-w-md rounded-2xl border-2 border-amber-300/90 bg-white p-8 text-center shadow-xl ring-4 ring-amber-100/40">

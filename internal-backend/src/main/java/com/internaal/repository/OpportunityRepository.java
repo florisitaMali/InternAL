@@ -76,13 +76,18 @@ public class OpportunityRepository {
         return authHeaders();
     }
 
+    /**
+     * PostgREST embeds: keep {@code opportunitytarget} to only {@code university_id} if your DB has no FK from
+     * {@code opportunitytarget} to {@code university} in the schema cache — nested {@code university(name)} can
+     * trigger PGRST200 and empty student lists. Names are filled later via {@link #enrichTargetUniversities}.
+     */
     private static String selectClause() {
         return "opportunity_id,company_id,code,title,description,"
                 + "required_skills,required_experience,deadline,start_date,type,"
                 + "position_count,job_location,work_mode,work_type,duration,salary_monthly,nice_to_have,"
                 + "is_draft,is_paid,created_at,"
                 + "company(name,location),"
-                + "opportunitytarget(university_id,university(name))";
+                + "opportunitytarget(university_id)";
     }
 
     /**

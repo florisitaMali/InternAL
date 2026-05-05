@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import Sidebar from '@/src/components/Sidebar';
 import { Role, Student } from '@/src/types';
@@ -35,6 +35,8 @@ export default function Home() {
   const isSigningOutRef = useRef(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const accessTokenRef = useRef<string | null>(null);
   const [linkedEntityId, setLinkedEntityId] = useState<string | number | null>(null);
@@ -312,6 +314,7 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            onNavigateTab={setActiveTab}
           />
         );
       case 'STUDENT':
@@ -323,6 +326,7 @@ export default function Home() {
             currentStudent={currentStudent}
             onToggleSidebar={handleToggleSidebar}
             onNavigateTab={setActiveTab}
+            onCloseSidebar={closeSidebar}
           />
         );
       case 'COMPANY':
@@ -333,6 +337,7 @@ export default function Home() {
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
             onNavigateTab={setActiveTab}
+            onCloseSidebar={closeSidebar}
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
             linkedEntityId={linkedEntityId}

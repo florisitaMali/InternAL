@@ -145,7 +145,7 @@ async function fetchBackendJson<T>(path: string, accessToken: string): Promise<{
 async function sendBackendJson<T>(
   path: string,
   accessToken: string,
-  method: 'PUT',
+  method: 'PUT' | 'PATCH',
   body: unknown
 ): Promise<{ data: T | null; errorMessage: string | null }> {
   const token = normalizeBearerToken(accessToken);
@@ -207,6 +207,19 @@ export async function fetchCompanyApplications(
   accessToken: string
 ): Promise<{ data: ApplicationResponse[] | null; errorMessage: string | null }> {
   return fetchBackendJson<ApplicationResponse[]>('/api/company/applications', accessToken);
+}
+
+export async function patchCompanyApplicationDecision(
+  accessToken: string,
+  applicationId: number,
+  approved: boolean
+): Promise<{ data: ApplicationResponse | null; errorMessage: string | null }> {
+  return sendBackendJson<ApplicationResponse>(
+    `/api/company/applications/${encodeURIComponent(String(applicationId))}`,
+    accessToken,
+    'PATCH',
+    { approved }
+  );
 }
 
 export async function fetchCompanyOpportunities(

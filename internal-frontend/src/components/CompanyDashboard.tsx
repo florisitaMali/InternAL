@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useRef, useMemo, type MutableRefObject } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo, type MutableRefObject, type ReactNode } from 'react';
 import Image from 'next/image';
 import Dashboard from './Dashboard';
 import AddOpportunityForm from './AddOpportunityForm';
 import CompanyProfileTabbedView from '@/src/components/CompanyProfileTabbedView';
 import UnderDevelopment from './UnderDevelopment';
+import SubmitApplicationModal from './SubmitApplicationModal';
 import NotificationsPanel from './NotificationsPanel';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
 import CompanyOpportunityManageRow from '@/src/components/CompanyOpportunityManageRow';
@@ -19,6 +20,7 @@ import {
   fetchCompanyProfile,
   fetchCompanyOpportunities,
   fetchCompanyOpportunityDetail,
+  patchCompanyApplicationDecision,
   updateCompanyProfile,
   type CompanyProfileUpdatePayload,
 } from '@/src/lib/auth/company';
@@ -38,7 +40,6 @@ import {
   Plus, 
   Search, 
   Clock, 
-  Calendar,
   MapPin,
   Users,
   Link as LinkIcon,
@@ -47,11 +48,13 @@ import {
   Star,
   Eye,
   CheckCircle,
+  MoreVertical,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import {
   formatDeadline,
-  formatOpportunityType,
+  formatDbDuration,
+  formatDbWorkType,
   formatPostedDisplay,
 } from '@/src/lib/opportunityFormat';
 import { toast } from 'sonner';
@@ -63,6 +66,7 @@ interface CompanyDashboardProps {
   currentUserRoleLabel: string;
   onToggleSidebar?: () => void;
   onNavigateTab?: (tab: string) => void;
+  onCloseSidebar?: () => void;
   accessToken?: string | null;
   accessTokenRef?: MutableRefObject<string | null>;
   linkedEntityId?: string | number | null;
@@ -74,6 +78,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   currentUserRoleLabel,
   onToggleSidebar,
   onNavigateTab,
+  onCloseSidebar,
   accessTokenRef,
   linkedEntityId,
 }) => {
@@ -83,7 +88,11 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [profileSection, setProfileSection] = useState<'about' | 'opportunities'>('about');
   const [selectedOpportunityDetail, setSelectedOpportunityDetail] = useState<Opportunity | null>(null);
-  const [selectedApplicationDetail, setSelectedApplicationDetail] = useState<Application | null>(null);
+  const [selectedApplicationDetail, setSelectedApplicationDetail] = useState<ApplicationResponse | null>(null);
+  const [companyApplicationListingDetail, setCompanyApplicationListingDetail] = useState<Opportunity | null>(null);
+  const [companyApplicationListingLoading, setCompanyApplicationListingLoading] = useState(false);
+  const [openApplicationMenuId, setOpenApplicationMenuId] = useState<number | null>(null);
+  const applicationActionMenuRef = useRef<HTMLDivElement | null>(null);
   const [detailOpenedFrom, setDetailOpenedFrom] = useState<'profile' | 'manage'>('profile');
   const [companyProfile, setCompanyProfile] = useState<CompanyProfileFromApi | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -98,11 +107,25 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   /** Bumped after saving new logo/cover so <img> / CSS url() refetch even if the base path is unchanged. */
   const [profileMediaDisplayRev, setProfileMediaDisplayRev] = useState(0);
   const [companyApplications, setCompanyApplications] = useState<ApplicationResponse[]>([]);
+  const [companyDecisionBusyId, setCompanyDecisionBusyId] = useState<number | null>(null);
+  const [pendingNotificationApplicationId, setPendingNotificationApplicationId] = useState<number | null>(null);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
   const logoFileInputRef = useRef<HTMLInputElement>(null);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
   const isEditingProfileRef = useRef(isEditingProfile);
   isEditingProfileRef.current = isEditingProfile;
+
+  useEffect(() => {
+    if (openApplicationMenuId == null) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const el = applicationActionMenuRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setOpenApplicationMenuId(null);
+      }
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [openApplicationMenuId]);
 
   useEffect(() => {
     if (!profileLogoFile) {
@@ -123,6 +146,12 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     setCoverObjectUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [profileCoverFile]);
+
+  useEffect(() => {
+    if (selectedApplicationDetail || isEditingProfile) {
+      onCloseSidebar?.();
+    }
+  }, [selectedApplicationDetail, isEditingProfile, onCloseSidebar]);
 
   const canEditProfile = useMemo(() => {
     if (!companyProfile || linkedEntityId == null) return false;
@@ -160,6 +189,55 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       setApplicationsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (pendingNotificationApplicationId == null) return;
+    if (applicationsLoading) return;
+    const api = companyApplications.find((x) => x.applicationId === pendingNotificationApplicationId);
+    if (api) {
+      setSelectedApplicationDetail(api);
+      setPendingNotificationApplicationId(null);
+      return;
+    }
+    toast.error('Could not open that application.');
+    setPendingNotificationApplicationId(null);
+  }, [companyApplications, pendingNotificationApplicationId, applicationsLoading]);
+
+  useEffect(() => {
+    const oid = selectedApplicationDetail?.opportunityId;
+    if (oid == null) {
+      setCompanyApplicationListingDetail(null);
+      setCompanyApplicationListingLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCompanyApplicationListingLoading(true);
+    setCompanyApplicationListingDetail(null);
+    void (async () => {
+      try {
+        const token = await getSessionAccessToken();
+        if (!token || cancelled) return;
+        const { data, errorMessage } = await fetchCompanyOpportunityDetail(token, String(oid));
+        if (cancelled) return;
+        if (data) {
+          setCompanyApplicationListingDetail(data);
+        } else {
+          toast.error(errorMessage || 'Could not load opportunity details.');
+        }
+      } catch {
+        if (!cancelled) {
+          toast.error('Could not load opportunity details.');
+        }
+      } finally {
+        if (!cancelled) {
+          setCompanyApplicationListingLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedApplicationDetail?.opportunityId, selectedApplicationDetail?.applicationId]);
 
   const loadCompanyOpportunities = useCallback(async () => {
     setOppListLoading(true);
@@ -392,15 +470,37 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     }
   };
 
-  const handleDecision = (studentName: string, decision: 'Approve' | 'Reject') => {
-    toast.success(`${decision}d application for ${studentName}!`);
-  };
-
-  const formatApplicationTypeLabel = (t: string | null) => {
-    if (!t) return '—';
-    if (t === 'PROFESSIONAL_PRACTICE') return 'Professional Practice';
-    if (t === 'INDIVIDUAL_GROWTH') return 'Individual Growth';
-    return t.replace(/_/g, ' ');
+  const handleDecision = async (apiRow: ApplicationResponse, approved: boolean) => {
+    const id = apiRow.applicationId;
+    if (id == null) {
+      toast.error('Missing application id.');
+      return;
+    }
+    const apiApp = companyApplications.find((c) => c.applicationId === id);
+    if (!apiApp) {
+      toast.error('Application not found.');
+      return;
+    }
+    setCompanyDecisionBusyId(id);
+    try {
+      const token = await getSessionAccessToken();
+      if (!token) {
+        toast.error('Not signed in.');
+        return;
+      }
+      const { data, errorMessage } = await patchCompanyApplicationDecision(token, id, approved);
+      if (errorMessage || !data) {
+        toast.error(errorMessage || 'Could not update application.');
+        return;
+      }
+      setCompanyApplications((prev) => prev.map((a) => (a.applicationId === id ? data : a)));
+      setSelectedApplicationDetail((cur) =>
+        cur?.applicationId === id && data ? data : cur
+      );
+      toast.success(approved ? 'Application approved.' : 'Application rejected.');
+    } finally {
+      setCompanyDecisionBusyId(null);
+    }
   };
 
   const totalApplicants = companyApplications.length;
@@ -410,8 +510,121 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const filteredCompanyApplications = companyApplications.filter((a) => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return true;
-    const hay = `${a.studentName ?? ''} ${a.opportunityTitle ?? ''}`.toLowerCase();
+    const hay = [
+      a.studentName,
+      a.opportunityTitle,
+      a.applicationType,
+      a.status,
+      a.studentStudyFieldName,
+      a.studentUniversityName,
+      a.studentDepartmentName,
+      a.studentEmail,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
     return hay.includes(q);
+  });
+
+  const renderCompanyApplicationListingDetails = (): ReactNode => {
+    if (companyApplicationListingLoading) {
+      return <p className="text-sm text-gray-600">Loading listing details…</p>;
+    }
+    if (!companyApplicationListingDetail) {
+      return (
+        <p className="text-sm text-gray-600 rounded-md bg-gray-50 px-3 py-2">
+          Full listing details are unavailable for this application.
+        </p>
+      );
+    }
+    const opp = companyApplicationListingDetail;
+    const meta = [
+      opp.location,
+      opp.workMode,
+      formatDbWorkType(opp.workType),
+      formatDbDuration(opp.duration),
+    ].filter(Boolean);
+    const overviewItems = [
+      ['Target universities', opp.targetUniversities?.map((u) => u.name).join(', ') || 'All universities'],
+      ['Application deadline', formatDeadline(opp.deadline)],
+      ['Start date', formatDeadline(opp.startDate)],
+      ['Positions', opp.positionCount != null ? String(opp.positionCount) : '—'],
+    ];
+
+    return (
+      <div>
+        <h4 className="text-base font-bold text-slate-950">Opportunity</h4>
+        <div className="mt-3 flex flex-col gap-5 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-4">
+              <div className="mt-1 h-12 w-12 shrink-0 rounded-xl bg-[#002B5B]" aria-hidden />
+              <div className="min-w-0">
+                <h5 className="text-xl font-bold text-[#0E2A50]">{opp.title}</h5>
+                <div className="mt-0.5 text-sm font-semibold text-slate-700">{opp.companyName}</div>
+                {meta.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    {meta.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
+                ) : null}
+                {opp.requiredSkills?.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {opp.requiredSkills.slice(0, 5).map((skill) => (
+                      <span key={skill} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3 text-sm text-slate-600">
+              {opp.description ? (
+                <div>
+                  <p className="font-semibold text-slate-900">About the role</p>
+                  <p className="mt-1 leading-6">{opp.description}</p>
+                </div>
+              ) : null}
+              {opp.responsibilities?.length ? (
+                <div>
+                  <p className="font-semibold text-slate-900">Responsibilities</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    {opp.responsibilities.slice(0, 3).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="w-full border-t border-slate-100 pt-4 lg:w-64 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            <p className="text-sm font-bold text-slate-950">Overview</p>
+            <div className="mt-3 space-y-3">
+              {overviewItems.map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-700">{value || '—'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const studentPropsForCompanyApplicationView = (api: ApplicationResponse) => ({
+    fullName: api.studentName?.trim() || '—',
+    email: api.studentEmail?.trim() || '—',
+    university: api.studentUniversityName?.trim() || '—',
+    department: api.studentDepartmentName?.trim() || '—',
+    studyField: api.studentStudyFieldName?.trim() || '—',
+    studyYear: api.studentStudyYear ?? 1,
+    cgpa: api.studentCgpa ?? 0,
+    cvFileName: api.studentCvFilename?.trim() || '—',
   });
 
   const renderStats = () => (
@@ -565,265 +778,166 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   };
 
   const renderApplications = () => {
-    const q = searchTerm.trim().toLowerCase();
-    const apps = ([] as Application[])
-      .filter(
-        (a) =>
-          !q ||
-          [a.studentName, a.studentEmail, a.opportunityTitle, a.opportunityDescription]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase()
-            .includes(q)
-      );
+    const rows = filteredCompanyApplications;
 
-    const detail = selectedApplicationDetail;
+    const formatDateApplied = (iso: string | null | undefined) => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+    };
 
-    const appDetailDl = (label: string, value: string | null | undefined) => (
-      <div key={label}>
-        <dt className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</dt>
-        <dd className="mt-0.5 text-sm font-medium text-slate-800 whitespace-pre-wrap">
-          {value != null && String(value).trim() !== '' ? value : '—'}
-        </dd>
-      </div>
-    );
+    const applicationTypeLabel = (t: string | null) => {
+      if (t === 'PROFESSIONAL_PRACTICE') return 'Professional Practice';
+      if (t === 'INDIVIDUAL_GROWTH') return 'Individual Growth';
+      return t?.replace(/_/g, ' ')?.trim() || '—';
+    };
+
+    const statusDisplay = (api: ApplicationResponse) => (api.status ?? 'WAITING').toUpperCase();
+
+    const statusPillClass = (api: ApplicationResponse) => {
+      const u = statusDisplay(api);
+      if (u === 'APPROVED') return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200';
+      if (u === 'REJECTED') return 'bg-red-50 text-red-800 ring-1 ring-red-200';
+      return 'bg-sky-50 text-sky-800 ring-1 ring-sky-200';
+    };
 
     return (
-      <>
-        {detail ? (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4"
-            onClick={() => setSelectedApplicationDetail(null)}
-            role="presentation"
-          >
-            <div
-              className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="application-detail-title"
-            >
-              <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white px-6 py-4">
-                <div>
-                  <h2 id="application-detail-title" className="text-lg font-bold text-[#0E2A50]">
-                    Application details
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {detail.studentName} · {detail.opportunityTitle}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedApplicationDetail(null)}
-                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                  aria-label="Close"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="space-y-8 p-6">
-                <section>
-                  <h3 className="text-sm font-bold text-slate-900">Applicant</h3>
-                  <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {appDetailDl('Name', detail.studentName)}
-                    {appDetailDl('Email', detail.studentEmail)}
-                    {appDetailDl('Student ID', detail.studentId)}
-                    {appDetailDl('Applied on', formatDeadline(detail.createdAt))}
-                    {appDetailDl('Application type', detail.type.replaceAll('_', ' '))}
-                    {appDetailDl(
-                      'PPA approved',
-                      detail.isApprovedByPPA === true
-                        ? 'Yes'
-                        : detail.isApprovedByPPA === false
-                          ? 'No'
-                          : '—'
-                    )}
-                    {appDetailDl(
-                      'Company decision',
-                      detail.isApprovedByCompany === true
-                        ? 'Approved'
-                        : detail.isApprovedByCompany === false
-                          ? 'Rejected'
-                          : 'Pending'
-                    )}
-                    {appDetailDl('Status', detail.status)}
-                  </dl>
-                </section>
-                <section>
-                  <h3 className="text-sm font-bold text-slate-900">Opportunity snapshot</h3>
-                  <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {appDetailDl('Title', detail.opportunityTitle)}
-                    {appDetailDl(
-                      'Category',
-                      detail.opportunityTypeLabel ?? formatOpportunityType(detail.type)
-                    )}
-                    {appDetailDl('Description', detail.opportunityDescription)}
-                    {appDetailDl(
-                      'Required skills',
-                      detail.opportunityRequiredSkills?.length
-                        ? detail.opportunityRequiredSkills.join(', ')
-                        : undefined
-                    )}
-                    {appDetailDl(
-                      'Application deadline',
-                      detail.opportunityDeadline
-                        ? formatDeadline(detail.opportunityDeadline)
-                        : undefined
-                    )}
-                    {appDetailDl(
-                      'Expected start',
-                      detail.opportunityStartDate
-                        ? formatDeadline(detail.opportunityStartDate)
-                        : undefined
-                    )}
-                    {appDetailDl('Location', detail.opportunityLocation)}
-                    {appDetailDl('Work mode', detail.opportunityWorkMode)}
-                    {appDetailDl('Job type', detail.opportunityJobTypeLabel)}
-                    {appDetailDl('Duration', detail.opportunityDurationLabel)}
-                    {appDetailDl(
-                      'Paid',
-                      detail.opportunityIsPaid === true
-                        ? 'Yes'
-                        : detail.opportunityIsPaid === false
-                          ? 'No'
-                          : '—'
-                    )}
-                    {appDetailDl(
-                      'Monthly salary',
-                      detail.opportunityIsPaid === true && detail.opportunitySalaryMonthly != null
-                        ? `${detail.opportunitySalaryMonthly.toLocaleString()} / month`
-                        : '—'
-                    )}
-                  </dl>
-                  {detail.opportunityNiceToHave?.trim() ? (
-                    <div className="mt-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                        Additional notes (nice to have)
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                        {detail.opportunityNiceToHave}
-                      </p>
-                    </div>
-                  ) : null}
-                </section>
-              </div>
-            </div>
-          </div>
-        ) : null}
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold tracking-tight text-[#0E2A50] md:text-4xl">Review Applications</h1>
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-            <h2 className="text-lg font-bold text-slate-900">Incoming Applications</h2>
-            <div className="flex gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input
-                  type="text"
-                  placeholder="Search applicants..."
-                  suppressHydrationWarning
-                  className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-64"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+          <input
+            type="search"
+            placeholder="Search student name or role..."
+            suppressHydrationWarning
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 shadow-sm outline-none ring-slate-200 transition placeholder:text-slate-400 focus:border-[#002B5B] focus:ring-2 focus:ring-[#002B5B]/20"
+          />
+        </div>
+
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            {apps.length === 0 ? (
-              <p className="px-6 py-10 text-center text-sm text-slate-500">
+            {rows.length === 0 ? (
+              <p className="px-6 py-14 text-center text-sm text-slate-500">
                 No applications match your search.
               </p>
             ) : (
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[880px] text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                    <th className="px-6 py-4">Applicant</th>
-                    <th className="px-6 py-4">Opportunity</th>
-                    <th className="px-6 py-4">Type</th>
-                    <th className="px-6 py-4">Date</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
+                  <tr className="bg-[#002B5B] text-white">
+                    <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider">Name</th>
+                    <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider">Date applied</th>
+                    <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider">Opportunity</th>
+                    <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider">Type</th>
+                    <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider">Status</th>
+                    <th className="px-5 py-4 text-right text-xs font-bold uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {apps.map((app) => (
-                    <tr key={app.id} className="hover:bg-slate-50 transition-all group">
-                      <td className="px-6 py-4">
-                        <div className="font-bold text-slate-900">{app.studentName}</div>
-                        <div className="text-xs text-slate-500">ID: {app.studentId}</div>
-                      </td>
-                      <td className="px-6 py-4 text-sm font-medium text-slate-700">
-                        {app.opportunityTitle}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={cn(
-                            'px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider',
-                            app.type === 'PROFESSIONAL_PRACTICE'
-                              ? 'bg-[#002B5B]/10 text-[#002B5B]'
-                              : 'bg-slate-100 text-slate-700'
-                          )}
-                        >
-                          {app.type.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={14} className="text-slate-400" />
-                          {formatDeadline(app.createdAt)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex flex-col items-end gap-2">
-                          <button
-                            type="button"
-                            suppressHydrationWarning
-                            onClick={() => setSelectedApplicationDetail(app)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-[#0E2A50] hover:bg-slate-50"
+                  {rows.map((apiApp) => {
+                    const aid = apiApp.applicationId;
+                    const menuOpen = aid != null && openApplicationMenuId === aid;
+                    return (
+                      <tr key={aid ?? `app-${apiApp.studentId ?? ''}`} className="bg-white hover:bg-slate-50/80">
+                        <td className="px-5 py-4">
+                          <div className="font-bold text-slate-900">{apiApp.studentName ?? '—'}</div>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-slate-600">{formatDateApplied(apiApp.createdAt)}</td>
+                        <td className="px-5 py-4 text-sm font-medium text-slate-800">{apiApp.opportunityTitle ?? '—'}</td>
+                        <td className="px-5 py-4 text-sm text-slate-600">{applicationTypeLabel(apiApp.applicationType)}</td>
+                        <td className="px-5 py-4">
+                          <span
+                            className={cn(
+                              'inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide',
+                              statusPillClass(apiApp)
+                            )}
                           >
-                            <Eye size={14} />
-                            View
-                          </button>
-                          {app.isApprovedByCompany === undefined ? (
-                            <div className="flex justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleDecision(app.studentName, 'Approve')}
-                                suppressHydrationWarning
-                                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-500/20"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDecision(app.studentName, 'Reject')}
-                                suppressHydrationWarning
-                                className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-500/20"
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          ) : (
-                            <span
-                              className={cn(
-                                'px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider',
-                                app.isApprovedByCompany === true
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'bg-red-50 text-red-700'
-                              )}
+                            {statusDisplay(apiApp)}
+                          </span>
+                        </td>
+                        <td className="relative px-5 py-4 text-right">
+                          <div
+                            ref={menuOpen ? applicationActionMenuRef : null}
+                            className="inline-flex justify-end"
+                          >
+                            <button
+                              type="button"
+                              suppressHydrationWarning
+                              aria-expanded={menuOpen}
+                              aria-haspopup="menu"
+                              aria-label="Application actions"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (aid == null) return;
+                                setOpenApplicationMenuId((prev) => (prev === aid ? null : aid));
+                              }}
+                              className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
                             >
-                              {app.isApprovedByCompany ? 'Approved' : 'Rejected'}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                              <MoreVertical size={20} strokeWidth={2} />
+                            </button>
+                            {menuOpen ? (
+                              <div
+                                className="absolute right-5 top-full z-50 mt-1 w-48 rounded-xl border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5"
+                                role="menu"
+                              >
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                  onClick={() => {
+                                    setOpenApplicationMenuId(null);
+                                    setSelectedApplicationDetail(apiApp);
+                                  }}
+                                >
+                                  <Eye size={16} className="text-[#002B5B]" aria-hidden />
+                                  View
+                                </button>
+                                {apiApp.isApprovedByCompany == null ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={companyDecisionBusyId === aid}
+                                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                                      onClick={() => {
+                                        setOpenApplicationMenuId(null);
+                                        void handleDecision(apiApp, true);
+                                      }}
+                                    >
+                                      <CheckCircle size={16} aria-hidden />
+                                      Approve
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      disabled={companyDecisionBusyId === aid}
+                                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                      onClick={() => {
+                                        setOpenApplicationMenuId(null);
+                                        void handleDecision(apiApp, false);
+                                      }}
+                                    >
+                                      <X size={16} aria-hidden />
+                                      Reject
+                                    </button>
+                                  </>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
           </div>
         </div>
-      </>
+      </div>
     );
   };
 
@@ -1156,11 +1270,48 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             close();
           }}
           onUnreadMayHaveChanged={refreshUnreadNotifications}
+          onActivateApplication={(applicationId) => {
+            close();
+            onNavigateTab?.('applications');
+            const api = companyApplications.find((x) => x.applicationId === applicationId);
+            if (api) {
+              setSelectedApplicationDetail(api);
+              return;
+            }
+            setPendingNotificationApplicationId(applicationId);
+            void loadCompanyApplications();
+          }}
           className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
         />
       )}
     >
       {renderContent()}
+      {selectedApplicationDetail ? (
+        <SubmitApplicationModal
+          key={selectedApplicationDetail.applicationId ?? 'company-app-view'}
+          mode="view"
+          opportunity={{
+            title: selectedApplicationDetail.opportunityTitle ?? 'Opportunity',
+            company: selectedApplicationDetail.companyName ?? '',
+          }}
+          student={studentPropsForCompanyApplicationView(selectedApplicationDetail)}
+          onClose={() => setSelectedApplicationDetail(null)}
+          viewReview={{
+            applicationId: selectedApplicationDetail.applicationId,
+            status: selectedApplicationDetail.status,
+            createdAt: selectedApplicationDetail.createdAt,
+            isApprovedByPPA: selectedApplicationDetail.isApprovedByPPA,
+            isApprovedByCompany: selectedApplicationDetail.isApprovedByCompany,
+          }}
+          viewFields={{
+            phoneNumber: selectedApplicationDetail.phoneNumber ?? selectedApplicationDetail.studentPhone,
+            applicationType: selectedApplicationDetail.applicationType,
+            accuracyConfirmed: selectedApplicationDetail.accuracyConfirmed ?? null,
+          }}
+          listingDetails={renderCompanyApplicationListingDetails()}
+          canApplyForPP
+        />
+      ) : null}
     </Dashboard>
   );
 };

@@ -160,6 +160,15 @@ export type ApplicationResponse = {
   companyName: string | null;
   studentName?: string | null;
   createdAt: string | null;
+  /** Enriched when loaded with expanded student embed (e.g. company inbox). */
+  studentEmail?: string | null;
+  studentPhone?: string | null;
+  studentUniversityName?: string | null;
+  studentDepartmentName?: string | null;
+  studentStudyFieldName?: string | null;
+  studentStudyYear?: number | null;
+  studentCgpa?: number | null;
+  studentCvFilename?: string | null;
 };
 
 export async function fetchStudentApplications(

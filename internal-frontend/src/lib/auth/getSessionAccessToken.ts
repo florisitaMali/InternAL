@@ -18,3 +18,17 @@ export async function getSessionAccessToken(): Promise<string | null> {
   const t = refreshed.session?.access_token?.trim();
   return t && t.length > 0 ? t : null;
 }
+
+/**
+ * Prefer for POST/PUT/PATCH/DELETE to the Java API: calls {@link refreshSession} first so the
+ * outbound Bearer token matches the current Supabase session even when React props/refs still
+ * hold an older access token string (which can surface as Spring Security’s anonymous 401 on writes).
+ */
+export async function getAccessTokenForMutatingApi(): Promise<string | null> {
+  const supabase = getSupabaseBrowserClient();
+  const { data: refreshed, error } = await supabase.auth.refreshSession();
+  if (!error && refreshed.session?.access_token?.trim()) {
+    return refreshed.session.access_token.trim();
+  }
+  return getSessionAccessToken();
+}

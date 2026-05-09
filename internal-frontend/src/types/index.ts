@@ -132,6 +132,21 @@ export interface CompanyProfileFromApi {
   coverUrl: string | null;
 }
 
+/** University profile from GET /api/admin/university/profile */
+export interface UniversityProfileFromApi {
+  universityId: number;
+  name: string;
+  location: string | null;
+  description: string | null;
+  website: string | null;
+  email: string | null;
+  employeeCount: number | null;
+  foundedYear: number | null;
+  specialties: string | null;
+  logoUrl: string | null;
+  coverUrl: string | null;
+}
+
 /** Aggregates returned with opportunity detail (or a separate summary endpoint). */
 export interface OpportunityApplicationStats {
   total: number;

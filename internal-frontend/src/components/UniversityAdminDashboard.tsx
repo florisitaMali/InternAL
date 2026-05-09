@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
+import Image from 'next/image';
 import Dashboard from './Dashboard';
+import UniversityProfileReadOnlyView from '@/src/components/UniversityProfileReadOnlyView';
 import AddStudentForm from './AddStudentForm';
 import ImportCSVForm from './ImportCSVForm';
 import UnderDevelopment from './UnderDevelopment';
@@ -34,12 +36,28 @@ import {
 } from '@/src/lib/auth/admin';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import {
+  fetchUniversityProfile,
+  updateUniversityProfile,
+  type UniversityProfileUpdatePayload,
+} from '@/src/lib/auth/universityProfile';
+import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
+import { uploadUniversityProfilePhoto } from '@/src/lib/supabase/companyProfilePhotos';
+import {
   formatDbDuration,
   formatExploreWorkMode,
   formatRelativePosted,
   getOpportunityCardInitials,
 } from '@/src/lib/opportunityFormat';
-import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
+import type {
+  Application,
+  DashboardStats,
+  Department,
+  Opportunity,
+  PPAApprover,
+  Student,
+  StudyField,
+  UniversityProfileFromApi,
+} from '@/src/types';
 import { toast } from 'sonner';
 import {
   Users,
@@ -68,6 +86,7 @@ interface UniversityAdminDashboardProps {
   onToggleSidebar?: () => void;
   accessToken?: string | null;
   accessTokenRef?: MutableRefObject<string | null>;
+  linkedEntityId?: string | number | null;
 }
 
 const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
@@ -77,6 +96,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   onToggleSidebar,
   accessToken,
   accessTokenRef,
+  linkedEntityId,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingStudent, setIsAddingStudent] = useState(false);
@@ -131,6 +151,18 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   const [academicEditFieldDeptId, setAcademicEditFieldDeptId] = useState('');
   const [academicFieldRowBusyId, setAcademicFieldRowBusyId] = useState<string | null>(null);
 
+  const [uniProfile, setUniProfile] = useState<UniversityProfileFromApi | null>(null);
+  const [uniProfileLoading, setUniProfileLoading] = useState(false);
+  const [isEditingUniProfile, setIsEditingUniProfile] = useState(false);
+  const [uniProfileDraft, setUniProfileDraft] = useState<UniversityProfileUpdatePayload | null>(null);
+  const [uniProfileLogoFile, setUniProfileLogoFile] = useState<File | null>(null);
+  const [uniProfileCoverFile, setUniProfileCoverFile] = useState<File | null>(null);
+  const [uniLogoObjectUrl, setUniLogoObjectUrl] = useState<string | null>(null);
+  const [uniCoverObjectUrl, setUniCoverObjectUrl] = useState<string | null>(null);
+  const [uniProfileMediaRev, setUniProfileMediaRev] = useState(0);
+  const uniLogoFileInputRef = useRef<HTMLInputElement>(null);
+  const uniCoverFileInputRef = useRef<HTMLInputElement>(null);
+
   /**
    * Prefer Supabase session (with refresh) so POST/PUT always send a current JWT. Relying only on ref/prop can
    * yield a missing Authorization header in edge cases (e.g. ref cleared) while getSession still has a session —
@@ -145,6 +177,134 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     if (fromProp) return fromProp;
     return null;
   }, [accessToken, accessTokenRef]);
+
+  useEffect(() => {
+    if (!uniProfileLogoFile) {
+      setUniLogoObjectUrl(null);
+      return;
+    }
+    const u = URL.createObjectURL(uniProfileLogoFile);
+    setUniLogoObjectUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [uniProfileLogoFile]);
+
+  useEffect(() => {
+    if (!uniProfileCoverFile) {
+      setUniCoverObjectUrl(null);
+      return;
+    }
+    const u = URL.createObjectURL(uniProfileCoverFile);
+    setUniCoverObjectUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [uniProfileCoverFile]);
+
+  useEffect(() => {
+    if (activeTab !== 'profile') return;
+    let cancelled = false;
+    (async () => {
+      setUniProfileLoading(true);
+      try {
+        const token = await resolveAccessToken();
+        if (!token || cancelled) return;
+        const res = await fetchUniversityProfile(token);
+        if (cancelled) return;
+        if (res.errorMessage) {
+          toast.error(res.errorMessage);
+          setUniProfile(null);
+        } else if (res.data) {
+          setUniProfile(res.data);
+        }
+      } finally {
+        if (!cancelled) setUniProfileLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, resolveAccessToken]);
+
+  const canEditUniProfile = useMemo(() => {
+    if (!uniProfile || linkedEntityId == null) return false;
+    return String(uniProfile.universityId) === String(linkedEntityId);
+  }, [uniProfile, linkedEntityId]);
+
+  const closeUniProfileModal = useCallback(() => {
+    setIsEditingUniProfile(false);
+    setUniProfileDraft(null);
+    setUniProfileLogoFile(null);
+    setUniProfileCoverFile(null);
+  }, []);
+
+  const beginEditUniProfile = useCallback(() => {
+    if (!uniProfile) return;
+    setUniProfileLogoFile(null);
+    setUniProfileCoverFile(null);
+    setUniProfileDraft({
+      name: uniProfile.name,
+      location: uniProfile.location ?? '',
+      description: uniProfile.description ?? '',
+      website: uniProfile.website ?? '',
+      email: uniProfile.email ?? '',
+      employeeCount: uniProfile.employeeCount,
+      foundedYear: uniProfile.foundedYear,
+      specialties: uniProfile.specialties ?? '',
+      logoUrl: uniProfile.logoUrl ?? '',
+      coverUrl: uniProfile.coverUrl ?? '',
+    });
+    setIsEditingUniProfile(true);
+  }, [uniProfile]);
+
+  const saveUniProfile = useCallback(async () => {
+    if (!uniProfile || !uniProfileDraft) {
+      toast.error('Profile not loaded');
+      return;
+    }
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) {
+        toast.error('Not signed in');
+        return;
+      }
+      const uid = uniProfile.universityId;
+      let logoUrl = uniProfileDraft.logoUrl ?? '';
+      let coverUrl = uniProfileDraft.coverUrl ?? '';
+      if (uniProfileLogoFile) {
+        const up = await uploadUniversityProfilePhoto(supabase, 'logo', uid, uniProfileLogoFile);
+        if (up.errorMessage || !up.publicUrl) {
+          toast.error(up.errorMessage || 'Could not upload logo');
+          return;
+        }
+        logoUrl = up.publicUrl;
+      }
+      if (uniProfileCoverFile) {
+        const up = await uploadUniversityProfilePhoto(supabase, 'cover', uid, uniProfileCoverFile);
+        if (up.errorMessage || !up.publicUrl) {
+          toast.error(up.errorMessage || 'Could not upload cover image');
+          return;
+        }
+        coverUrl = up.publicUrl;
+      }
+      const { data, errorMessage } = await updateUniversityProfile(accessToken, {
+        ...uniProfileDraft,
+        logoUrl,
+        coverUrl,
+      });
+      if (!data || errorMessage) {
+        toast.error(errorMessage || 'Could not save profile');
+        return;
+      }
+      const savedPhoto = uniProfileLogoFile != null || uniProfileCoverFile != null;
+      setUniProfileLogoFile(null);
+      setUniProfileCoverFile(null);
+      if (savedPhoto) setUniProfileMediaRev((r) => r + 1);
+      setUniProfile(data);
+      closeUniProfileModal();
+      toast.success('Profile updated');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save profile');
+    }
+  }, [uniProfile, uniProfileDraft, uniProfileLogoFile, uniProfileCoverFile, closeUniProfileModal]);
 
   const reloadAcademicCatalog = useCallback(async () => {
     const token = await resolveAccessToken();
@@ -1713,6 +1873,272 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     </div>
   );
 
+  const renderEditUniversityProfileModal = () => {
+    if (!isEditingUniProfile || !uniProfileDraft) return null;
+    return (
+      <div
+        className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-900/50 px-4 py-10 sm:py-14 md:items-center md:py-8"
+        role="presentation"
+        onClick={closeUniProfileModal}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-uni-profile-title"
+          className="relative my-auto w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
+            <h3 id="edit-uni-profile-title" className="text-xl font-bold text-slate-900 sm:text-2xl">
+              Edit university profile
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={closeUniProfileModal}
+                className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={closeUniProfileModal}
+                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close"
+              >
+                <X size={22} />
+              </button>
+            </div>
+          </div>
+          <div className="max-h-[min(85vh,calc(100vh-7rem))] overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-700">University name</span>
+                  <input
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={uniProfileDraft.name ?? ''}
+                    onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, name: e.target.value } : d))}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-700">Headquarters / location</span>
+                  <input
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={uniProfileDraft.location ?? ''}
+                    onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, location: e.target.value } : d))}
+                  />
+                </label>
+                <label className="block text-sm md:col-span-2">
+                  <span className="font-semibold text-slate-700">Overview / description</span>
+                  <textarea
+                    rows={4}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={uniProfileDraft.description ?? ''}
+                    onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, description: e.target.value } : d))}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-700">Website</span>
+                  <input
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={uniProfileDraft.website ?? ''}
+                    onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, website: e.target.value } : d))}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-700">Contact email</span>
+                  <input
+                    type="email"
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={uniProfileDraft.email ?? ''}
+                    onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, email: e.target.value } : d))}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-700">Number of employees</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={uniProfileDraft.employeeCount ?? ''}
+                    onChange={(e) =>
+                      setUniProfileDraft((d) =>
+                        d
+                          ? {
+                              ...d,
+                              employeeCount: e.target.value === '' ? null : Number(e.target.value),
+                            }
+                          : d
+                      )
+                    }
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-700">Founded year</span>
+                  <input
+                    type="number"
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={uniProfileDraft.foundedYear ?? ''}
+                    onChange={(e) =>
+                      setUniProfileDraft((d) =>
+                        d
+                          ? {
+                              ...d,
+                              foundedYear: e.target.value === '' ? null : Number(e.target.value),
+                            }
+                          : d
+                      )
+                    }
+                  />
+                </label>
+                <label className="block text-sm md:col-span-2">
+                  <span className="font-semibold text-slate-700">Specialties</span>
+                  <input
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    value={uniProfileDraft.specialties ?? ''}
+                    onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, specialties: e.target.value } : d))}
+                  />
+                </label>
+                <div className="block text-sm md:col-span-2">
+                  <span className="font-semibold text-slate-700">Logo</span>
+                  <input
+                    ref={uniLogoFileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setUniProfileLogoFile(f);
+                      e.target.value = '';
+                    }}
+                  />
+                  <div className="mt-2 space-y-2">
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      {(uniLogoObjectUrl || uniProfileDraft.logoUrl)?.trim() ? (
+                        <Image
+                          src={uniLogoObjectUrl || uniProfileDraft.logoUrl || ''}
+                          alt=""
+                          fill
+                          unoptimized
+                          className="object-cover"
+                          sizes="80px"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">
+                          No logo
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => uniLogoFileInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Upload size={14} />
+                        Upload logo
+                      </button>
+                      {(uniLogoObjectUrl || uniProfileDraft.logoUrl)?.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUniProfileLogoFile(null);
+                            setUniProfileDraft((d) => (d ? { ...d, logoUrl: '' } : d));
+                          }}
+                          className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                <div className="block text-sm md:col-span-2">
+                  <span className="font-semibold text-slate-700">Cover image</span>
+                  <input
+                    ref={uniCoverFileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setUniProfileCoverFile(f);
+                      e.target.value = '';
+                    }}
+                  />
+                  <div className="mt-2 space-y-2">
+                    <div className="h-28 w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                      {(uniCoverObjectUrl || uniProfileDraft.coverUrl)?.trim() ? (
+                        <div
+                          className="h-full w-full bg-cover bg-center"
+                          style={{
+                            backgroundImage: `url(${uniCoverObjectUrl || uniProfileDraft.coverUrl})`,
+                          }}
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">
+                          No cover image
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => uniCoverFileInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Upload size={14} />
+                        Upload cover
+                      </button>
+                      {(uniCoverObjectUrl || uniProfileDraft.coverUrl)?.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUniProfileCoverFile(null);
+                            setUniProfileDraft((d) => (d ? { ...d, coverUrl: '' } : d));
+                          }}
+                          className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void saveUniProfile()}
+                className="rounded-xl bg-[#002B5B] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#001F42]"
+              >
+                Save changes
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderUniversityProfile = () => (
+    <div className="space-y-6">
+      {uniProfileLoading && !uniProfile ? (
+        <p className="text-sm text-slate-500">Loading profile…</p>
+      ) : uniProfile ? (
+        <UniversityProfileReadOnlyView
+          profile={uniProfile}
+          mediaRev={uniProfileMediaRev}
+          canEditProfile={canEditUniProfile}
+          onEditProfile={beginEditUniProfile}
+        />
+      ) : (
+        <p className="text-sm text-slate-600">Could not load university profile.</p>
+      )}
+      {renderEditUniversityProfileModal()}
+    </div>
+  );
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -1760,6 +2186,8 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
             </div>
           </>
         );
+      case 'profile':
+        return renderUniversityProfile();
       case 'students':
         return renderStudents();
       case 'ppa':

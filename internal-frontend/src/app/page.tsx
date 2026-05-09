@@ -310,6 +310,7 @@ export default function Home() {
             onToggleSidebar={handleToggleSidebar}
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
+            linkedEntityId={linkedEntityId}
           />
         );
       case 'PPA':

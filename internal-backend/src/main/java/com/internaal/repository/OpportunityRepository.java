@@ -148,6 +148,39 @@ public class OpportunityRepository {
     }
 
     /**
+     * Loads one opportunity by id using the service role (for internal readers such as PPA application review).
+     */
+    public Optional<Opportunity> findByIdWithServiceRole(int opportunityId) {
+        if (supabaseServiceRoleKey == null || supabaseServiceRoleKey.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("apikey", supabaseServiceRoleKey);
+            headers.set("Authorization", "Bearer " + supabaseServiceRoleKey);
+            String url = supabaseUrl + "/rest/v1/opportunity?select=" + selectClause()
+                    + "&opportunity_id=eq." + opportunityId
+                    + "&limit=1";
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+            JsonNode array = objectMapper.readTree(response.getBody());
+            if (array == null || !array.isArray() || array.isEmpty()) {
+                return Optional.empty();
+            }
+            Opportunity o = OpportunityMapper.fromJsonNode(array.get(0));
+            return Optional.of(enrichTargetUniversities(List.of(o)).get(0));
+        } catch (HttpStatusCodeException e) {
+            String body = e.getResponseBodyAsString();
+            String hint = body != null && body.length() > 500 ? body.substring(0, 500) + "…" : body;
+            log.error("findByIdWithServiceRole HTTP {}: {}", e.getStatusCode().value(), hint);
+            return Optional.empty();
+        } catch (Exception e) {
+            log.error("findByIdWithServiceRole failed: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Fetches opportunities visible to the student's university using Supabase REST API.
      * Embeds company (name + location) and opportunitytarget (university_id) via PostgREST.
      * Filtering by university, type, location, skills, and text search is done in Java.

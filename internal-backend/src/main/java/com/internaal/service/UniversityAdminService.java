@@ -16,11 +16,13 @@ import com.internaal.dto.AdminStudyFieldCreateRequest;
 import com.internaal.dto.AdminStudyFieldResponse;
 import com.internaal.dto.AdminStudyFieldUpdateRequest;
 import com.internaal.dto.ApplicationResponse;
+import com.internaal.dto.StudentProfileResponse;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.entity.Opportunity;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.OpportunityMapper;
+import com.internaal.repository.StudentProfileRepository;
 import com.internaal.repository.UniversityAdminRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -35,14 +37,17 @@ public class UniversityAdminService {
     private final UniversityAdminRepository universityAdminRepository;
     private final ApplicationRepository applicationRepository;
     private final SupabaseAuthAdminService supabaseAuthAdminService;
+    private final StudentProfileRepository studentProfileRepository;
 
     public UniversityAdminService(
             UniversityAdminRepository universityAdminRepository,
             ApplicationRepository applicationRepository,
-            SupabaseAuthAdminService supabaseAuthAdminService) {
+            SupabaseAuthAdminService supabaseAuthAdminService,
+            StudentProfileRepository studentProfileRepository) {
         this.universityAdminRepository = universityAdminRepository;
         this.applicationRepository = applicationRepository;
         this.supabaseAuthAdminService = supabaseAuthAdminService;
+        this.studentProfileRepository = studentProfileRepository;
     }
 
     public List<AdminDepartmentResponse> listDepartments(UserAccount user) {
@@ -336,6 +341,28 @@ public class UniversityAdminService {
         Map<Integer, Integer> counts = applicationRepository.countApplicationsByOpportunityIds(List.of(opportunityId));
         int applicantCount = counts.getOrDefault(opportunityId, 0);
         return OpportunityMapper.toResponseItem(o, 0, applicantCount);
+    }
+
+    /**
+     * Read-only student profile for university admins (after verifying the student belongs to this university
+     * or appears in the PP queue).
+     */
+    public StudentProfileResponse getStudentProfileForViewer(UserAccount user, int studentId) {
+        requireAdmin(user);
+        int universityId = parseUniversityId(user);
+        boolean allowed = universityAdminRepository.listStudentsByUniversityId(universityId).stream()
+                .anyMatch(s -> s.studentId() == studentId);
+        if (!allowed) {
+            allowed = applicationRepository.findPpaQueueByUniversityId(universityId).stream()
+                    .anyMatch(a -> a.getStudentId() != null && a.getStudentId() == studentId);
+        }
+        if (!allowed) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You do not have access to this student profile");
+        }
+        StudentProfileResponse profile = studentProfileRepository.findByStudentIdAsService(studentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Student profile not found"));
+        StudentProfileViewerUrls.rewriteDownloadUrls(profile, studentId, "admin");
+        return profile;
     }
 
     private static int parseUniversityId(UserAccount user) {

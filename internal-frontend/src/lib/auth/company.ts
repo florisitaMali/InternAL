@@ -74,7 +74,7 @@ function parseBackendErrorMessage(
 }
 
 
-function mapOpportunity(item: ApiOpportunityItem): Opportunity {
+export function mapOpportunity(item: ApiOpportunityItem): Opportunity {
   const workType = item.workType ?? undefined;
   const duration = item.duration ?? undefined;
   const niceToHave = item.niceToHave ?? undefined;
@@ -302,6 +302,27 @@ export async function fetchStudentOpportunityDetail(
 ): Promise<{ data: Opportunity | null; errorMessage: string | null }> {
   const { data, errorMessage } = await fetchBackendJson<CompanyOpportunityDetailResponse>(
     `/api/student/opportunities/${encodeURIComponent(opportunityId)}`,
+    accessToken
+  );
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not load opportunity.' };
+  }
+  const opp = mapOpportunity(data.opportunity);
+  const stats: OpportunityApplicationStats = {
+    total: data.applicationStats.total,
+    inReview: data.applicationStats.inReview,
+    approved: data.applicationStats.approved,
+    rejected: data.applicationStats.rejected,
+  };
+  return { data: { ...opp, applicationStats: stats }, errorMessage: null };
+}
+
+export async function fetchPpaOpportunityDetail(
+  accessToken: string,
+  opportunityId: string
+): Promise<{ data: Opportunity | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await fetchBackendJson<CompanyOpportunityDetailResponse>(
+    `/api/ppa/opportunities/${encodeURIComponent(opportunityId)}`,
     accessToken
   );
   if (!data || errorMessage) {

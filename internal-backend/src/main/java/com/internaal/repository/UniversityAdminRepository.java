@@ -111,7 +111,7 @@ public class UniversityAdminRepository {
             HttpEntity<Void> entity = new HttpEntity<>(createServiceHeaders());
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
             if (!response.getStatusCode().is2xxSuccessful()) {
-                log.warn("PostgREST returned HTTP {} for opportunity query", response.getStatusCode().value());
+                log.warn("PostgREST returned HTTP {} for GET {}", response.getStatusCode().value(), abbreviateUrlForLog(url));
                 return Optional.empty();
             }
             if (response.getBody() == null) {
@@ -121,14 +121,22 @@ public class UniversityAdminRepository {
         } catch (HttpClientErrorException | HttpServerErrorException e) {
             String body = e.getResponseBodyAsString(StandardCharsets.UTF_8);
             log.warn(
-                    "PostgREST opportunity query failed (HTTP {}): {}",
+                    "PostgREST GET failed (HTTP {}): {}",
                     e.getStatusCode().value(),
                     body == null || body.length() < 500 ? body : body.substring(0, 500) + "…");
             return Optional.empty();
         } catch (Exception e) {
-            log.warn("PostgREST opportunity query failed: {}", e.getMessage());
+            log.warn("PostgREST GET failed for {}: {}", abbreviateUrlForLog(url), e.getMessage());
             return Optional.empty();
         }
+    }
+
+    private static String abbreviateUrlForLog(String url) {
+        if (url == null) {
+            return "";
+        }
+        int q = url.indexOf('?');
+        return q > 0 ? url.substring(0, q) + "?…" : url;
     }
 
     private Integer intVal(JsonNode n, String field) {
@@ -142,34 +150,70 @@ public class UniversityAdminRepository {
         return n.get(field).asText();
     }
 
-    public List<AdminDepartmentResponse> listDepartments() {
-        String url = supabaseUrl + "/rest/v1/department?select=department_id,name,university(name)&order=name";
+    public List<AdminDepartmentResponse> listDepartmentsForUniversity(int universityId) {
+        String prefix = supabaseUrl + "/rest/v1/department?university_id=eq." + universityId + "&order=name&select=";
+        String urlWithUniEmbed = prefix + "department_id,name,university(name)";
+        String urlPlain = prefix + "department_id,name";
         List<AdminDepartmentResponse> out = new ArrayList<>();
-        fetchArray(url).ifPresent(arr -> {
-            if (arr.isArray()) {
-                for (JsonNode n : arr) {
-                    String uni = null;
-                    JsonNode u = n.get("university");
-                    if (u != null && !u.isNull()) {
-                        uni = text(u, "name");
-                    }
-                    Integer id = intVal(n, "department_id");
-                    if (id != null) {
-                        out.add(new AdminDepartmentResponse(id, text(n, "name"), uni));
-                    }
+        Optional<JsonNode> rows = fetchJsonBodyLogged(urlWithUniEmbed).filter(JsonNode::isArray);
+        if (rows.isEmpty()) {
+            log.info(
+                    "Retrying department list without university embed (universityId={}); add FK department.university_id → university if you need university names.",
+                    universityId);
+            rows = fetchJsonBodyLogged(urlPlain).filter(JsonNode::isArray);
+        }
+        rows.ifPresent(arr -> {
+            if (!arr.isArray()) {
+                return;
+            }
+            for (JsonNode n : arr) {
+                String uni = null;
+                JsonNode u = n.get("university");
+                if (u != null && !u.isNull()) {
+                    uni = text(u, "name");
+                }
+                Integer id = intVal(n, "department_id");
+                if (id != null) {
+                    out.add(new AdminDepartmentResponse(id, text(n, "name"), uni));
                 }
             }
         });
         return out;
     }
 
-    public List<AdminStudyFieldResponse> listStudyFields(Integer departmentId) {
-        StringBuilder url = new StringBuilder(supabaseUrl + "/rest/v1/studyfield?select=field_id,name,department_id&order=name");
-        if (departmentId != null) {
-            url.append("&department_id=eq.").append(departmentId);
+    /**
+     * Study fields belonging to any department of {@code universityId}. When {@code departmentIdFilter} is set, restricts
+     * to that department (must belong to the university).
+     */
+    public List<AdminStudyFieldResponse> listStudyFieldsForUniversity(int universityId, Integer departmentIdFilter) {
+        if (departmentIdFilter != null) {
+            Optional<Integer> owner = findUniversityIdForDepartment(departmentIdFilter);
+            if (owner.isEmpty() || !owner.get().equals(universityId)) {
+                return List.of();
+            }
+            return fetchStudyFieldsForDepartment(departmentIdFilter);
         }
+        List<AdminDepartmentResponse> depts = listDepartmentsForUniversity(universityId);
+        if (depts.isEmpty()) {
+            return List.of();
+        }
+        String inList = depts.stream()
+                .map(d -> String.valueOf(d.departmentId()))
+                .collect(Collectors.joining(","));
+        String url = supabaseUrl + "/rest/v1/studyfield?department_id=in.(" + inList
+                + ")&select=field_id,name,department_id&order=name";
+        return fetchStudyFieldsFromUrl(url);
+    }
+
+    private List<AdminStudyFieldResponse> fetchStudyFieldsForDepartment(int departmentId) {
+        String url = supabaseUrl + "/rest/v1/studyfield?department_id=eq." + departmentId
+                + "&select=field_id,name,department_id&order=name";
+        return fetchStudyFieldsFromUrl(url);
+    }
+
+    private List<AdminStudyFieldResponse> fetchStudyFieldsFromUrl(String url) {
         List<AdminStudyFieldResponse> out = new ArrayList<>();
-        fetchArray(url.toString()).ifPresent(arr -> {
+        fetchArray(url).ifPresent(arr -> {
             if (arr.isArray()) {
                 for (JsonNode n : arr) {
                     Integer id = intVal(n, "field_id");
@@ -181,6 +225,206 @@ public class UniversityAdminRepository {
             }
         });
         return out;
+    }
+
+    public Optional<AdminDepartmentResponse> insertDepartment(int universityId, String name) throws Exception {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("name", name.trim());
+        row.put("university_id", universityId);
+        String json = objectMapper.writeValueAsString(row);
+        HttpHeaders headers = createServiceHeaders();
+        headers.set("Prefer", "return=representation");
+        HttpEntity<String> entity = new HttpEntity<>(json, headers);
+        String url = supabaseUrl + "/rest/v1/department";
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null || response.getBody().isBlank()) {
+            return Optional.empty();
+        }
+        JsonNode root = objectMapper.readTree(response.getBody());
+        JsonNode first = root.isArray() && !root.isEmpty() ? root.get(0) : (root.isObject() ? root : null);
+        if (first == null) {
+            return Optional.empty();
+        }
+        Integer id = intVal(first, "department_id");
+        if (id == null) {
+            return Optional.empty();
+        }
+        String uniName = null;
+        JsonNode u = first.get("university");
+        if (u != null && !u.isNull()) {
+            uniName = text(u, "name");
+        }
+        return Optional.of(new AdminDepartmentResponse(id, text(first, "name"), uniName));
+    }
+
+    public Optional<AdminStudyFieldResponse> insertStudyField(int departmentId, String name) throws Exception {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("name", name.trim());
+        row.put("department_id", departmentId);
+        String json = objectMapper.writeValueAsString(row);
+        HttpHeaders headers = createServiceHeaders();
+        headers.set("Prefer", "return=representation");
+        HttpEntity<String> entity = new HttpEntity<>(json, headers);
+        String url = supabaseUrl + "/rest/v1/studyfield";
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null || response.getBody().isBlank()) {
+            return Optional.empty();
+        }
+        JsonNode root = objectMapper.readTree(response.getBody());
+        JsonNode first = root.isArray() && !root.isEmpty() ? root.get(0) : (root.isObject() ? root : null);
+        if (first == null) {
+            return Optional.empty();
+        }
+        Integer id = intVal(first, "field_id");
+        Integer dept = intVal(first, "department_id");
+        if (id == null || dept == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new AdminStudyFieldResponse(id, text(first, "name"), dept));
+    }
+
+    public Optional<Integer> findDepartmentIdForStudyField(int fieldId) {
+        String url = supabaseUrl + "/rest/v1/studyfield?field_id=eq." + fieldId + "&select=department_id&limit=1";
+        return fetchArray(url).flatMap(arr ->
+                arr.isArray() && !arr.isEmpty()
+                        ? Optional.ofNullable(intVal(arr.get(0), "department_id"))
+                        : Optional.empty());
+    }
+
+    public Optional<AdminDepartmentResponse> updateDepartment(int departmentId, String name) throws Exception {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("name", name.trim());
+        String json = objectMapper.writeValueAsString(row);
+        HttpHeaders headers = createServiceHeaders();
+        headers.set("Prefer", "return=representation");
+        HttpEntity<String> entity = new HttpEntity<>(json, headers);
+        String url = supabaseUrl + "/rest/v1/department?department_id=eq." + departmentId;
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.PATCH, entity, String.class);
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            return Optional.empty();
+        }
+        String respBody = response.getBody();
+        if (respBody != null && !respBody.isBlank()) {
+            JsonNode root = objectMapper.readTree(respBody);
+            JsonNode first = root.isArray() && !root.isEmpty() ? root.get(0) : (root.isObject() ? root : null);
+            if (first != null) {
+                Optional<AdminDepartmentResponse> parsed = parseDepartmentResponseNode(first);
+                if (parsed.isPresent()) {
+                    return parsed;
+                }
+            }
+        }
+        return fetchDepartmentSummary(departmentId);
+    }
+
+    public Optional<AdminStudyFieldResponse> updateStudyField(int fieldId, int departmentId, String name) throws Exception {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("name", name.trim());
+        row.put("department_id", departmentId);
+        String json = objectMapper.writeValueAsString(row);
+        HttpHeaders headers = createServiceHeaders();
+        headers.set("Prefer", "return=representation");
+        HttpEntity<String> entity = new HttpEntity<>(json, headers);
+        String url = supabaseUrl + "/rest/v1/studyfield?field_id=eq." + fieldId;
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.PATCH, entity, String.class);
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            return Optional.empty();
+        }
+        String respBody = response.getBody();
+        if (respBody != null && !respBody.isBlank()) {
+            JsonNode root = objectMapper.readTree(respBody);
+            JsonNode first = root.isArray() && !root.isEmpty() ? root.get(0) : (root.isObject() ? root : null);
+            if (first != null) {
+                Optional<AdminStudyFieldResponse> parsed = parseStudyFieldResponseNode(first);
+                if (parsed.isPresent()) {
+                    return parsed;
+                }
+            }
+        }
+        return fetchStudyFieldSummary(fieldId);
+    }
+
+    public void deleteDepartment(int departmentId) {
+        String url = supabaseUrl + "/rest/v1/department?department_id=eq." + departmentId;
+        HttpEntity<Void> entity = new HttpEntity<>(createServiceHeaders());
+        try {
+            ResponseEntity<String> res = restTemplate.exchange(url, HttpMethod.DELETE, entity, String.class);
+            if (!res.getStatusCode().is2xxSuccessful()) {
+                throw new IllegalStateException("HTTP " + res.getStatusCode().value());
+            }
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            throw new IllegalStateException(truncateForMessage(e.getResponseBodyAsString(StandardCharsets.UTF_8), e.getMessage()));
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage() != null ? e.getMessage() : "Delete failed");
+        }
+    }
+
+    public void deleteStudyField(int fieldId) {
+        String url = supabaseUrl + "/rest/v1/studyfield?field_id=eq." + fieldId;
+        HttpEntity<Void> entity = new HttpEntity<>(createServiceHeaders());
+        try {
+            ResponseEntity<String> res = restTemplate.exchange(url, HttpMethod.DELETE, entity, String.class);
+            if (!res.getStatusCode().is2xxSuccessful()) {
+                throw new IllegalStateException("HTTP " + res.getStatusCode().value());
+            }
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            throw new IllegalStateException(truncateForMessage(e.getResponseBodyAsString(StandardCharsets.UTF_8), e.getMessage()));
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage() != null ? e.getMessage() : "Delete failed");
+        }
+    }
+
+    private Optional<AdminDepartmentResponse> fetchDepartmentSummary(int departmentId) {
+        String url = supabaseUrl + "/rest/v1/department?department_id=eq." + departmentId
+                + "&select=department_id,name&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        if (opt.isEmpty() || !opt.get().isArray() || opt.get().isEmpty()) {
+            return Optional.empty();
+        }
+        return parseDepartmentResponseNode(opt.get().get(0));
+    }
+
+    private Optional<AdminStudyFieldResponse> fetchStudyFieldSummary(int fieldId) {
+        String url = supabaseUrl + "/rest/v1/studyfield?field_id=eq." + fieldId
+                + "&select=field_id,name,department_id&limit=1";
+        Optional<JsonNode> opt = fetchArray(url);
+        if (opt.isEmpty() || !opt.get().isArray() || opt.get().isEmpty()) {
+            return Optional.empty();
+        }
+        return parseStudyFieldResponseNode(opt.get().get(0));
+    }
+
+    private Optional<AdminDepartmentResponse> parseDepartmentResponseNode(JsonNode first) {
+        Integer id = intVal(first, "department_id");
+        if (id == null) {
+            return Optional.empty();
+        }
+        String uniName = null;
+        JsonNode u = first.get("university");
+        if (u != null && !u.isNull()) {
+            uniName = text(u, "name");
+        }
+        return Optional.of(new AdminDepartmentResponse(id, text(first, "name"), uniName));
+    }
+
+    private Optional<AdminStudyFieldResponse> parseStudyFieldResponseNode(JsonNode first) {
+        Integer id = intVal(first, "field_id");
+        Integer dept = intVal(first, "department_id");
+        if (id == null || dept == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new AdminStudyFieldResponse(id, text(first, "name"), dept));
+    }
+
+    private static String truncateForMessage(String body, String fallback) {
+        if (body != null && !body.isBlank()) {
+            return body.length() > 400 ? body.substring(0, 400) + "…" : body;
+        }
+        return fallback != null ? fallback : "Request failed";
     }
 
     public List<AdminStudentResponse> listStudentsByUniversityId(int universityId) {
@@ -354,16 +598,17 @@ public class UniversityAdminRepository {
         String s = statusFilter == null ? "all" : statusFilter.trim().toLowerCase();
         final String norm = ("active".equals(s) || "expired".equals(s) || "all".equals(s)) ? s : "all";
         int cap = Math.min(Math.max(limit, 1), 500);
-        String urlFull = supabaseUrl + "/rest/v1/opportunity?select=" + OPPORTUNITY_LIST_SELECT_WITH_COMPANY_UNIVERSITY
-                + "&order=created_at.desc&limit=1000";
         String urlBasic = supabaseUrl + "/rest/v1/opportunity?select=" + OPPORTUNITY_LIST_SELECT_BASIC
+                + "&order=created_at.desc&limit=1000";
+        String urlFull = supabaseUrl + "/rest/v1/opportunity?select=" + OPPORTUNITY_LIST_SELECT_WITH_COMPANY_UNIVERSITY
                 + "&order=created_at.desc&limit=1000";
         List<AdminOpportunitySummaryResponse> out = new ArrayList<>();
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
-        Optional<JsonNode> payload = fetchJsonBodyLogged(urlFull).filter(JsonNode::isArray);
+        // Prefer the schema-safe query to avoid repeated PostgREST 400 logs when company->university FK is absent.
+        Optional<JsonNode> payload = fetchJsonBodyLogged(urlBasic).filter(JsonNode::isArray);
         if (payload.isEmpty()) {
-            log.info("Retrying university-admin opportunity list without company.university embed");
-            payload = fetchJsonBodyLogged(urlBasic).filter(JsonNode::isArray);
+            log.info("Retrying university-admin opportunity list with company.university embed");
+            payload = fetchJsonBodyLogged(urlFull).filter(JsonNode::isArray);
         }
         payload.ifPresent(arr -> {
             if (!arr.isArray()) {
@@ -429,14 +674,14 @@ public class UniversityAdminRepository {
      * {@link #listOpportunitySummariesForUniversityAdmin}).
      */
     public Optional<Opportunity> findPublishedOpportunityForUniversity(int opportunityId, int universityId) {
-        String urlFull = supabaseUrl + "/rest/v1/opportunity?opportunity_id=eq." + opportunityId
-                + "&select=" + OPPORTUNITY_DETAIL_SELECT + "&limit=1";
         String urlBasic = supabaseUrl + "/rest/v1/opportunity?opportunity_id=eq." + opportunityId
                 + "&select=" + OPPORTUNITY_DETAIL_SELECT_NO_COMPANY_UNIVERSITY + "&limit=1";
-        Optional<JsonNode> opt = fetchJsonBodyLogged(urlFull).filter(JsonNode::isArray);
+        String urlFull = supabaseUrl + "/rest/v1/opportunity?opportunity_id=eq." + opportunityId
+                + "&select=" + OPPORTUNITY_DETAIL_SELECT + "&limit=1";
+        Optional<JsonNode> opt = fetchJsonBodyLogged(urlBasic).filter(JsonNode::isArray);
         if (opt.isEmpty() || opt.get().isEmpty()) {
-            log.info("Retrying university-admin opportunity detail without company.university embed (id={})", opportunityId);
-            opt = fetchJsonBodyLogged(urlBasic).filter(JsonNode::isArray);
+            log.info("Retrying university-admin opportunity detail with company.university embed (id={})", opportunityId);
+            opt = fetchJsonBodyLogged(urlFull).filter(JsonNode::isArray);
         }
         if (opt.isEmpty() || opt.get().isEmpty()) {
             return Optional.empty();

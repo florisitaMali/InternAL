@@ -14,6 +14,10 @@ import {
   fetchAdminApplications,
   fetchAdminCompanies,
   fetchAdminDashboardStats,
+  createAdminDepartment,
+  createAdminStudyField,
+  deleteAdminDepartment,
+  deleteAdminStudyField,
   fetchAdminDepartments,
   fetchAdminOpportunities,
   fetchAdminOpportunityDetail,
@@ -23,7 +27,9 @@ import {
   mapAdminOpportunityDetailToOpportunity,
   mapAdminOpportunitySummaryToOpportunity,
   mapApplicationResponseToApplication,
+  updateAdminDepartment,
   updateAdminPpa,
+  updateAdminStudyField,
   type AdminOpportunityRow,
 } from '@/src/lib/auth/admin';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
@@ -35,13 +41,13 @@ import {
 } from '@/src/lib/opportunityFormat';
 import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
 import { toast } from 'sonner';
-import { 
-  Users, 
-  GraduationCap, 
-  Briefcase, 
-  FileText, 
-  Plus, 
-  Upload, 
+import {
+  Users,
+  GraduationCap,
+  Briefcase,
+  FileText,
+  Plus,
+  Upload,
   Search,
   Building2,
   Clock,
@@ -49,6 +55,9 @@ import {
   Trash2,
   Edit2,
   X,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  Library,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
@@ -102,13 +111,59 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     studyFieldIds: [] as string[],
   });
 
+  const [academicDeptName, setAcademicDeptName] = useState('');
+  const [academicDeptError, setAcademicDeptError] = useState<string | null>(null);
+  const [academicSavingDept, setAcademicSavingDept] = useState(false);
+  const [academicFieldName, setAcademicFieldName] = useState('');
+  const [academicFieldDeptId, setAcademicFieldDeptId] = useState('');
+  const [academicFieldError, setAcademicFieldError] = useState<string | null>(null);
+  const [academicSavingField, setAcademicSavingField] = useState(false);
+  const [academicFieldFilterDeptId, setAcademicFieldFilterDeptId] = useState('');
+  const [academicDeptSortDesc, setAcademicDeptSortDesc] = useState(false);
+  const [academicFieldSortDesc, setAcademicFieldSortDesc] = useState(false);
+  const [academicDeptSearch, setAcademicDeptSearch] = useState('');
+  const [academicFieldSearch, setAcademicFieldSearch] = useState('');
+  const [academicEditingDeptId, setAcademicEditingDeptId] = useState<string | null>(null);
+  const [academicEditDeptName, setAcademicEditDeptName] = useState('');
+  const [academicDeptRowBusyId, setAcademicDeptRowBusyId] = useState<string | null>(null);
+  const [academicEditingFieldId, setAcademicEditingFieldId] = useState<string | null>(null);
+  const [academicEditFieldName, setAcademicEditFieldName] = useState('');
+  const [academicEditFieldDeptId, setAcademicEditFieldDeptId] = useState('');
+  const [academicFieldRowBusyId, setAcademicFieldRowBusyId] = useState<string | null>(null);
+
+  /**
+   * Prefer Supabase session (with refresh) so POST/PUT always send a current JWT. Relying only on ref/prop can
+   * yield a missing Authorization header in edge cases (e.g. ref cleared) while getSession still has a session —
+   * the backend then responds 401 with "Authentication required. Sign in and send a valid Bearer token."
+   */
   const resolveAccessToken = useCallback(async (): Promise<string | null> => {
+    const fresh = await getSessionAccessToken();
+    if (fresh) return fresh;
     const fromRef = accessTokenRef?.current?.trim();
     if (fromRef) return fromRef;
     const fromProp = accessToken?.trim();
     if (fromProp) return fromProp;
-    return getSessionAccessToken();
+    return null;
   }, [accessToken, accessTokenRef]);
+
+  const reloadAcademicCatalog = useCallback(async () => {
+    const token = await resolveAccessToken();
+    if (!token) {
+      toast.error('Not signed in.');
+      return;
+    }
+    const [departmentsRes, fieldsRes, statsRes] = await Promise.all([
+      fetchAdminDepartments(token),
+      fetchAdminStudyFields(token),
+      fetchAdminDashboardStats(token),
+    ]);
+    if (departmentsRes.errorMessage) toast.error(departmentsRes.errorMessage);
+    else if (departmentsRes.data) setDepartments(departmentsRes.data);
+    if (fieldsRes.errorMessage) toast.error(fieldsRes.errorMessage);
+    else if (fieldsRes.data) setStudyFields(fieldsRes.data);
+    if (statsRes.errorMessage) toast.error(statsRes.errorMessage);
+    else if (statsRes.data) setStats(statsRes.data);
+  }, [resolveAccessToken]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -556,50 +611,655 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     );
   };
 
-  const renderAcademic = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h2 className="text-lg font-bold text-slate-900">Departments</h2>
-          <button suppressHydrationWarning className="p-2 bg-[#20948B] text-white rounded-lg hover:bg-[#1a7a72] transition-all">
-            <Plus size={16} />
-          </button>
+  const renderAcademic = () => {
+    const departmentNameById = new Map<string, string>();
+    for (const d of departments) {
+      departmentNameById.set(d.id, d.name || '—');
+    }
+    const sortedDepartments = [...departments].sort((a, b) => {
+      const cmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      return academicDeptSortDesc ? -cmp : cmp;
+    });
+    const visibleDepartments = sortedDepartments.filter((d) =>
+      (d.name || '').toLowerCase().includes(academicDeptSearch.trim().toLowerCase())
+    );
+
+    const filteredStudyFields = studyFields.filter(
+      (f) => !academicFieldFilterDeptId || f.departmentId === academicFieldFilterDeptId
+    );
+    const sortedStudyFields = [...filteredStudyFields].sort((a, b) => {
+      const cmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      if (cmp !== 0) {
+        return academicFieldSortDesc ? -cmp : cmp;
+      }
+      const deptCmp = (departmentNameById.get(a.departmentId) || '').localeCompare(
+        departmentNameById.get(b.departmentId) || '',
+        undefined,
+        { sensitivity: 'base' }
+      );
+      return academicFieldSortDesc ? -deptCmp : deptCmp;
+    });
+    const visibleStudyFields = sortedStudyFields.filter((f) => {
+      const q = academicFieldSearch.trim().toLowerCase();
+      if (!q) return true;
+      const fieldName = (f.name || '').toLowerCase();
+      const departmentName = (departmentNameById.get(f.departmentId) || '').toLowerCase();
+      return fieldName.includes(q) || departmentName.includes(q);
+    });
+
+    const submitDepartment = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setAcademicDeptError(null);
+      const name = academicDeptName.trim();
+      if (!name) {
+        setAcademicDeptError('Department name is required.');
+        return;
+      }
+      setAcademicSavingDept(true);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const res = await createAdminDepartment(token, { name });
+        if (res.errorMessage) {
+          setAcademicDeptError(res.errorMessage);
+          toast.error(res.errorMessage);
+          return;
+        }
+        setAcademicDeptName('');
+        toast.success('Department created.');
+        await reloadAcademicCatalog();
+      } finally {
+        setAcademicSavingDept(false);
+      }
+    };
+
+    const submitStudyField = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setAcademicFieldError(null);
+      const name = academicFieldName.trim();
+      if (!name) {
+        setAcademicFieldError('Study field name is required.');
+        return;
+      }
+      if (!academicFieldDeptId) {
+        setAcademicFieldError('Select a department.');
+        return;
+      }
+      const deptNum = Number(academicFieldDeptId);
+      if (!Number.isFinite(deptNum) || deptNum <= 0) {
+        setAcademicFieldError('Select a department.');
+        return;
+      }
+      setAcademicSavingField(true);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const res = await createAdminStudyField(token, { name, departmentId: deptNum });
+        if (res.errorMessage) {
+          setAcademicFieldError(res.errorMessage);
+          toast.error(res.errorMessage);
+          return;
+        }
+        setAcademicFieldName('');
+        setAcademicFieldDeptId('');
+        toast.success('Study field created.');
+        await reloadAcademicCatalog();
+      } finally {
+        setAcademicSavingField(false);
+      }
+    };
+
+    const cancelDeptEdit = () => {
+      setAcademicEditingDeptId(null);
+      setAcademicEditDeptName('');
+    };
+
+    const saveDeptEdit = async () => {
+      const id = academicEditingDeptId;
+      if (!id) return;
+      const name = academicEditDeptName.trim();
+      if (!name) {
+        toast.error('Department name is required.');
+        return;
+      }
+      setAcademicDeptRowBusyId(id);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const res = await updateAdminDepartment(token, Number(id), { name });
+        if (res.errorMessage) {
+          toast.error(res.errorMessage);
+          return;
+        }
+        cancelDeptEdit();
+        toast.success('Department updated.');
+        await reloadAcademicCatalog();
+      } finally {
+        setAcademicDeptRowBusyId(null);
+      }
+    };
+
+    const handleDeleteDept = async (dept: Department) => {
+      if (
+        !globalThis.confirm(
+          `Delete department “${dept.name || 'this department'}”? You cannot delete it if students, study fields, or other records still reference it.`
+        )
+      ) {
+        return;
+      }
+      setAcademicDeptRowBusyId(dept.id);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { errorMessage } = await deleteAdminDepartment(token, Number(dept.id));
+        if (errorMessage) {
+          toast.error(errorMessage);
+          return;
+        }
+        if (academicEditingDeptId === dept.id) cancelDeptEdit();
+        if (academicFieldFilterDeptId === dept.id) setAcademicFieldFilterDeptId('');
+        toast.success('Department deleted.');
+        await reloadAcademicCatalog();
+      } finally {
+        setAcademicDeptRowBusyId(null);
+      }
+    };
+
+    const cancelFieldEdit = () => {
+      setAcademicEditingFieldId(null);
+      setAcademicEditFieldName('');
+      setAcademicEditFieldDeptId('');
+    };
+
+    const saveFieldEdit = async () => {
+      const id = academicEditingFieldId;
+      if (!id) return;
+      const name = academicEditFieldName.trim();
+      if (!name) {
+        toast.error('Study field name is required.');
+        return;
+      }
+      if (!academicEditFieldDeptId) {
+        toast.error('Select a department.');
+        return;
+      }
+      const deptNum = Number(academicEditFieldDeptId);
+      if (!Number.isFinite(deptNum) || deptNum <= 0) {
+        toast.error('Select a department.');
+        return;
+      }
+      setAcademicFieldRowBusyId(id);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const res = await updateAdminStudyField(token, Number(id), { name, departmentId: deptNum });
+        if (res.errorMessage) {
+          toast.error(res.errorMessage);
+          return;
+        }
+        cancelFieldEdit();
+        toast.success('Study field updated.');
+        await reloadAcademicCatalog();
+      } finally {
+        setAcademicFieldRowBusyId(null);
+      }
+    };
+
+    const handleDeleteField = async (field: StudyField) => {
+      if (
+        !globalThis.confirm(
+          `Delete study field “${field.name || 'this field'}”? You cannot delete it if students or other records still reference it.`
+        )
+      ) {
+        return;
+      }
+      setAcademicFieldRowBusyId(field.id);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { errorMessage } = await deleteAdminStudyField(token, Number(field.id));
+        if (errorMessage) {
+          toast.error(errorMessage);
+          return;
+        }
+        if (academicEditingFieldId === field.id) cancelFieldEdit();
+        toast.success('Study field deleted.');
+        await reloadAcademicCatalog();
+      } finally {
+        setAcademicFieldRowBusyId(null);
+      }
+    };
+
+    const noDepartments = departments.length === 0;
+
+    const inputBase =
+      'rounded-lg border border-sky-200/80 bg-sky-50/70 px-3 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#002B5B]/35 focus:ring-2 focus:ring-[#002B5B]/15';
+
+    const academicSearchShell =
+      'flex min-h-[42px] w-full items-center gap-2.5 rounded-lg border border-sky-200/80 bg-sky-50/70 px-3 py-2.5 shadow-sm transition-shadow focus-within:border-[#002B5B]/35 focus-within:ring-2 focus-within:ring-[#002B5B]/15';
+
+    const academicSearchInput =
+      'min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-900 shadow-none outline-none ring-0 placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-0';
+
+    return (
+      <div className="space-y-4">
+        <div className="px-1">
+          <h2 className="text-2xl font-bold text-slate-900">Academic structure</h2>
         </div>
-        <div className="divide-y divide-slate-100">
-          {departments.map((dept) => (
-            <div key={dept.id} className="p-6 flex justify-between items-center hover:bg-slate-50 transition-all">
-              <div>
-                <div className="font-bold text-slate-900">{dept.name}</div>
-                <div className="text-xs text-slate-500 font-mono uppercase tracking-tighter">{dept.id}</div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
+          <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
+            <div className="border-b border-slate-100 bg-white px-6 py-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-[#002B5B] shadow-sm ring-1 ring-sky-200/90">
+                    <Building2 className="h-5 w-5" strokeWidth={2} />
+                  </span>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900">Departments</h3>
+                                      </div>
+                </div>
+                <button
+                  type="button"
+                  suppressHydrationWarning
+                  onClick={() => setAcademicDeptSortDesc((v) => !v)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50/80 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-sky-300 hover:bg-sky-100/80 hover:text-slate-900"
+                >
+                  {academicDeptSortDesc ? (
+                    <ArrowDownWideNarrow className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                  ) : (
+                    <ArrowUpNarrowWide className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                  )}
+                  {academicDeptSortDesc ? 'Sort Z → A' : 'Sort A → Z'}
+                </button>
               </div>
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{dept.universityName}</div>
+              <form onSubmit={(ev) => void submitDepartment(ev)} className="mt-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <label className="mb-2 block text-xs font-medium text-slate-600">Add new department</label>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
+                  <input
+                    type="text"
+                    value={academicDeptName}
+                    onChange={(e) => {
+                      setAcademicDeptName(e.target.value);
+                      if (academicDeptError) setAcademicDeptError(null);
+                    }}
+                    placeholder="New department name"
+                    suppressHydrationWarning
+                    className={cn(
+                      'min-h-[42px] flex-1',
+                      inputBase,
+                      academicDeptError ? 'border-red-300 bg-red-50/40 focus:ring-red-200' : ''
+                    )}
+                  />
+                  <button
+                    type="submit"
+                    disabled={academicSavingDept}
+                    suppressHydrationWarning
+                    className="inline-flex min-h-[42px] shrink-0 items-center justify-center gap-2 rounded-lg bg-[#20948B] px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1a7a72] disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" strokeWidth={2.5} />
+                    Add
+                  </button>
+                </div>
+                {academicDeptError ? <p className="mt-2 text-xs font-medium text-red-600">{academicDeptError}</p> : null}
+              </form>
             </div>
-          ))}
+            <div className="max-h-[min(28rem,55vh)] overflow-y-auto">
+              <div className="px-5 py-3">
+                <div className={academicSearchShell}>
+                  <Search className="h-4 w-4 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
+                  <input
+                    type="text"
+                    value={academicDeptSearch}
+                    onChange={(e) => setAcademicDeptSearch(e.target.value)}
+                    suppressHydrationWarning
+                    placeholder="Search departments..."
+                    className={academicSearchInput}
+                  />
+                </div>
+              </div>
+              {visibleDepartments.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                    <Building2 className="h-7 w-7" strokeWidth={1.5} />
+                  </div>
+                  {departments.length === 0 ? (
+                    <>
+                      <p className="text-sm font-medium text-slate-700">No departments yet</p>
+                      <p className="max-w-xs text-xs leading-relaxed text-slate-500">
+                        Create your first department above. Study fields are attached to departments.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm font-medium text-slate-700">No departments match your search</p>
+                  )}
+                </div>
+              ) : (
+                <ul className="divide-y divide-sky-100/90">
+                  {visibleDepartments.map((dept) => (
+                    <li key={dept.id}>
+                      <div className="group flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-sky-100/55 sm:flex-row sm:items-center sm:justify-between">
+                        {academicEditingDeptId === dept.id ? (
+                          <div className="flex min-w-0 flex-1 flex-col gap-3">
+                            <input
+                              type="text"
+                              value={academicEditDeptName}
+                              onChange={(e) => setAcademicEditDeptName(e.target.value)}
+                              suppressHydrationWarning
+                              className={cn('w-full', inputBase)}
+                            />
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                disabled={academicDeptRowBusyId === dept.id}
+                                onClick={() => void saveDeptEdit()}
+                                className="rounded-lg bg-[#20948B] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1a7a72] disabled:opacity-50"
+                              >
+                                Save changes
+                              </button>
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                disabled={academicDeptRowBusyId === dept.id}
+                                onClick={cancelDeptEdit}
+                                className="rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-sky-100/70 disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-slate-900">{dept.name}</p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-0.5">
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                title="Edit department"
+                                disabled={academicDeptRowBusyId !== null || academicEditingFieldId !== null}
+                                onClick={() => {
+                                  setAcademicEditingFieldId(null);
+                                  setAcademicEditingDeptId(dept.id);
+                                  setAcademicEditDeptName(dept.name || '');
+                                }}
+                                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-sky-50 hover:text-[#002B5B] hover:shadow-sm disabled:opacity-40"
+                              >
+                                <Edit2 className="h-4 w-4" strokeWidth={2} />
+                              </button>
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                title="Delete department"
+                                disabled={academicDeptRowBusyId !== null || academicEditingFieldId !== null}
+                                onClick={() => void handleDeleteDept(dept)}
+                                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                              >
+                                <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
+            <div className="border-b border-slate-100 bg-white px-6 py-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-[#20948B] shadow-sm ring-1 ring-sky-200/90">
+                    <Library className="h-5 w-5" strokeWidth={2} />
+                  </span>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900">Study fields</h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  suppressHydrationWarning
+                  onClick={() => setAcademicFieldSortDesc((v) => !v)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50/80 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:border-sky-300 hover:bg-sky-100/80 hover:text-slate-900"
+                >
+                  {academicFieldSortDesc ? (
+                    <ArrowDownWideNarrow className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                  ) : (
+                    <ArrowUpNarrowWide className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                  )}
+                  {academicFieldSortDesc ? 'Sort Z → A' : 'Sort A → Z'}
+                </button>
+              </div>
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600">Filter by department</label>
+                  <select
+                    value={academicFieldFilterDeptId}
+                    onChange={(e) => setAcademicFieldFilterDeptId(e.target.value)}
+                    suppressHydrationWarning
+                    className={cn('w-full', inputBase)}
+                  >
+                    <option value="">All departments</option>
+                    {sortedDepartments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <form
+                  onSubmit={(ev) => void submitStudyField(ev)}
+                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <label className="mb-2 block text-xs font-medium text-slate-600">Add new study field</label>
+                  {noDepartments ? (
+                    <p className="mb-3 rounded-lg border border-amber-200/90 bg-amber-50/90 px-3 py-2.5 text-xs leading-relaxed text-amber-900">
+                      Add a department first — every study field belongs to one department.
+                    </p>
+                  ) : null}
+                  <div className="flex flex-col gap-3">
+                    <input
+                      type="text"
+                      value={academicFieldName}
+                      onChange={(e) => {
+                        setAcademicFieldName(e.target.value);
+                        if (academicFieldError) setAcademicFieldError(null);
+                      }}
+                      placeholder="New study field name"
+                      disabled={noDepartments}
+                      suppressHydrationWarning
+                      className={cn(
+                        inputBase,
+                        'min-h-[42px]',
+                        academicFieldError ? 'border-red-300 bg-red-50/40 focus:ring-red-200' : '',
+                        noDepartments ? 'cursor-not-allowed opacity-60' : ''
+                      )}
+                    />
+                    <select
+                      value={academicFieldDeptId}
+                      onChange={(e) => {
+                        setAcademicFieldDeptId(e.target.value);
+                        if (academicFieldError) setAcademicFieldError(null);
+                      }}
+                      disabled={noDepartments}
+                      suppressHydrationWarning
+                      className={cn(
+                        inputBase,
+                        'min-h-[42px]',
+                        academicFieldError && !academicFieldDeptId ? 'border-red-300' : '',
+                        noDepartments ? 'cursor-not-allowed opacity-60' : ''
+                      )}
+                    >
+                      <option value="">Select department</option>
+                      {sortedDepartments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="submit"
+                      disabled={noDepartments || academicSavingField}
+                      suppressHydrationWarning
+                      className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg bg-[#20948B] px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#1a7a72] disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      <Plus className="h-4 w-4" strokeWidth={2.5} />
+                      Add study field
+                    </button>
+                  </div>
+                  {academicFieldError ? <p className="mt-2 text-xs font-medium text-red-600">{academicFieldError}</p> : null}
+                </form>
+              </div>
+            </div>
+            <div className="max-h-[min(28rem,55vh)] overflow-y-auto">
+              <div className="px-5 py-3">
+                <div className={academicSearchShell}>
+                  <Search className="h-4 w-4 shrink-0 text-slate-400" strokeWidth={2} aria-hidden />
+                  <input
+                    type="text"
+                    value={academicFieldSearch}
+                    onChange={(e) => setAcademicFieldSearch(e.target.value)}
+                    suppressHydrationWarning
+                    placeholder="Search study fields..."
+                    className={academicSearchInput}
+                  />
+                </div>
+              </div>
+              {visibleStudyFields.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                    <Library className="h-7 w-7" strokeWidth={1.5} />
+                  </div>
+                  <p className="text-sm font-medium text-slate-700">
+                    {studyFields.length === 0 ? 'No study fields yet' : 'No results for this filter'}
+                  </p>
+                  <p className="max-w-xs text-xs leading-relaxed text-slate-500">
+                    {studyFields.length === 0
+                      ? 'Add a field and link it to a department, or create departments first.'
+                      : 'Try choosing “All departments” or another filter.'}
+                  </p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-sky-100/90">
+                  {visibleStudyFields.map((field) => (
+                    <li key={field.id}>
+                      <div className="group flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-sky-100/55 sm:flex-row sm:items-center sm:justify-between">
+                        {academicEditingFieldId === field.id ? (
+                          <div className="flex min-w-0 flex-1 flex-col gap-3">
+                            <input
+                              type="text"
+                              value={academicEditFieldName}
+                              onChange={(e) => setAcademicEditFieldName(e.target.value)}
+                              suppressHydrationWarning
+                              className={cn('w-full', inputBase)}
+                              placeholder="Study field name"
+                            />
+                            <select
+                              value={academicEditFieldDeptId}
+                              onChange={(e) => setAcademicEditFieldDeptId(e.target.value)}
+                              suppressHydrationWarning
+                              className={cn('w-full', inputBase)}
+                            >
+                              <option value="">Select department</option>
+                              {sortedDepartments.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                  {d.name}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                disabled={academicFieldRowBusyId === field.id}
+                                onClick={() => void saveFieldEdit()}
+                                className="rounded-lg bg-[#20948B] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1a7a72] disabled:opacity-50"
+                              >
+                                Save changes
+                              </button>
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                disabled={academicFieldRowBusyId === field.id}
+                                onClick={cancelFieldEdit}
+                                className="rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-sky-100/70 disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-slate-900">{field.name}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <span className="inline-flex max-w-full items-center rounded-md bg-sky-100/80 px-2 py-0.5 text-xs font-medium text-slate-700">
+                                  {departmentNameById.get(field.departmentId) || '—'}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-0.5">
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                title="Edit study field"
+                                disabled={academicFieldRowBusyId !== null || academicEditingDeptId !== null}
+                                onClick={() => {
+                                  setAcademicEditingDeptId(null);
+                                  setAcademicEditingFieldId(field.id);
+                                  setAcademicEditFieldName(field.name || '');
+                                  setAcademicEditFieldDeptId(field.departmentId || '');
+                                }}
+                                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-sky-50 hover:text-[#002B5B] hover:shadow-sm disabled:opacity-40"
+                              >
+                                <Edit2 className="h-4 w-4" strokeWidth={2} />
+                              </button>
+                              <button
+                                type="button"
+                                suppressHydrationWarning
+                                title="Delete study field"
+                                disabled={academicFieldRowBusyId !== null || academicEditingDeptId !== null}
+                                onClick={() => void handleDeleteField(field)}
+                                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                              >
+                                <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h2 className="text-lg font-bold text-slate-900">Study Fields</h2>
-          <button suppressHydrationWarning className="p-2 bg-[#20948B] text-white rounded-lg hover:bg-[#1a7a72] transition-all">
-            <Plus size={16} />
-          </button>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {studyFields.map((field) => (
-            <div key={field.id} className="p-6 flex justify-between items-center hover:bg-slate-50 transition-all">
-              <div>
-                <div className="font-bold text-slate-900">{field.name}</div>
-                <div className="text-xs text-slate-500 font-mono uppercase tracking-tighter">{field.id}</div>
-              </div>
-              <div className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
-                Dept: {field.departmentId}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderOpportunities = () => {
     if (adminExploreSelectedId) {

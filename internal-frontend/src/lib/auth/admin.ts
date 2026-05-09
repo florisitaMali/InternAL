@@ -1,4 +1,5 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
+import { getAccessTokenForMutatingApi, getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
 import {
   coerceApiDateToIsoString,
@@ -14,8 +15,23 @@ function getApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8080').replace(/\/+$/, '');
 }
 
-async function fetchJson<T>(path: string, accessToken: string): Promise<{ data: T | null; errorMessage: string | null }> {
+/** Prefer live Supabase session so callers are not stuck with a stale prop/ref token. */
+async function bearerForRead(accessToken: string): Promise<string | null> {
+  const live = await getSessionAccessToken();
+  if (live) return live;
   const t = accessToken.trim();
+  return t.length > 0 ? t : null;
+}
+
+async function bearerForMutation(accessToken: string): Promise<string | null> {
+  const live = await getAccessTokenForMutatingApi();
+  if (live) return live;
+  const t = accessToken.trim();
+  return t.length > 0 ? t : null;
+}
+
+async function fetchJson<T>(path: string, accessToken: string): Promise<{ data: T | null; errorMessage: string | null }> {
+  const t = await bearerForRead(accessToken);
   if (!t) {
     return { data: null, errorMessage: 'Not signed in.' };
   }
@@ -42,7 +58,7 @@ async function fetchJson<T>(path: string, accessToken: string): Promise<{ data: 
 }
 
 async function postJson<T>(path: string, accessToken: string, body: unknown): Promise<{ data: T | null; errorMessage: string | null }> {
-  const t = accessToken.trim();
+  const t = await bearerForMutation(accessToken);
   if (!t) {
     return { data: null, errorMessage: 'Not signed in.' };
   }
@@ -74,7 +90,7 @@ async function postJson<T>(path: string, accessToken: string, body: unknown): Pr
 }
 
 async function putJson<T>(path: string, accessToken: string, body: unknown): Promise<{ data: T | null; errorMessage: string | null }> {
-  const t = accessToken.trim();
+  const t = await bearerForMutation(accessToken);
   if (!t) {
     return { data: null, errorMessage: 'Not signed in.' };
   }
@@ -106,7 +122,7 @@ async function putJson<T>(path: string, accessToken: string, body: unknown): Pro
 }
 
 async function deleteJson(path: string, accessToken: string): Promise<{ errorMessage: string | null }> {
-  const t = accessToken.trim();
+  const t = await bearerForMutation(accessToken);
   if (!t) {
     return { errorMessage: 'Not signed in.' };
   }
@@ -481,6 +497,107 @@ export async function fetchAdminStudyFields(
     departmentId: String(f.departmentId),
   }));
   return { data: mapped, errorMessage: null };
+}
+
+export async function createAdminDepartment(
+  accessToken: string,
+  payload: { name: string }
+): Promise<{ data: Department | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await postJson<AdminDepartmentRow>('/api/admin/departments', accessToken, {
+    name: payload.name.trim(),
+  });
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not create department.' };
+  }
+  return {
+    data: {
+      id: String(data.departmentId),
+      name: data.name || '—',
+      universityName: data.universityName || '',
+    },
+    errorMessage: null,
+  };
+}
+
+export async function createAdminStudyField(
+  accessToken: string,
+  payload: { name: string; departmentId: number }
+): Promise<{ data: StudyField | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await postJson<AdminStudyFieldRow>('/api/admin/study-fields', accessToken, {
+    name: payload.name.trim(),
+    departmentId: payload.departmentId,
+  });
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not create study field.' };
+  }
+  return {
+    data: {
+      id: String(data.fieldId),
+      name: data.name || '—',
+      departmentId: String(data.departmentId),
+    },
+    errorMessage: null,
+  };
+}
+
+export async function updateAdminDepartment(
+  accessToken: string,
+  departmentId: number,
+  payload: { name: string }
+): Promise<{ data: Department | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await putJson<AdminDepartmentRow>(
+    `/api/admin/departments/${encodeURIComponent(String(departmentId))}`,
+    accessToken,
+    { name: payload.name.trim() }
+  );
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not update department.' };
+  }
+  return {
+    data: {
+      id: String(data.departmentId),
+      name: data.name || '—',
+      universityName: data.universityName || '',
+    },
+    errorMessage: null,
+  };
+}
+
+export async function deleteAdminDepartment(
+  accessToken: string,
+  departmentId: number
+): Promise<{ errorMessage: string | null }> {
+  return deleteJson(`/api/admin/departments/${encodeURIComponent(String(departmentId))}`, accessToken);
+}
+
+export async function updateAdminStudyField(
+  accessToken: string,
+  fieldId: number,
+  payload: { name: string; departmentId: number }
+): Promise<{ data: StudyField | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await putJson<AdminStudyFieldRow>(
+    `/api/admin/study-fields/${encodeURIComponent(String(fieldId))}`,
+    accessToken,
+    { name: payload.name.trim(), departmentId: payload.departmentId }
+  );
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not update study field.' };
+  }
+  return {
+    data: {
+      id: String(data.fieldId),
+      name: data.name || '—',
+      departmentId: String(data.departmentId),
+    },
+    errorMessage: null,
+  };
+}
+
+export async function deleteAdminStudyField(
+  accessToken: string,
+  fieldId: number
+): Promise<{ errorMessage: string | null }> {
+  return deleteJson(`/api/admin/study-fields/${encodeURIComponent(String(fieldId))}`, accessToken);
 }
 
 export async function fetchAdminStudents(

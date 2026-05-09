@@ -2,7 +2,9 @@ package com.internaal.controller;
 
 import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
+import com.internaal.dto.AdminDepartmentCreateRequest;
 import com.internaal.dto.AdminDepartmentResponse;
+import com.internaal.dto.AdminDepartmentUpdateRequest;
 import com.internaal.dto.AdminOpportunitySummaryResponse;
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.AdminPpaCreateRequest;
@@ -10,7 +12,9 @@ import com.internaal.dto.AdminPpaResponse;
 import com.internaal.dto.AdminPpaUpdateRequest;
 import com.internaal.dto.AdminStudentCreateRequest;
 import com.internaal.dto.AdminStudentResponse;
+import com.internaal.dto.AdminStudyFieldCreateRequest;
 import com.internaal.dto.AdminStudyFieldResponse;
+import com.internaal.dto.AdminStudyFieldUpdateRequest;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.entity.UserAccount;
 import com.internaal.service.UniversityAdminService;
@@ -49,6 +53,62 @@ public class UniversityAdminController {
             @AuthenticationPrincipal UserAccount user,
             @RequestParam(name = "departmentId", required = false) Integer departmentId) {
         return universityAdminService.listStudyFields(user, departmentId);
+    }
+
+    @PostMapping("/departments")
+    public AdminDepartmentResponse createDepartment(
+            @AuthenticationPrincipal UserAccount user,
+            @RequestBody AdminDepartmentCreateRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        return universityAdminService.createDepartment(user, body);
+    }
+
+    @PostMapping("/study-fields")
+    public AdminStudyFieldResponse createStudyField(
+            @AuthenticationPrincipal UserAccount user,
+            @RequestBody AdminStudyFieldCreateRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        return universityAdminService.createStudyField(user, body);
+    }
+
+    @PutMapping("/departments/{departmentId}")
+    public AdminDepartmentResponse updateDepartment(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("departmentId") int departmentId,
+            @RequestBody AdminDepartmentUpdateRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        return universityAdminService.updateDepartment(user, departmentId, body);
+    }
+
+    @DeleteMapping("/departments/{departmentId}")
+    public void deleteDepartment(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("departmentId") int departmentId) {
+        universityAdminService.deleteDepartment(user, departmentId);
+    }
+
+    @PutMapping("/study-fields/{fieldId}")
+    public AdminStudyFieldResponse updateStudyField(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("fieldId") int fieldId,
+            @RequestBody AdminStudyFieldUpdateRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        return universityAdminService.updateStudyField(user, fieldId, body);
+    }
+
+    @DeleteMapping("/study-fields/{fieldId}")
+    public void deleteStudyField(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("fieldId") int fieldId) {
+        universityAdminService.deleteStudyField(user, fieldId);
     }
 
     @GetMapping("/students")

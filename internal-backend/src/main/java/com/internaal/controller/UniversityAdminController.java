@@ -16,6 +16,8 @@ import com.internaal.dto.AdminStudyFieldCreateRequest;
 import com.internaal.dto.AdminStudyFieldResponse;
 import com.internaal.dto.AdminStudyFieldUpdateRequest;
 import com.internaal.dto.ApplicationResponse;
+import com.internaal.dto.UniversityProfileResponse;
+import com.internaal.dto.UniversityProfileUpdateRequest;
 import com.internaal.entity.UserAccount;
 import com.internaal.service.UniversityAdminService;
 import org.springframework.http.HttpStatus;
@@ -162,6 +164,21 @@ public class UniversityAdminController {
     @GetMapping("/dashboard/stats")
     public AdminDashboardStatsResponse stats(@AuthenticationPrincipal UserAccount user) {
         return universityAdminService.dashboardStats(user);
+    }
+
+    @GetMapping("/university/profile")
+    public UniversityProfileResponse universityProfile(@AuthenticationPrincipal UserAccount user) {
+        return universityAdminService.getUniversityProfile(user);
+    }
+
+    @PutMapping("/university/profile")
+    public UniversityProfileResponse updateUniversityProfile(
+            @AuthenticationPrincipal UserAccount user,
+            @RequestBody UniversityProfileUpdateRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        return universityAdminService.updateUniversityProfile(user, body);
     }
 
     @GetMapping("/companies")

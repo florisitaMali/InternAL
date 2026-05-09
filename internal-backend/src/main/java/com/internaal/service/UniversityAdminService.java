@@ -50,15 +50,12 @@ public class UniversityAdminService {
             UniversityAdminRepository universityAdminRepository,
             ApplicationRepository applicationRepository,
             SupabaseAuthAdminService supabaseAuthAdminService,
-            StudentProfileRepository studentProfileRepository) {
-        this.universityAdminRepository = universityAdminRepository;
-        this.applicationRepository = applicationRepository;
-        this.supabaseAuthAdminService = supabaseAuthAdminService;
-        this.studentProfileRepository = studentProfileRepository;
+            StudentProfileRepository studentProfileRepository,
             UniversityProfileRepository universityProfileRepository) {
         this.universityAdminRepository = universityAdminRepository;
         this.applicationRepository = applicationRepository;
         this.supabaseAuthAdminService = supabaseAuthAdminService;
+        this.studentProfileRepository = studentProfileRepository;
         this.universityProfileRepository = universityProfileRepository;
     }
 
@@ -420,6 +417,8 @@ public class UniversityAdminService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Student profile not found"));
         StudentProfileViewerUrls.rewriteDownloadUrls(profile, studentId, "admin");
         return profile;
+    }
+
     private static UniversityProfileResponse mapUniversity(JsonNode n, int fallbackUniversityId) {
         int id = fallbackUniversityId;
         if (n != null) {

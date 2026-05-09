@@ -23,6 +23,42 @@ function extensionForFile(file: File): string {
  * Uploads to `company/{logo|cover}/{companyId}{ext}` with upsert.
  * Bucket should allow authenticated uploads and public (or signed) reads for the returned URL to work in `<img>`.
  */
+/** Same bucket; paths `university/logo/{id}{ext}` and `university/cover/{id}{ext}` (mirror `company/...`). */
+export async function uploadUniversityProfilePhoto(
+  supabase: SupabaseClient,
+  kind: 'logo' | 'cover',
+  universityId: number,
+  file: File
+): Promise<{ publicUrl: string | null; errorMessage: string | null }> {
+  if (!file.type.startsWith('image/')) {
+    return { publicUrl: null, errorMessage: 'Please choose an image file.' };
+  }
+  if (file.size > MAX_BYTES) {
+    return { publicUrl: null, errorMessage: 'Image must be 5 MB or smaller.' };
+  }
+  const folder = kind === 'logo' ? 'logo' : 'cover';
+  const ext = extensionForFile(file);
+  const objectPath = `university/${folder}/${universityId}${ext}`;
+
+  const { error } = await supabase.storage
+    .from(COMPANY_PROFILE_PHOTOS_BUCKET)
+    .upload(objectPath, file, {
+      upsert: true,
+      cacheControl: '120',
+      contentType: file.type || 'application/octet-stream',
+    });
+
+  if (error) {
+    return { publicUrl: null, errorMessage: error.message };
+  }
+
+  const { data } = supabase.storage.from(COMPANY_PROFILE_PHOTOS_BUCKET).getPublicUrl(objectPath);
+  const base = data.publicUrl;
+  const sep = base.includes('?') ? '&' : '?';
+  const publicUrl = `${base}${sep}v=${Date.now()}`;
+  return { publicUrl, errorMessage: null };
+}
+
 export async function uploadCompanyProfilePhoto(
   supabase: SupabaseClient,
   kind: 'logo' | 'cover',

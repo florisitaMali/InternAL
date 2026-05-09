@@ -13,6 +13,7 @@ import {
   BookOpen,
   Menu,
   Sparkles,
+  Landmark,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Role } from '@/src/types';
@@ -30,6 +31,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
   const menuItems = {
     UNIVERSITY_ADMIN: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'profile', label: 'University Profile', icon: Landmark },
       { id: 'students', label: 'Students', icon: Users },
       { id: 'ppa', label: 'PP Approvers', icon: GraduationCap },
       { id: 'academic', label: 'Academic Structure', icon: BookOpen },

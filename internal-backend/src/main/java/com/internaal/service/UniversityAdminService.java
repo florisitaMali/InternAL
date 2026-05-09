@@ -1,5 +1,6 @@
 package com.internaal.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
 import com.internaal.dto.AdminDepartmentCreateRequest;
@@ -17,6 +18,8 @@ import com.internaal.dto.AdminStudyFieldResponse;
 import com.internaal.dto.AdminStudyFieldUpdateRequest;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.dto.StudentProfileResponse;
+import com.internaal.dto.UniversityProfileResponse;
+import com.internaal.dto.UniversityProfileUpdateRequest;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.entity.Opportunity;
@@ -24,7 +27,10 @@ import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.StudentProfileRepository;
 import com.internaal.repository.UniversityAdminRepository;
+import com.internaal.repository.UniversityProfileRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -38,6 +44,7 @@ public class UniversityAdminService {
     private final ApplicationRepository applicationRepository;
     private final SupabaseAuthAdminService supabaseAuthAdminService;
     private final StudentProfileRepository studentProfileRepository;
+    private final UniversityProfileRepository universityProfileRepository;
 
     public UniversityAdminService(
             UniversityAdminRepository universityAdminRepository,
@@ -48,6 +55,56 @@ public class UniversityAdminService {
         this.applicationRepository = applicationRepository;
         this.supabaseAuthAdminService = supabaseAuthAdminService;
         this.studentProfileRepository = studentProfileRepository;
+            UniversityProfileRepository universityProfileRepository) {
+        this.universityAdminRepository = universityAdminRepository;
+        this.applicationRepository = applicationRepository;
+        this.supabaseAuthAdminService = supabaseAuthAdminService;
+        this.universityProfileRepository = universityProfileRepository;
+    }
+
+    public UniversityProfileResponse getUniversityProfile(UserAccount user) {
+        requireAdmin(user);
+        int universityId = parseUniversityId(user);
+        String jwt = requireJwt();
+        JsonNode node = universityProfileRepository.findByUniversityIdReadable(universityId, jwt)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "University not found"));
+        return mapUniversity(node, universityId);
+    }
+
+    public UniversityProfileResponse updateUniversityProfile(UserAccount user, UniversityProfileUpdateRequest req) {
+        requireAdmin(user);
+        int universityId = parseUniversityId(user);
+        String jwt = requireJwt();
+        if (req == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        if (req.name() != null && req.name().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Name cannot be blank");
+        }
+        if (req.foundedYear() != null && (req.foundedYear() < 1800 || req.foundedYear() > 2100)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid founded year");
+        }
+        if (req.employeeCount() != null && req.employeeCount() < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "employeeCount must be non-negative");
+        }
+        Map<String, Object> patch = UniversityProfileRepository.toPatchMap(
+                req.name(),
+                req.location(),
+                req.description(),
+                req.website(),
+                req.email(),
+                req.employeeCount(),
+                req.foundedYear(),
+                req.specialties(),
+                req.logoUrl(),
+                req.coverUrl()
+        );
+        JsonNode updated = universityProfileRepository.patchUniversity(universityId, jwt, patch)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Could not update university: no row was updated. Set SUPABASE_SERVICE_ROLE_KEY on the server, "
+                                + "or add an RLS UPDATE policy on `university`."));
+        return mapUniversity(updated, universityId);
     }
 
     public List<AdminDepartmentResponse> listDepartments(UserAccount user) {
@@ -363,6 +420,88 @@ public class UniversityAdminService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Student profile not found"));
         StudentProfileViewerUrls.rewriteDownloadUrls(profile, studentId, "admin");
         return profile;
+    private static UniversityProfileResponse mapUniversity(JsonNode n, int fallbackUniversityId) {
+        int id = fallbackUniversityId;
+        if (n != null) {
+            if (n.hasNonNull("university_id")) {
+                id = n.get("university_id").asInt();
+            } else if (n.hasNonNull("id")) {
+                id = n.get("id").asInt();
+            }
+        }
+        Integer founded = intOrNull(n, "founded");
+        if (founded == null) {
+            founded = intOrNull(n, "founded_year");
+        }
+        Integer employees = intOrNull(n, "number_of_employees");
+        if (employees == null) {
+            employees = intOrNull(n, "employee_count");
+        }
+        return new UniversityProfileResponse(
+                id,
+                text(n, "name"),
+                text(n, "location"),
+                text(n, "description"),
+                text(n, "website"),
+                text(n, "email"),
+                employees,
+                founded,
+                text(n, "specialties"),
+                firstText(n, "logo_url", "profile_photo", "logo"),
+                firstText(n, "cover_url", "cover")
+        );
+    }
+
+    /** First non-blank among JSON fields (PostgREST returns snake_case column names). */
+    private static String firstText(JsonNode n, String... fields) {
+        if (n == null || fields == null) {
+            return null;
+        }
+        for (String f : fields) {
+            String t = text(n, f);
+            if (t != null) {
+                return t;
+            }
+        }
+        return null;
+    }
+
+    private static String text(JsonNode n, String field) {
+        if (n == null || !n.has(field) || n.get(field).isNull()) {
+            return null;
+        }
+        String s = n.get(field).asText();
+        return s != null && s.isBlank() ? null : s;
+    }
+
+    private static Integer intOrNull(JsonNode n, String field) {
+        if (n == null || !n.has(field) || n.get(field).isNull()) {
+            return null;
+        }
+        JsonNode v = n.get(field);
+        if (v.isNumber()) {
+            return v.isIntegralNumber() ? v.intValue() : (int) Math.round(v.doubleValue());
+        }
+        if (!v.isTextual()) {
+            return null;
+        }
+        String t = v.asText().trim();
+        if (t.isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(t);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String requireJwt() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getCredentials() instanceof String jwt) || jwt.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing token");
+        }
+        return jwt;
     }
 
     private static int parseUniversityId(UserAccount user) {

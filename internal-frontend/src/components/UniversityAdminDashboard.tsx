@@ -7,12 +7,14 @@ import AddStudentForm from './AddStudentForm';
 import ImportCSVForm from './ImportCSVForm';
 import UnderDevelopment from './UnderDevelopment';
 import OpportunityDetailView from '@/src/components/OpportunityDetailView';
+import CompanyProfileReadOnlyView from '@/src/components/CompanyProfileReadOnlyView';
 import {
   createAdminPpa,
   deleteAdminPpa,
   createAdminStudent,
   fetchAdminApplications,
   fetchAdminCompanies,
+  fetchAdminCompanyProfile,
   fetchAdminDashboardStats,
   createAdminDepartment,
   createAdminStudyField,
@@ -30,6 +32,7 @@ import {
   updateAdminDepartment,
   updateAdminPpa,
   updateAdminStudyField,
+  type AdminCompanyRow,
   type AdminOpportunityRow,
 } from '@/src/lib/auth/admin';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
@@ -39,7 +42,16 @@ import {
   formatRelativePosted,
   getOpportunityCardInitials,
 } from '@/src/lib/opportunityFormat';
-import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
+import type {
+  Application,
+  CompanyProfileFromApi,
+  DashboardStats,
+  Department,
+  Opportunity,
+  PPAApprover,
+  Student,
+  StudyField,
+} from '@/src/types';
 import { toast } from 'sonner';
 import {
   Users,
@@ -60,6 +72,11 @@ import {
   Library,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
+
+function formatCompanyWebsiteLine(website: string | null | undefined): string | null {
+  if (!website?.trim()) return null;
+  return website.trim().replace(/^https?:\/\//i, '');
+}
 
 interface UniversityAdminDashboardProps {
   activeTab: string;
@@ -98,7 +115,14 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   const [adminExploreDetailLoading, setAdminExploreDetailLoading] = useState(false);
   const [adminExploreDetailError, setAdminExploreDetailError] = useState<string | null>(null);
   const [adminApplications, setAdminApplications] = useState<Application[]>([]);
-  const [adminCompanies, setAdminCompanies] = useState<{ companyId: number; name: string; industry: string | null }[]>([]);
+  const [adminCompanies, setAdminCompanies] = useState<AdminCompanyRow[]>([]);
+  const [companiesDirectory, setCompaniesDirectory] = useState<AdminCompanyRow[]>([]);
+  const [companiesDirectoryLoading, setCompaniesDirectoryLoading] = useState(false);
+  const [companyDirectorySearch, setCompanyDirectorySearch] = useState('');
+  const [companyDetailId, setCompanyDetailId] = useState<number | null>(null);
+  const [companyDetailProfile, setCompanyDetailProfile] = useState<CompanyProfileFromApi | null>(null);
+  const [companyDetailLoading, setCompanyDetailLoading] = useState(false);
+  const [companyDetailError, setCompanyDetailError] = useState<string | null>(null);
   const [ppas, setPpas] = useState<PPAApprover[]>([]);
   const [editingPpa, setEditingPpa] = useState<PPAApprover | null>(null);
   const [isSavingPpa, setIsSavingPpa] = useState(false);
@@ -231,6 +255,40 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     };
   }, [oppDeadlineFilter, resolveAccessToken]);
 
+  useEffect(() => {
+    if (activeTab !== 'companies') return;
+    let cancelled = false;
+    (async () => {
+      setCompaniesDirectoryLoading(true);
+      try {
+        const token = await resolveAccessToken();
+        if (!token || cancelled) return;
+        const res = await fetchAdminCompanies(token, 500);
+        if (cancelled) return;
+        if (res.errorMessage) {
+          toast.error(res.errorMessage);
+          setCompaniesDirectory([]);
+        } else if (res.data) {
+          setCompaniesDirectory(res.data);
+        }
+      } finally {
+        if (!cancelled) setCompaniesDirectoryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, resolveAccessToken]);
+
+  useEffect(() => {
+    if (activeTab !== 'companies') {
+      setCompanyDetailId(null);
+      setCompanyDetailProfile(null);
+      setCompanyDetailError(null);
+      setCompanyDetailLoading(false);
+    }
+  }, [activeTab]);
+
   const adminOpportunityById = useMemo(() => {
     const m = new Map<string, Opportunity>();
     for (const row of adminOpportunities) {
@@ -263,6 +321,42 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     },
     [resolveAccessToken]
   );
+
+  const openCompanyDetail = useCallback(
+    async (companyId: number) => {
+      setCompanyDetailId(companyId);
+      setCompanyDetailProfile(null);
+      setCompanyDetailLoading(true);
+      setCompanyDetailError(null);
+      const token = await resolveAccessToken();
+      if (!token) {
+        setCompanyDetailLoading(false);
+        toast.error('Not signed in.');
+        setCompanyDetailId(null);
+        return;
+      }
+      const res = await fetchAdminCompanyProfile(token, companyId);
+      setCompanyDetailLoading(false);
+      if (res.errorMessage) {
+        setCompanyDetailError(res.errorMessage);
+        toast.error(res.errorMessage);
+      } else if (res.data) {
+        setCompanyDetailProfile(res.data);
+      }
+    },
+    [resolveAccessToken]
+  );
+
+  const filteredCompaniesDirectory = useMemo(() => {
+    const q = companyDirectorySearch.trim().toLowerCase();
+    if (!q) return companiesDirectory;
+    return companiesDirectory.filter((c) => {
+      const hay = [c.name, c.industry, c.email, c.location, c.website]
+        .map((x) => (x ?? '').toLowerCase())
+        .join(' ');
+      return hay.includes(q);
+    });
+  }, [companiesDirectory, companyDirectorySearch]);
 
   const filteredStudents = useMemo(
     () =>
@@ -1713,6 +1807,153 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     </div>
   );
 
+  const renderCompanies = () => {
+    if (companyDetailId !== null) {
+      if (companyDetailLoading && !companyDetailProfile) {
+        return (
+          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+            Loading company profile…
+          </div>
+        );
+      }
+      if (companyDetailError && !companyDetailProfile) {
+        return (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-8 text-sm text-red-800">{companyDetailError}</div>
+            <button
+              type="button"
+              onClick={() => {
+                setCompanyDetailId(null);
+                setCompanyDetailProfile(null);
+                setCompanyDetailError(null);
+              }}
+              className="text-sm font-semibold text-[#002B5B] hover:underline"
+            >
+              ← Back to companies
+            </button>
+          </div>
+        );
+      }
+      if (companyDetailProfile) {
+        return (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => {
+                setCompanyDetailId(null);
+                setCompanyDetailProfile(null);
+                setCompanyDetailError(null);
+              }}
+              className="text-sm font-semibold text-[#002B5B] hover:underline"
+            >
+              ← Back to companies
+            </button>
+            <CompanyProfileReadOnlyView profile={companyDetailProfile} />
+          </div>
+        );
+      }
+      return (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Company profile could not be loaded.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setCompanyDetailId(null);
+              setCompanyDetailProfile(null);
+              setCompanyDetailError(null);
+            }}
+            className="text-sm font-semibold text-[#002B5B] hover:underline"
+          >
+            ← Back to companies
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-3xl font-bold text-[#002B5B] tracking-tight">Companies</h2>
+          <p className="mt-2 text-sm font-medium text-slate-600">Monitor organizations offering internships</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:max-w-md">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total companies</p>
+                <p className="mt-2 text-3xl font-bold text-[#002B5B]">{companiesDirectory.length}</p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#002B5B]/10 text-[#002B5B]">
+                <Briefcase size={22} strokeWidth={2} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative min-w-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Search companies…"
+            suppressHydrationWarning
+            className="w-full rounded-xl border border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm text-slate-800 shadow-sm outline-none placeholder:text-slate-400 focus:border-[#002B5B] focus:ring-2 focus:ring-[#002B5B]/30"
+            value={companyDirectorySearch}
+            onChange={(e) => setCompanyDirectorySearch(e.target.value)}
+          />
+        </div>
+
+        {companiesDirectoryLoading ? (
+          <p className="text-sm text-slate-500">Loading companies…</p>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/90">
+                    <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Company</th>
+                    <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Industry</th>
+                    <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Email</th>
+                    <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Location</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredCompaniesDirectory.map((c) => {
+                    const websiteLine = formatCompanyWebsiteLine(c.website);
+                    return (
+                      <tr key={c.companyId} className="bg-white/80 transition-colors hover:bg-slate-50/90">
+                        <td className="px-5 py-3.5">
+                          <button
+                            type="button"
+                            onClick={() => void openCompanyDetail(c.companyId)}
+                            className="text-left font-bold text-[#002B5B] hover:underline"
+                          >
+                            {c.name}
+                          </button>
+                          {websiteLine ? (
+                            <p className="mt-0.5 text-xs font-medium text-slate-500">{websiteLine}</p>
+                          ) : null}
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-700">{c.industry?.trim() ? c.industry : '—'}</td>
+                        <td className="px-5 py-3.5 text-slate-700">{c.email?.trim() ? c.email : '—'}</td>
+                        <td className="px-5 py-3.5 text-slate-700">{c.location?.trim() ? c.location : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {filteredCompaniesDirectory.length === 0 ? (
+              <div className="border-t border-slate-100 px-5 py-8 text-center text-sm text-slate-500">
+                {companiesDirectory.length === 0 ? 'No companies found.' : 'No companies match your search.'}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -1770,6 +2011,8 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         return renderOpportunities();
       case 'applications':
         return renderApplications();
+      case 'companies':
+        return renderCompanies();
       default:
         return <UnderDevelopment moduleName={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} />;
     }

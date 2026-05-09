@@ -31,6 +31,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -541,9 +542,12 @@ public class UniversityAdminRepository {
     }
 
     public List<AdminCompanySummaryResponse> listCompanies(int limit) {
-        String url = supabaseUrl + "/rest/v1/company?select=company_id,name,industry&order=name&limit=" + limit;
+        int cap = Math.min(Math.max(limit, 1), 500);
+        // Omit select= so PostgREST returns all columns; map email/location from common shapes (company row + useraccount).
+        String url = supabaseUrl + "/rest/v1/company?order=name&limit=" + cap;
+        Map<Integer, String> loginEmailByCompanyId = loadCompanyLoginEmails();
         List<AdminCompanySummaryResponse> out = new ArrayList<>();
-        fetchArray(url).ifPresent(arr -> {
+        fetchJsonBodyLogged(url).ifPresent(arr -> {
             if (arr.isArray()) {
                 for (JsonNode n : arr) {
                     Integer id = intVal(n, "company_id");
@@ -551,12 +555,111 @@ public class UniversityAdminRepository {
                         id = intVal(n, "id");
                     }
                     if (id != null) {
-                        out.add(new AdminCompanySummaryResponse(id, text(n, "name"), text(n, "industry")));
+                        String emailFromAccount = loginEmailByCompanyId.get(id);
+                        out.add(new AdminCompanySummaryResponse(
+                                id,
+                                text(n, "name"),
+                                text(n, "industry"),
+                                text(n, "website"),
+                                resolveCompanyListLocation(n),
+                                resolveCompanyListEmail(n, emailFromAccount)));
                     }
                 }
             }
         });
         return out;
+    }
+
+    /** Prefer login email from useraccount, then contact columns on the company row. */
+    private String resolveCompanyListEmail(JsonNode n, String fromUserAccount) {
+        return firstNonBlank(
+                fromUserAccount,
+                text(n, "email"),
+                text(n, "contact_email"),
+                text(n, "company_email"));
+    }
+
+    /**
+     * Many schemas store HQ as {@code location}; others use {@code address} or {@code city}/{@code country} only.
+     */
+    private String resolveCompanyListLocation(JsonNode n) {
+        if (n == null) {
+            return null;
+        }
+        String cityCountry = formatCityCountry(text(n, "city"), text(n, "country"));
+        return firstNonBlank(
+                text(n, "location"),
+                text(n, "address"),
+                cityCountry,
+                text(n, "hq_location"),
+                text(n, "office_address"));
+    }
+
+    private static String firstNonBlank(String... parts) {
+        if (parts == null) {
+            return null;
+        }
+        for (String p : parts) {
+            if (p != null && !p.isBlank()) {
+                return p.trim();
+            }
+        }
+        return null;
+    }
+
+    private static String formatCityCountry(String city, String country) {
+        String c = city == null || city.isBlank() ? null : city.trim();
+        String r = country == null || country.isBlank() ? null : country.trim();
+        if (c == null && r == null) {
+            return null;
+        }
+        if (c == null) {
+            return r;
+        }
+        if (r == null) {
+            return c;
+        }
+        return c + ", " + r;
+    }
+
+    /** Login email from {@code useraccount} rows with {@code role = COMPANY} and {@code linked_entity_id} = company id. */
+    private Map<Integer, String> loadCompanyLoginEmails() {
+        Map<Integer, String> map = new HashMap<>();
+        String url = supabaseUrl + "/rest/v1/useraccount?role=eq.COMPANY&select=linked_entity_id,email";
+        Optional<JsonNode> rows = fetchJsonBodyLogged(url).filter(JsonNode::isArray);
+        rows.ifPresent(arr -> {
+            for (JsonNode n : arr) {
+                Integer cid = parseLinkedCompanyId(n);
+                if (cid == null) {
+                    continue;
+                }
+                String email = text(n, "email");
+                map.putIfAbsent(cid, email == null || email.isBlank() ? null : email.trim());
+            }
+        });
+        return map;
+    }
+
+    private static Integer parseLinkedCompanyId(JsonNode n) {
+        if (n == null || !n.has("linked_entity_id") || n.get("linked_entity_id").isNull()) {
+            return null;
+        }
+        JsonNode v = n.get("linked_entity_id");
+        if (v.isNumber()) {
+            return v.isIntegralNumber() ? v.intValue() : (int) Math.round(v.doubleValue());
+        }
+        if (v.isTextual()) {
+            String t = v.asText().trim();
+            if (t.isEmpty()) {
+                return null;
+            }
+            try {
+                return Integer.parseInt(t);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static final String OPPORTUNITY_DETAIL_SELECT =

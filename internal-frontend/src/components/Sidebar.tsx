@@ -33,6 +33,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'students', label: 'Students', icon: Users },
       { id: 'ppa', label: 'PP Approvers', icon: GraduationCap },
       { id: 'academic', label: 'Academic Structure', icon: BookOpen },
+      { id: 'companies', label: 'Companies', icon: Building2 },
       { id: 'opportunities', label: 'Opportunities', icon: Briefcase },
       { id: 'applications', label: 'Applications', icon: FileText },
     ],

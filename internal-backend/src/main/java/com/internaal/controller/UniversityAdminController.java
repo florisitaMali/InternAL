@@ -2,6 +2,7 @@ package com.internaal.controller;
 
 import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
+import com.internaal.dto.CompanyProfileResponse;
 import com.internaal.dto.AdminDepartmentCreateRequest;
 import com.internaal.dto.AdminDepartmentResponse;
 import com.internaal.dto.AdminDepartmentUpdateRequest;
@@ -169,6 +170,13 @@ public class UniversityAdminController {
             @AuthenticationPrincipal UserAccount user,
             @RequestParam(name = "limit", defaultValue = "10") int limit) {
         return universityAdminService.listCompanies(user, limit);
+    }
+
+    @GetMapping("/companies/{companyId}")
+    public CompanyProfileResponse companyProfile(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("companyId") int companyId) {
+        return universityAdminService.getCompanyProfile(user, companyId);
     }
 
     @GetMapping("/opportunities")

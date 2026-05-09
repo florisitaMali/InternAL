@@ -99,6 +99,22 @@ public class CompanyRepository {
         return getCompanyRowWithHeaders(companyId, eqColumn, authHeaders(userJwt));
     }
 
+    /**
+     * Read a company row with the Supabase service role (bypasses RLS). Used for university-admin views so the
+     * admin JWT is not required to have SELECT on {@code company}.
+     */
+    public Optional<JsonNode> findByCompanyIdWithServiceRole(int companyId) {
+        if (supabaseServiceRoleKey == null || supabaseServiceRoleKey.isBlank()) {
+            return Optional.empty();
+        }
+        HttpHeaders h = new HttpHeaders();
+        h.set("apikey", supabaseServiceRoleKey);
+        h.set("Authorization", "Bearer " + supabaseServiceRoleKey);
+        h.set("Content-Type", "application/json");
+        Optional<JsonNode> a = getCompanyRowWithHeaders(companyId, "company_id", h);
+        return a.isPresent() ? a : getCompanyRowWithHeaders(companyId, "id", h);
+    }
+
     private Optional<JsonNode> getCompanyRowWithHeaders(int companyId, String eqColumn, HttpHeaders headers) {
         String url = supabaseUrl + "/rest/v1/company?" + eqColumn + "=eq." + companyId + "&select=*";
         try {

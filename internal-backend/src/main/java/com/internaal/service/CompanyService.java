@@ -28,6 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -73,6 +74,22 @@ public class CompanyService {
         String jwt = requireJwt();
         JsonNode node = companyRepository.findByCompanyIdReadable(companyId, jwt)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found"));
+        return mapCompany(node, companyId);
+    }
+
+    public CompanyProfileResponse getProfileForUniversityAdmin(UserAccount user, int companyId) {
+        if (user == null || user.getRole() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        if (user.getRole() != Role.UNIVERSITY_ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "University admin access required");
+        }
+        Optional<JsonNode> row = companyRepository.findByCompanyIdWithServiceRole(companyId);
+        if (row.isEmpty()) {
+            String jwt = requireJwt();
+            row = companyRepository.findByCompanyIdReadable(companyId, jwt);
+        }
+        JsonNode node = row.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found"));
         return mapCompany(node, companyId);
     }
 

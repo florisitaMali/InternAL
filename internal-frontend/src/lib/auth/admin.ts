@@ -1,6 +1,15 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
 import { getAccessTokenForMutatingApi, getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
-import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
+import type {
+  Application,
+  CompanyProfileFromApi,
+  DashboardStats,
+  Department,
+  Opportunity,
+  PPAApprover,
+  Student,
+  StudyField,
+} from '@/src/types';
 import {
   coerceApiDateToIsoString,
   formatDeadline,
@@ -167,7 +176,14 @@ export type AdminStudentRow = {
   applicationStatus?: string | null;
 };
 type AdminStatsRow = { totalStudents: number; totalDepartments: number; totalStudyFields: number; ppaApprovers: number };
-type AdminCompanyRow = { companyId: number; name: string; industry: string | null };
+export type AdminCompanyRow = {
+  companyId: number;
+  name: string;
+  industry: string | null;
+  website?: string | null;
+  location?: string | null;
+  email?: string | null;
+};
 export type AdminOpportunityRow = {
   opportunityId: number;
   companyId: number;
@@ -211,6 +227,31 @@ function pickNum(r: Record<string, unknown>, ...keys: string[]): number | null {
     if (typeof v === 'string' && v.trim() && !Number.isNaN(Number(v))) return Number(v);
   }
   return null;
+}
+
+function formatCityCountryFromRecord(r: Record<string, unknown>): string | null {
+  const city = pickStr(r, 'city');
+  const country = pickStr(r, 'country');
+  if (city && country) return `${city}, ${country}`;
+  return city ?? country ?? null;
+}
+
+function parseAdminCompanySummaryRow(raw: unknown): AdminCompanyRow | null {
+  if (!isRecord(raw)) return null;
+  const r = raw;
+  const companyId = pickNum(r, 'companyId', 'company_id');
+  if (companyId == null) return null;
+  const location =
+    pickStr(r, 'location', 'address', 'hq_location', 'hqLocation') ??
+    formatCityCountryFromRecord(r);
+  return {
+    companyId,
+    name: pickStr(r, 'name') ?? '',
+    industry: pickStr(r, 'industry'),
+    website: pickStr(r, 'website'),
+    location,
+    email: pickStr(r, 'email', 'contact_email', 'contactEmail', 'company_email', 'companyEmail'),
+  };
 }
 
 function pickStrList(r: Record<string, unknown>, ...keys: string[]): string[] | null {
@@ -657,7 +698,71 @@ export async function fetchAdminCompanies(
   accessToken: string,
   limit = 10
 ): Promise<{ data: AdminCompanyRow[] | null; errorMessage: string | null }> {
-  return fetchJson<AdminCompanyRow[]>(`/api/admin/companies?limit=${limit}`, accessToken);
+  const { data, errorMessage } = await fetchJson<unknown>(`/api/admin/companies?limit=${limit}`, accessToken);
+  if (errorMessage || data == null) {
+    return { data: null, errorMessage: errorMessage ?? 'Could not load companies.' };
+  }
+  if (!Array.isArray(data)) {
+    return { data: null, errorMessage: 'Invalid companies response.' };
+  }
+  const rows = data.map(parseAdminCompanySummaryRow).filter((r): r is AdminCompanyRow => r != null);
+  return { data: rows, errorMessage: null };
+}
+
+function mapCompanyProfileFromApi(raw: unknown): CompanyProfileFromApi | null {
+  if (!isRecord(raw)) return null;
+  const r = raw;
+  const companyId = pickNum(r, 'companyId', 'company_id');
+  if (companyId == null) return null;
+  return {
+    companyId,
+    name: pickStr(r, 'name') ?? '',
+    location: pickStr(r, 'location'),
+    description: pickStr(r, 'description'),
+    website: pickStr(r, 'website'),
+    industry: pickStr(r, 'industry'),
+    employeeCount: pickNum(r, 'employeeCount', 'employee_count'),
+    foundedYear: pickNum(r, 'foundedYear', 'founded_year'),
+    specialties: pickStr(r, 'specialties'),
+    logoUrl: pickStr(r, 'logoUrl', 'logo_url'),
+    coverUrl: pickStr(r, 'coverUrl', 'cover_url'),
+  };
+}
+
+export async function fetchAdminCompanyProfile(
+  accessToken: string,
+  companyId: number
+): Promise<{ data: CompanyProfileFromApi | null; errorMessage: string | null }> {
+  const t =
+    (await getAccessTokenForMutatingApi()) ?? (await bearerForRead(accessToken));
+  if (!t) {
+    return { data: null, errorMessage: 'Not signed in.' };
+  }
+  const path = `/api/admin/companies/${encodeURIComponent(String(companyId))}`;
+  try {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${t}`, Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const raw = await response.text();
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!response.ok) {
+      let msg = `Request failed with status ${response.status}`;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
+        const e = (parsed as { error?: unknown }).error;
+        if (typeof e === 'string' && e.trim()) msg = e.trim();
+      }
+      return { data: null, errorMessage: msg };
+    }
+    const mapped = mapCompanyProfileFromApi(parsed);
+    if (!mapped) {
+      return { data: null, errorMessage: 'Invalid company profile response.' };
+    }
+    return { data: mapped, errorMessage: null };
+  } catch (e) {
+    return { data: null, errorMessage: e instanceof Error ? e.message : 'Request failed' };
+  }
 }
 
 export async function fetchAdminOpportunities(

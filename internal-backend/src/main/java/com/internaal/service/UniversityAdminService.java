@@ -2,6 +2,7 @@ package com.internaal.service;
 
 import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
+import com.internaal.dto.CompanyProfileResponse;
 import com.internaal.dto.AdminDepartmentCreateRequest;
 import com.internaal.dto.AdminDepartmentResponse;
 import com.internaal.dto.AdminDepartmentUpdateRequest;
@@ -35,14 +36,17 @@ public class UniversityAdminService {
     private final UniversityAdminRepository universityAdminRepository;
     private final ApplicationRepository applicationRepository;
     private final SupabaseAuthAdminService supabaseAuthAdminService;
+    private final CompanyService companyService;
 
     public UniversityAdminService(
             UniversityAdminRepository universityAdminRepository,
             ApplicationRepository applicationRepository,
-            SupabaseAuthAdminService supabaseAuthAdminService) {
+            SupabaseAuthAdminService supabaseAuthAdminService,
+            CompanyService companyService) {
         this.universityAdminRepository = universityAdminRepository;
         this.applicationRepository = applicationRepository;
         this.supabaseAuthAdminService = supabaseAuthAdminService;
+        this.companyService = companyService;
     }
 
     public List<AdminDepartmentResponse> listDepartments(UserAccount user) {
@@ -294,7 +298,12 @@ public class UniversityAdminService {
 
     public List<AdminCompanySummaryResponse> listCompanies(UserAccount user, int limit) {
         requireAdmin(user);
-        return universityAdminRepository.listCompanies(Math.min(Math.max(limit, 1), 50));
+        return universityAdminRepository.listCompanies(Math.min(Math.max(limit, 1), 500));
+    }
+
+    public CompanyProfileResponse getCompanyProfile(UserAccount user, int companyId) {
+        requireAdmin(user);
+        return companyService.getProfileForUniversityAdmin(user, companyId);
     }
 
     public List<AdminOpportunitySummaryResponse> listOpportunitySummaries(

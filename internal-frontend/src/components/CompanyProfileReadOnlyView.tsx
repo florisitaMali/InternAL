@@ -3,6 +3,7 @@
 import React from 'react';
 import type { CompanyProfileFromApi } from '@/src/types';
 import { profileImageDisplayUrl } from '@/src/lib/supabase/companyProfilePhotos';
+import { MapPin, Building2, Link2 } from 'lucide-react';
 
 type Props = {
   profile: CompanyProfileFromApi;
@@ -10,12 +11,30 @@ type Props = {
   titleId?: string;
 };
 
+function formatWebsiteLabel(url: string): string {
+  return url.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+}
+
+function formatEmployeeLabel(count: number): string {
+  const formatted = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(count);
+  return `${formatted} employees`;
+}
+
 export default function CompanyProfileReadOnlyView({ profile, titleId }: Props) {
   const website = profile.website;
   const employees = profile.employeeCount != null ? String(profile.employeeCount) : '—';
   const hq = profile.location ?? '—';
   const founded = profile.foundedYear != null ? String(profile.foundedYear) : '—';
   const specialties = profile.specialties ?? '—';
+
+  const websiteTrim = profile.website?.trim() || null;
+  const websiteHref = websiteTrim
+    ? websiteTrim.startsWith('http')
+      ? websiteTrim
+      : `https://${websiteTrim}`
+    : null;
+  const hasLocation = Boolean(profile.location?.trim());
+  const hasEmployees = profile.employeeCount != null && profile.employeeCount >= 0;
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -53,6 +72,38 @@ export default function CompanyProfileReadOnlyView({ profile, titleId }: Props) 
               </h2>
               <p className="text-sm font-medium text-slate-500">{profile.industry || '—'}</p>
             </div>
+          </div>
+        </div>
+
+        <p className="mt-6 whitespace-pre-wrap text-sm leading-7 text-slate-600">
+          {profile.description?.trim() ? profile.description : 'No description provided.'}
+        </p>
+
+        <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-slate-100 pt-5">
+          <div className="flex min-w-0 max-w-full items-center gap-2 text-sm text-slate-700">
+            <MapPin className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            <span className="font-medium">{hasLocation ? profile.location : '—'}</span>
+          </div>
+          <div className="flex min-w-0 max-w-full items-center gap-2 text-sm text-slate-700">
+            <Building2 className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            <span className="font-medium">
+              {hasEmployees ? formatEmployeeLabel(profile.employeeCount!) : '—'}
+            </span>
+          </div>
+          <div className="flex min-w-0 max-w-full items-center gap-2 text-sm">
+            <Link2 className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            {websiteHref ? (
+              <a
+                href={websiteHref}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-[#002B5B] hover:underline break-all"
+              >
+                {formatWebsiteLabel(websiteTrim!)}
+              </a>
+            ) : (
+              <span className="font-medium text-slate-400">—</span>
+            )}
           </div>
         </div>
 

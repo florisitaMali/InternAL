@@ -440,6 +440,11 @@ public class UniversityAdminRepository {
         return fetchStudentRows(url);
     }
 
+    public boolean existsStudentById(int studentId) {
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId + "&select=student_id&limit=1";
+        return fetchArray(url).map(arr -> arr.isArray() && arr.size() > 0).orElse(false);
+    }
+
     private List<AdminStudentResponse> fetchStudentRows(String url) {
         List<AdminStudentResponse> out = new ArrayList<>();
         fetchArray(url).ifPresent(arr -> {

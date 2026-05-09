@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +33,8 @@ public class ApplicationRepository {
 
     private static final String PROFESSIONAL_PRACTICE_TYPE = "PROFESSIONAL_PRACTICE";
     private static final String INDIVIDUAL_GROWTH_TYPE = "INDIVIDUAL_GROWTH";
+    /** PostgREST filter URLs with many ids are capped to keep requests well under typical limits. */
+    private static final int PPA_APPLICATION_STUDENT_ID_CHUNK = 120;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -315,7 +318,7 @@ public class ApplicationRepository {
 
     private String buildApplicationsUrl(Integer studentId, boolean withEmbeds) {
         String select = withEmbeds
-                ? APPLICATION_SELECT_BASE + ",opportunity(title),company(name)"
+                ? APPLICATION_SELECT_BASE + ",opportunity(title,type),company(name)"
                 : APPLICATION_SELECT_BASE;
         return supabaseUrl + "/rest/v1/application?student_id=eq." + studentId
                 + "&select=" + select
@@ -337,14 +340,14 @@ public class ApplicationRepository {
 
     private String buildAllApplicationsUrl(boolean withEmbeds) {
         String select = withEmbeds
-                ? APPLICATION_SELECT_BASE + ",opportunity(title),company(name),student(full_name)"
+                ? APPLICATION_SELECT_BASE + ",opportunity(title,type),company(name),student(full_name)"
                 : APPLICATION_SELECT_BASE;
         return supabaseUrl + "/rest/v1/application?select=" + select + "&order=created_at.desc&limit=500";
     }
 
     private String buildPpaApplicationsUrl(Integer universityId, boolean withEmbeds) {
         String select = withEmbeds
-                ? APPLICATION_SELECT_BASE + ",opportunity(title),company(name),student(full_name,university_id)"
+                ? APPLICATION_SELECT_BASE + ",opportunity(title,type),company(name),student(full_name,university_id)"
                 : APPLICATION_SELECT_BASE;
         return supabaseUrl + "/rest/v1/application?student.university_id=eq." + universityId
                 + "&application_type=eq.PROFESSIONAL_PRACTICE"
@@ -501,14 +504,134 @@ public class ApplicationRepository {
     }
 
     /**
-     * Professional-practice applications from students at the given university (PostgREST filter on embedded
-     * {@code student}). {@code linked_entity_id} for PPA users should hold that {@code university_id}.
+     * Students in the PPA&apos;s department and assigned study fields ({@code field_id}, {@code department_id}),
+     * same scope as {@link com.internaal.repository.PpaRepository#listStudentsByFieldIdsAndDepartment}.
+     */
+    private List<Integer> listStudentIdsForPpaScope(int departmentId, List<Integer> fieldIds) {
+        if (fieldIds == null || fieldIds.isEmpty()) {
+            return List.of();
+        }
+        String inList = fieldIds.stream().map(String::valueOf).distinct().collect(Collectors.joining(","));
+        String url = supabaseUrl + "/rest/v1/student?field_id=in.(" + inList + ")"
+                + "&department_id=eq." + departmentId
+                + "&select=student_id"
+                + "&limit=5000";
+        try {
+            HttpEntity<Void> entity = new HttpEntity<>(createServiceHeaders());
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                return List.of();
+            }
+            JsonNode arr = objectMapper.readTree(response.getBody());
+            List<Integer> out = new ArrayList<>();
+            if (arr.isArray()) {
+                for (JsonNode n : arr) {
+                    Integer id = intValue(n, "student_id");
+                    if (id != null) {
+                        out.add(id);
+                    }
+                }
+            }
+            return out.stream().distinct().collect(Collectors.toList());
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * For PPA users: {@code PROFESSIONAL_PRACTICE} only; students in scope are resolved explicitly (same rules as
+     * the PPA student list) then applications are loaded with {@code student_id=in.(...)}. Nested filters on the
+     * embedded {@code student} resource were unreliable and could omit rows.
+     */
+    public List<ApplicationResponse> findPpaApplicationsForApproverScope(int departmentId, List<Integer> fieldIds) {
+        if (fieldIds == null || fieldIds.isEmpty()) {
+            return List.of();
+        }
+        List<Integer> studentIds = listStudentIdsForPpaScope(departmentId, fieldIds);
+        if (studentIds.isEmpty()) {
+            return List.of();
+        }
+        String select = APPLICATION_SELECT_BASE + ",opportunity(title,type),company(name),student(full_name)";
+        List<ApplicationResponse> merged = new ArrayList<>();
+        for (int i = 0; i < studentIds.size(); i += PPA_APPLICATION_STUDENT_ID_CHUNK) {
+            int end = Math.min(i + PPA_APPLICATION_STUDENT_ID_CHUNK, studentIds.size());
+            List<Integer> chunk = studentIds.subList(i, end);
+            String inList = chunk.stream().map(String::valueOf).collect(Collectors.joining(","));
+            String url = supabaseUrl + "/rest/v1/application"
+                    + "?student_id=in.(" + inList + ")"
+                    + "&application_type=eq.PROFESSIONAL_PRACTICE"
+                    + "&select=" + select
+                    + "&order=created_at.desc&limit=500";
+            String body = tryGetApplicationsFromUrl(url, true)
+                    .orElseGet(() -> tryGetApplicationsFromUrl(url, false).orElse("[]"));
+            merged.addAll(parseApplicationArrayJson(body));
+        }
+        Map<Integer, ApplicationResponse> byAppId = new LinkedHashMap<>();
+        List<ApplicationResponse> withoutId = new ArrayList<>();
+        for (ApplicationResponse r : merged) {
+            if (r.getApplicationId() != null) {
+                byAppId.putIfAbsent(r.getApplicationId(), r);
+            } else {
+                withoutId.add(r);
+            }
+        }
+        List<ApplicationResponse> result = new ArrayList<>(byAppId.values());
+        result.addAll(withoutId);
+        result.sort(Comparator.comparing(ApplicationResponse::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
+        return result;
+    }
+
+    /**
+     * Professional-practice applications from students at the given university. Used for university admins;
+     * {@code linked_entity_id} should be {@code university_id}.
      */
     public List<ApplicationResponse> findPpaQueueByUniversityId(Integer universityId) {
         String body = tryGetApplicationsFromUrl(buildPpaApplicationsUrl(universityId, true), true)
                 .orElseGet(() -> tryGetApplicationsFromUrl(buildPpaApplicationsUrl(universityId, false), false)
                         .orElse("[]"));
         return parseApplicationArrayJson(body);
+    }
+
+    /**
+     * Loads a single application by primary key (with list-style embeds).
+     */
+    public Optional<ApplicationResponse> findByApplicationId(int applicationId) {
+        String select = APPLICATION_SELECT_BASE + ",opportunity(title,type),company(name),student(full_name)";
+        String url = supabaseUrl + "/rest/v1/application?application_id=eq." + applicationId
+                + "&select=" + select
+                + "&limit=1";
+        String body = tryGetApplicationsFromUrl(url, true)
+                .orElseGet(() -> tryGetApplicationsFromUrl(url, false).orElse("[]"));
+        List<ApplicationResponse> list = parseApplicationArrayJson(body);
+        if (list.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(list.get(0));
+    }
+
+    /**
+     * Updates {@code is_approved_by_ppa} using the service role (bypasses RLS when configured).
+     */
+    public boolean patchIsApprovedByPpa(int applicationId, boolean approved) {
+        try {
+            String url = supabaseUrl + "/rest/v1/application?application_id=eq." + applicationId;
+            HttpHeaders headers = createServiceHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Prefer", "return=minimal");
+            Map<String, Object> patch = new HashMap<>();
+            patch.put("is_approved_by_ppa", approved);
+            String json = objectMapper.writeValueAsString(patch);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(json, headers),
+                    String.class);
+            return response.getStatusCode().is2xxSuccessful();
+        } catch (RestClientResponseException e) {
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private ApplicationResponse mapToResponse(JsonNode node) {
@@ -540,6 +663,7 @@ public class ApplicationRepository {
         JsonNode opportunity = firstEmbed(node.get("opportunity"));
         if (opportunity != null && !opportunity.isNull()) {
             r.setOpportunityTitle(textValue(opportunity, "title"));
+            r.setOpportunityType(textValue(opportunity, "type"));
         }
 
         JsonNode company = firstEmbed(node.get("company"));

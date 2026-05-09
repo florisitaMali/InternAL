@@ -12,12 +12,18 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Inserts PPA inbox notifications for PP applications still awaiting approval after 7+ days.
+ * Inserts PPA inbox notifications for professional-practice applications still awaiting PP approval
+ * after 14+ days, at most once per 7 days per application.
  */
 @Component
 public class PpaStaleApplicationReminderScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(PpaStaleApplicationReminderScheduler.class);
+
+    /** Applications submitted before this age (and still without PPA decision) qualify for a reminder. */
+    private static final int STALE_AFTER_DAYS = 14;
+    /** Skip insert if we already notified this PPA inbox about the same application within this window. */
+    private static final int REMINDER_COOLDOWN_DAYS = 7;
 
     private final ApplicationRepository applicationRepository;
     private final NotificationRepository notificationRepository;
@@ -29,14 +35,21 @@ public class PpaStaleApplicationReminderScheduler {
         this.notificationRepository = notificationRepository;
     }
 
-    /** Monday 08:00 (server default zone). */
-    @Scheduled(cron = "0 0 8 * * MON")
+    /** Daily 08:00 (server default zone). */
+    @Scheduled(cron = "0 0 8 * * ?")
     public void remindStalePpApplications() {
-        List<StalePpaReminderRow> rows = applicationRepository.findProfessionalPracticePendingOlderThanDays(7);
+        List<StalePpaReminderRow> rows = applicationRepository.findProfessionalPracticePendingOlderThanDays(STALE_AFTER_DAYS);
         for (StalePpaReminderRow row : rows) {
+            if (notificationRepository.hasNotificationForApplicationSince(
+                    row.applicationId(),
+                    row.universityId(),
+                    Role.PPA,
+                    REMINDER_COOLDOWN_DAYS)) {
+                continue;
+            }
             String title = applicationRepository.resolveOpportunityTitleForStaleReminder(row);
-            String message = "Reminder: A professional practice application for \"" + title
-                    + "\" has been waiting for PP approval for over 7 days (application #" + row.applicationId() + ").";
+            String message = "There are applications waiting for your decision. A professional practice request for \""
+                    + title + "\" was submitted over two weeks ago and still needs your review.";
             boolean ok = notificationRepository.insertNotification(
                     Role.PPA,
                     row.universityId(),

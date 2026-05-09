@@ -320,6 +320,7 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            sidebarExpanded={sidebarOpen}
             onNavigateTab={setActiveTab}
           />
         );

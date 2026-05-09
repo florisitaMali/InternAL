@@ -14,6 +14,8 @@ public class ApplicationResponse {
     private Boolean isApprovedByPPA;
     private Boolean isApprovedByCompany;
     private String opportunityTitle;
+    /** From embedded {@code opportunity.type} when present (internship category). */
+    private String opportunityType;
     private String companyName;
     /** Present when application is loaded with a {@code student} embed (company / admin / PPA views). */
     private String studentName;
@@ -71,6 +73,9 @@ public class ApplicationResponse {
 
     public String getOpportunityTitle() { return opportunityTitle; }
     public void setOpportunityTitle(String opportunityTitle) { this.opportunityTitle = opportunityTitle; }
+
+    public String getOpportunityType() { return opportunityType; }
+    public void setOpportunityType(String opportunityType) { this.opportunityType = opportunityType; }
 
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }

@@ -7,16 +7,34 @@ import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
  */
 export async function getSessionAccessToken(): Promise<string | null> {
   const supabase = getSupabaseBrowserClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const fromSession = session?.access_token?.trim();
-  if (fromSession) return fromSession;
 
-  const { data: refreshed, error } = await supabase.auth.refreshSession();
-  if (error) return null;
-  const t = refreshed.session?.access_token?.trim();
-  return t && t.length > 0 ? t : null;
+  const readSessionToken = async (): Promise<string | null> => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const t = session?.access_token?.trim();
+    return t && t.length > 0 ? t : null;
+  };
+
+  let token = await readSessionToken();
+  if (token) return token;
+
+  const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+  if (!refreshErr && refreshed.session?.access_token) {
+    const t = refreshed.session.access_token.trim();
+    if (t.length > 0) return t;
+  }
+
+  token = await readSessionToken();
+  if (token) return token;
+
+  const { error: userErr } = await supabase.auth.getUser();
+  if (!userErr) {
+    token = await readSessionToken();
+    if (token) return token;
+  }
+
+  return null;
 }
 
 /**

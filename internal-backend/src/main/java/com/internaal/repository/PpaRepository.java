@@ -106,6 +106,11 @@ public class PpaRepository {
                     if (sf != null && !sf.isNull()) {
                         fieldName = textVal(sf, "name");
                     }
+                    String deptName = null;
+                    JsonNode dept = n.get("department");
+                    if (dept != null && !dept.isNull()) {
+                        deptName = textVal(dept, "name");
+                    }
                     BigDecimal cgpa = null;
                     if (n.has("cgpa") && !n.get("cgpa").isNull()) {
                         cgpa = n.get("cgpa").decimalValue();
@@ -115,7 +120,8 @@ public class PpaRepository {
                             textVal(n, "full_name"),
                             textVal(n, "email"),
                             null,
-                            null,
+                            intVal(n, "department_id"),
+                            deptName,
                             intVal(n, "field_id"),
                             intVal(n, "study_year"),
                             cgpa,
@@ -145,7 +151,8 @@ public class PpaRepository {
         String inList = fieldIds.stream().map(String::valueOf).collect(Collectors.joining(","));
         String url = supabaseUrl + "/rest/v1/student?field_id=in.(" + inList + ")"
                 + "&department_id=eq." + departmentId
-                + "&select=student_id,full_name,email,study_year,cgpa,field_id,department_id,studyfield(name)"
+                + "&select=student_id,full_name,email,study_year,cgpa,field_id,department_id,"
+                + "studyfield(name),department(name)"
                 + "&order=full_name";
         return fetchStudentRows(url);
     }

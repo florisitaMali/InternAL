@@ -36,11 +36,13 @@ export default function ViewerStudentProfileOverlay({
   const [loading, setLoading] = useState(false);
 
   const getToken = useCallback(async () => {
+    const sessionFirst = await getSessionAccessToken();
+    if (sessionFirst?.trim()) return sessionFirst.trim();
     if (resolveAccessToken) {
       const t = await resolveAccessToken();
       if (t?.trim()) return t.trim();
     }
-    return getSessionAccessToken();
+    return null;
   }, [resolveAccessToken]);
 
   useEffect(() => {

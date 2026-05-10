@@ -429,14 +429,15 @@ public class UniversityAdminRepository {
 
     public List<AdminStudentResponse> listStudentsByUniversityId(int universityId) {
         String url = supabaseUrl + "/rest/v1/student?university_id=eq." + universityId
-                + "&select=student_id,full_name,email,university_id,department_id,field_id,study_year,cgpa,university(name)"
+                + "&select=student_id,full_name,email,university_id,department_id,field_id,study_year,cgpa,"
+                + "university(name),department(name),studyfield(name)"
                 + "&order=full_name&limit=2000";
         return fetchStudentRows(url);
     }
 
     public List<AdminStudentResponse> listStudents() {
         String url = supabaseUrl + "/rest/v1/student?select=student_id,full_name,email,university_id,department_id,field_id,study_year,cgpa"
-                + ",university(name)&order=full_name&limit=2000";
+                + ",university(name),department(name),studyfield(name)&order=full_name&limit=2000";
         return fetchStudentRows(url);
     }
 
@@ -459,6 +460,16 @@ public class UniversityAdminRepository {
                     if (u != null && !u.isNull()) {
                         uniName = text(u, "name");
                     }
+                    String deptName = null;
+                    JsonNode dept = n.get("department");
+                    if (dept != null && !dept.isNull()) {
+                        deptName = text(dept, "name");
+                    }
+                    String fieldName = null;
+                    JsonNode sf = n.get("studyfield");
+                    if (sf != null && !sf.isNull()) {
+                        fieldName = text(sf, "name");
+                    }
                     BigDecimal cgpa = null;
                     if (n.has("cgpa") && !n.get("cgpa").isNull()) {
                         cgpa = n.get("cgpa").decimalValue();
@@ -469,10 +480,11 @@ public class UniversityAdminRepository {
                             text(n, "email"),
                             uniName,
                             intVal(n, "department_id"),
+                            deptName,
                             intVal(n, "field_id"),
                             intVal(n, "study_year"),
                             cgpa,
-                            null,
+                            fieldName,
                             null,
                             null
                     ));
@@ -531,6 +543,7 @@ public class UniversityAdminRepository {
                 text(first, "email"),
                 null,
                 intVal(first, "department_id"),
+                null,
                 intVal(first, "field_id"),
                 intVal(first, "study_year"),
                 cgpa,

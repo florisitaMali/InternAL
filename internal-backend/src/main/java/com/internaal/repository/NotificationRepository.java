@@ -18,6 +18,8 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -217,6 +219,48 @@ public class NotificationRepository {
         } catch (Exception e) {
             log.error("insertNotification failed: {}", e.getMessage(), e);
             return false;
+        }
+    }
+
+    /**
+     * Returns true when a notification for this application already exists recently (cooldown for scheduled reminders).
+     */
+    public boolean hasNotificationForApplicationSince(
+            int applicationId,
+            int recipientId,
+            Role recipientRole,
+            int withinLastDays) {
+        if (!serviceRoleConfigured()) {
+            return true;
+        }
+        Instant since = Instant.now().minus(withinLastDays, ChronoUnit.DAYS);
+        try {
+            String url = UriComponentsBuilder
+                    .fromHttpUrl(supabaseUrl + "/rest/v1/notification")
+                    .queryParam("application_id", "eq." + applicationId)
+                    .queryParam("recipient_id", "eq." + recipientId)
+                    .queryParam("recipient_role", "eq." + recipientRole.name())
+                    .queryParam("created_at", "gte." + since.toString())
+                    .queryParam("select", "notification_id")
+                    .queryParam("limit", "1")
+                    .toUriString();
+
+            HttpHeaders headers = createServiceHeaders();
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    String.class
+            );
+            String body = response.getBody();
+            if (body == null || body.isBlank()) {
+                return false;
+            }
+            JsonNode arr = objectMapper.readTree(body);
+            return arr.isArray() && arr.size() > 0;
+        } catch (Exception e) {
+            log.warn("hasNotificationForApplicationSince failed: {}", e.getMessage());
+            return true;
         }
     }
 

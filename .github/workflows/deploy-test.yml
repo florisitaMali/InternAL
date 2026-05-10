@@ -39,7 +39,8 @@ jobs:
           script: |
             cd /var/www/test-internalbania
             rm -rf internal-frontend/dist
-            git pull origin develop
+            git fetch origin
+            git reset --hard origin/develop
             cd internal-frontend
             npm ci
             npm run build

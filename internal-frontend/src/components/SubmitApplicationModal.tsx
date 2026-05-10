@@ -51,6 +51,10 @@ interface SubmitApplicationModalProps {
   viewFields?: ApplicationViewFields;
   /** Shown below the form in view mode (e.g. listing details). */
   listingDetails?: ReactNode;
+  /** Extra actions in view mode (e.g. PPA approve/reject), above Close. */
+  viewExtraActions?: ReactNode;
+  /** Shown in the navy header row next to the close control (e.g. ⋮ menu). */
+  viewHeaderActions?: ReactNode;
   /** When false, application type choice is hidden and submit uses Individual Growth. */
   canApplyForPP?: boolean;
 }
@@ -92,6 +96,8 @@ export default function SubmitApplicationModal({
   viewReview,
   viewFields,
   listingDetails,
+  viewExtraActions,
+  viewHeaderActions,
   canApplyForPP = true,
 }: SubmitApplicationModalProps) {
   const isView = mode === "view";
@@ -180,14 +186,17 @@ export default function SubmitApplicationModal({
                 </h2>
                 <p className="mt-1 text-xs text-blue-100/95 sm:text-sm">{opportunity.company}</p>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
-              >
-                <X size={22} strokeWidth={2.25} aria-hidden />
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {isView && viewHeaderActions ? viewHeaderActions : null}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
+                >
+                  <X size={22} strokeWidth={2.25} aria-hidden />
+                </button>
+              </div>
             </div>
 
             {isView && viewReview ? (
@@ -379,6 +388,10 @@ export default function SubmitApplicationModal({
 
             {isView && listingDetails ? (
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">{listingDetails}</section>
+            ) : null}
+
+            {isView && viewExtraActions ? (
+              <div className="flex flex-wrap gap-2">{viewExtraActions}</div>
             ) : null}
 
             {!isView ? (

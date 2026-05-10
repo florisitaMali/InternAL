@@ -8,6 +8,7 @@ public record AdminStudentResponse(
         String email,
         String universityName,
         Integer departmentId,
+        String departmentName,
         Integer studyFieldId,
         Integer studyYear,
         BigDecimal cgpa,

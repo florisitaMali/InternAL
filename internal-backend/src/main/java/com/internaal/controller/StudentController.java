@@ -1,6 +1,7 @@
 package com.internaal.controller;
 
 import com.internaal.dto.CertificationMetadataUpdateRequest;
+import com.internaal.dto.PremiumMockPaymentRequest;
 import com.internaal.dto.StudentExperienceResponse;
 import com.internaal.dto.StudentExperienceUpsertRequest;
 import com.internaal.dto.StudentFileDownload;
@@ -37,9 +38,14 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @RestController
 @RequestMapping("/api/student")
 public class StudentController {
+
+    private static final Logger log = LoggerFactory.getLogger(StudentController.class);
 
     private final StudentProfileRepository studentProfileRepository;
     private final StudentProfileFileService studentProfileFileService;
@@ -86,6 +92,45 @@ public class StudentController {
         }
 
         return ResponseEntity.ok(profile.get());
+    }
+
+    /**
+     * Demo endpoint: marks the student as Premium after a simulated payment.
+     * Replace with verified PSP/bank callback when integrating POK.
+     */
+    @PostMapping("/premium/mock-payment")
+    public ResponseEntity<?> mockPremiumPayment(
+            @AuthenticationPrincipal UserAccount user,
+            HttpServletRequest request,
+            @RequestBody(required = false) PremiumMockPaymentRequest paymentRequest) {
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthenticated"));
+        }
+        if (user.getRole() != Role.STUDENT) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "Forbidden"));
+        }
+        String userJwt = extractBearerToken(request);
+        if (userJwt == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Missing bearer token"));
+        }
+        Integer studentId = parseStudentId(user);
+        try {
+            String method =
+                    paymentRequest != null && paymentRequest.getPaymentMethod() != null
+                            ? paymentRequest.getPaymentMethod().trim()
+                            : "MOCK";
+            log.info("Mock Premium checkout student_id={} paymentMethod={}", studentId, method);
+            Optional<StudentProfileResponse> profile = studentProfileRepository.completeMockPremiumPayment(
+                    studentId,
+                    userJwt);
+            if (profile.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                        .body(Map.of("error", "Could not activate Premium"));
+            }
+            return ResponseEntity.ok(profile.get());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PutMapping("/profile")

@@ -33,6 +33,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
+import { getSessionAccessToken, stashCheckoutAccessToken } from '@/src/lib/auth/getSessionAccessToken';
+import { useRouter } from 'next/navigation';
 import type {
   Application,
   CompanyProfileFromApi,
@@ -42,7 +44,6 @@ import type {
   StudentProfileFile,
   StudentProject,
 } from '../types';
-import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import {
   createStudentExperience,
   createStudentProject,
@@ -82,6 +83,8 @@ interface StudentDashboardProps {
   currentUserName: string;
   currentUserRoleLabel: string;
   currentStudent?: Student | null;
+  /** Supabase access token for API calls (e.g. Premium checkout uses the same JWT as the main app). */
+  accessToken?: string | null;
   onToggleSidebar?: () => void;
   /** Switch main tab (e.g. open company browse from an application). */
   onNavigateTab?: (tab: string) => void;
@@ -282,6 +285,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   currentUserName,
   currentUserRoleLabel,
   currentStudent,
+  accessToken,
   onToggleSidebar,
   onNavigateTab,
   onCloseSidebar,
@@ -321,6 +325,13 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [bestMatchesList, setBestMatchesList] = useState<Opportunity[]>([]);
   const [bestMatchesLoading, setBestMatchesLoading] = useState(false);
   const [showPremiumExploreBanner, setShowPremiumExploreBanner] = useState(true);
+
+  const router = useRouter();
+
+  const goToPremiumCheckout = () => {
+    stashCheckoutAccessToken(accessToken ?? undefined);
+    router.push('/premium');
+  };
 
   const [pdfPreview, setPdfPreview] = useState<{
     title: string;
@@ -392,6 +403,9 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       const merged: Student = { ...prev, ...currentStudent };
       if (currentStudent.canApplyForPP === undefined && prev.canApplyForPP !== undefined) {
         merged.canApplyForPP = prev.canApplyForPP;
+      }
+      if (currentStudent.hasPremium === undefined && prev.hasPremium !== undefined) {
+        merged.hasPremium = prev.hasPremium;
       }
       return merged;
     });
@@ -1062,6 +1076,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       <StudentBestMatchesTeaser
         loading={bestMatchesLoading}
         matches={bestMatchesList}
+        hasPremium={student.hasPremium === true}
         onCompanyBrowse={(opp) => {
           onNavigateTab?.('opportunities');
           setSelectedExploreOpportunityId(null);
@@ -1079,11 +1094,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
         }}
         onApply={handleApply}
         hasAppliedToOpportunity={hasAppliedToOpportunity}
-        onUpgrade={() =>
-          toast.message('Premium coming soon', {
-            description: 'Unlock every skill-ranked opportunity when subscriptions launch.',
-          })
-        }
+        onUpgrade={goToPremiumCheckout}
         onGoToProfile={() => onNavigateTab?.('profile')}
       />
     </div>
@@ -1218,38 +1229,69 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
       </div>
 
       {showPremiumExploreBanner ? (
-        <div className="relative rounded-2xl border border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-amber-50/40 p-4 pr-12 shadow-sm ring-1 ring-amber-100/70">
-          <button
-            type="button"
-            aria-label="Dismiss"
-            onClick={() => setShowPremiumExploreBanner(false)}
-            className="absolute right-2 top-2 rounded-lg p-1.5 text-amber-900/50 hover:bg-amber-100/80 hover:text-amber-950"
-          >
-            <X size={18} />
-          </button>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3 min-w-0">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 ring-1 ring-amber-200/80">
-                <Sparkles size={20} strokeWidth={2} aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-amber-950">
-                  Premium — AI-ranked picks for your profile
-                </p>
-                <p className="mt-1 text-sm text-slate-600 leading-snug">
-                  See your top skill matches first; unlock the full ranked list with Premium when it launches.
-                </p>
-              </div>
-            </div>
+        student.hasPremium ? (
+          <div className="relative rounded-2xl border border-emerald-200/90 bg-gradient-to-r from-emerald-50 via-white to-emerald-50/40 p-4 pr-12 shadow-sm ring-1 ring-emerald-100/70">
             <button
               type="button"
-              onClick={() => onNavigateTab?.('best-matches')}
-              className="shrink-0 rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-700"
+              aria-label="Dismiss"
+              onClick={() => setShowPremiumExploreBanner(false)}
+              className="absolute right-2 top-2 rounded-lg p-1.5 text-emerald-900/50 hover:bg-emerald-100/80 hover:text-emerald-950"
             >
-              View Best Matches
+              <X size={18} />
             </button>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200/80">
+                  <Sparkles size={20} strokeWidth={2} aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-emerald-950">Premium active</p>
+                  <p className="mt-1 text-sm leading-snug text-slate-600">
+                    Full skill-ranked Best Matches and Premium highlights are unlocked for your account.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigateTab?.('best-matches')}
+                className="shrink-0 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700"
+              >
+                View Best Matches
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="relative rounded-2xl border border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-amber-50/40 p-4 pr-12 shadow-sm ring-1 ring-amber-100/70">
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setShowPremiumExploreBanner(false)}
+              className="absolute right-2 top-2 rounded-lg p-1.5 text-amber-900/50 hover:bg-amber-100/80 hover:text-amber-950"
+            >
+              <X size={18} />
+            </button>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 ring-1 ring-amber-200/80">
+                  <Sparkles size={20} strokeWidth={2} aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-amber-950">Premium — AI-ranked picks for your profile</p>
+                  <p className="mt-1 text-sm leading-snug text-slate-600">
+                    See your top skill matches first; unlock the full ranked list from Best Matches.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigateTab?.('best-matches')}
+                className="shrink-0 rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-700"
+              >
+                View Best Matches
+              </button>
+            </div>
+          </div>
+        )
       ) : null}
 
       <div className="flex gap-3 items-stretch mb-2">

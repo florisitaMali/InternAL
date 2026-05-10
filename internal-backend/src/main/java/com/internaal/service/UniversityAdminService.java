@@ -25,6 +25,7 @@ import com.internaal.entity.UserAccount;
 import com.internaal.entity.Opportunity;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.OpportunityMapper;
+import com.internaal.repository.PpaRepository;
 import com.internaal.repository.StudentProfileRepository;
 import com.internaal.repository.UniversityAdminRepository;
 import com.internaal.repository.UniversityProfileRepository;
@@ -45,18 +46,21 @@ public class UniversityAdminService {
     private final SupabaseAuthAdminService supabaseAuthAdminService;
     private final StudentProfileRepository studentProfileRepository;
     private final UniversityProfileRepository universityProfileRepository;
+    private final PpaRepository ppaRepository;
 
     public UniversityAdminService(
             UniversityAdminRepository universityAdminRepository,
             ApplicationRepository applicationRepository,
             SupabaseAuthAdminService supabaseAuthAdminService,
             StudentProfileRepository studentProfileRepository,
-            UniversityProfileRepository universityProfileRepository) {
+            UniversityProfileRepository universityProfileRepository,
+            PpaRepository ppaRepository) {
         this.universityAdminRepository = universityAdminRepository;
         this.applicationRepository = applicationRepository;
         this.supabaseAuthAdminService = supabaseAuthAdminService;
         this.studentProfileRepository = studentProfileRepository;
         this.universityProfileRepository = universityProfileRepository;
+        this.ppaRepository = ppaRepository;
     }
 
     public UniversityProfileResponse getUniversityProfile(UserAccount user) {
@@ -239,7 +243,36 @@ public class UniversityAdminService {
     public List<AdminStudentResponse> listStudents(UserAccount user) {
         requireAdmin(user);
         int universityId = parseUniversityId(user);
-        return universityAdminRepository.listStudentsByUniversityId(universityId);
+        List<AdminStudentResponse> rows = universityAdminRepository.listStudentsByUniversityId(universityId);
+        return enrichStudentApplicationStats(rows);
+    }
+
+    /** Same application aggregates as PPA “My students” (waiting / pending / approved / rejected). */
+    private List<AdminStudentResponse> enrichStudentApplicationStats(List<AdminStudentResponse> students) {
+        if (students.isEmpty()) {
+            return students;
+        }
+        List<Integer> studentIds = students.stream().map(AdminStudentResponse::studentId).toList();
+        Map<Integer, int[]> stats = ppaRepository.getApplicationStatsByStudentIds(studentIds);
+        return students.stream().map(s -> {
+            int[] stat = stats.get(s.studentId());
+            int count = stat != null ? stat[0] : 0;
+            String status = stat != null ? PpaRepository.statusLabel(stat[1]) : "WAITING";
+            return new AdminStudentResponse(
+                    s.studentId(),
+                    s.fullName(),
+                    s.email(),
+                    s.universityName(),
+                    s.departmentId(),
+                    s.departmentName(),
+                    s.studyFieldId(),
+                    s.studyYear(),
+                    s.cgpa(),
+                    s.studyFieldName(),
+                    count,
+                    status
+            );
+        }).toList();
     }
 
     public List<AdminPpaResponse> listPpas(UserAccount user) {

@@ -5,15 +5,12 @@ import type { MutableRefObject } from 'react';
 import Image from 'next/image';
 import Dashboard from './Dashboard';
 import UniversityProfileReadOnlyView from '@/src/components/UniversityProfileReadOnlyView';
-import AddStudentForm from './AddStudentForm';
-import ImportCSVForm from './ImportCSVForm';
+import ViewerStudentProfileOverlay from '@/src/components/ViewerStudentProfileOverlay';
 import UnderDevelopment from './UnderDevelopment';
 import OpportunityDetailView from '@/src/components/OpportunityDetailView';
 import {
   createAdminPpa,
   deleteAdminPpa,
-  createAdminStudent,
-  fetchAdminApplications,
   fetchAdminCompanies,
   fetchAdminDashboardStats,
   createAdminDepartment,
@@ -28,7 +25,6 @@ import {
   fetchAdminStudyFields,
   mapAdminOpportunityDetailToOpportunity,
   mapAdminOpportunitySummaryToOpportunity,
-  mapApplicationResponseToApplication,
   updateAdminDepartment,
   updateAdminPpa,
   updateAdminStudyField,
@@ -49,7 +45,6 @@ import {
   getOpportunityCardInitials,
 } from '@/src/lib/opportunityFormat';
 import type {
-  Application,
   DashboardStats,
   Department,
   Opportunity,
@@ -76,6 +71,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   Library,
+  Filter,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
@@ -99,8 +95,12 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   linkedEntityId,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [isAddingStudent, setIsAddingStudent] = useState(false);
-  const [isImportingCSV, setIsImportingCSV] = useState(false);
+  const [adminStudentsSearch, setAdminStudentsSearch] = useState('');
+  const [showAdminStudentFilters, setShowAdminStudentFilters] = useState(false);
+  const [adminStudentYearFilter, setAdminStudentYearFilter] = useState<string[]>([]);
+  const [adminStudentFieldFilter, setAdminStudentFieldFilter] = useState<string[]>([]);
+  const [adminStudentDepartmentFilter, setAdminStudentDepartmentFilter] = useState<string[]>([]);
+  const [adminStudentStatusFilter, setAdminStudentStatusFilter] = useState<string[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [studyFields, setStudyFields] = useState<StudyField[]>([]);
@@ -111,13 +111,13 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     ppaApprovers: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [viewStudentProfileId, setViewStudentProfileId] = useState<number | null>(null);
   const [adminOpportunities, setAdminOpportunities] = useState<AdminOpportunityRow[]>([]);
   const [oppDeadlineFilter, setOppDeadlineFilter] = useState<'all' | 'active' | 'expired'>('all');
   const [adminExploreSelectedId, setAdminExploreSelectedId] = useState<string | null>(null);
   const [adminExploreDetail, setAdminExploreDetail] = useState<Opportunity | null>(null);
   const [adminExploreDetailLoading, setAdminExploreDetailLoading] = useState(false);
   const [adminExploreDetailError, setAdminExploreDetailError] = useState<string | null>(null);
-  const [adminApplications, setAdminApplications] = useState<Application[]>([]);
   const [adminCompanies, setAdminCompanies] = useState<{ companyId: number; name: string; industry: string | null }[]>([]);
   const [ppas, setPpas] = useState<PPAApprover[]>([]);
   const [editingPpa, setEditingPpa] = useState<PPAApprover | null>(null);
@@ -334,20 +334,11 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           toast.error('Not signed in.');
           return;
         }
-        const [
-          studentsRes,
-          departmentsRes,
-          fieldsRes,
-          statsRes,
-          appsRes,
-          companiesRes,
-          ppasRes,
-        ] = await Promise.all([
+        const [studentsRes, departmentsRes, fieldsRes, statsRes, companiesRes, ppasRes] = await Promise.all([
           fetchAdminStudents(token),
           fetchAdminDepartments(token),
           fetchAdminStudyFields(token),
           fetchAdminDashboardStats(token),
-          fetchAdminApplications(token),
           fetchAdminCompanies(token, 10),
           fetchAdminPpas(token),
         ]);
@@ -359,8 +350,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         else if (fieldsRes.data) setStudyFields(fieldsRes.data);
         if (statsRes.errorMessage) toast.error(statsRes.errorMessage);
         else if (statsRes.data) setStats(statsRes.data);
-        if (appsRes.errorMessage) toast.error(appsRes.errorMessage);
-        else if (appsRes.data) setAdminApplications(appsRes.data.map(mapApplicationResponseToApplication));
         if (companiesRes.errorMessage) toast.error(companiesRes.errorMessage);
         else if (companiesRes.data) setAdminCompanies(companiesRes.data);
         if (ppasRes.errorMessage) toast.error(ppasRes.errorMessage);
@@ -424,13 +413,85 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     [resolveAccessToken]
   );
 
-  const filteredStudents = useMemo(
+  const studyYearLabel = useCallback((year: number | null | undefined) => {
+    if (year == null) return '—';
+    const suffixes: Record<number, string> = { 1: 'st', 2: 'nd', 3: 'rd' };
+    return `${year}${suffixes[year] ?? 'th'} Year`;
+  }, []);
+
+  /** All departments / study fields for the university (from API), not only those with students. */
+  const adminStudentFilterDepartments = useMemo(
     () =>
-      students.filter((student) =>
-        `${student.fullName} ${student.email}`.toLowerCase().includes(searchTerm.toLowerCase())
+      [...departments].sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
       ),
-    [students, searchTerm]
+    [departments]
   );
+
+  const departmentNameByIdForFilters = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of departments) {
+      m.set(d.id, d.name || '');
+    }
+    return m;
+  }, [departments]);
+
+  const adminStudentFilterStudyFields = useMemo(
+    () =>
+      [...studyFields].sort((a, b) => {
+        const deptA = departmentNameByIdForFilters.get(a.departmentId) || '';
+        const deptB = departmentNameByIdForFilters.get(b.departmentId) || '';
+        const byDept = deptA.localeCompare(deptB, undefined, { sensitivity: 'base' });
+        if (byDept !== 0) return byDept;
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      }),
+    [studyFields, departmentNameByIdForFilters]
+  );
+
+  const filteredStudents = useMemo(() => {
+    const q = adminStudentsSearch.trim().toLowerCase();
+    return students.filter((student) => {
+      if (q) {
+        const hay = [
+          student.fullName,
+          student.email,
+          student.departmentName,
+          student.studyFieldName,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (adminStudentYearFilter.length > 0) {
+        const label = studyYearLabel(student.studyYear);
+        if (label === '—' || !adminStudentYearFilter.includes(label)) return false;
+      }
+      if (adminStudentFieldFilter.length > 0) {
+        const fid = student.studyFieldId;
+        if (!fid || !adminStudentFieldFilter.includes(fid)) return false;
+      }
+      if (adminStudentDepartmentFilter.length > 0) {
+        const did = student.departmentId;
+        if (!did || !adminStudentDepartmentFilter.includes(did)) return false;
+      }
+      if (adminStudentStatusFilter.length > 0) {
+        const status = student.applicationStatus;
+        const label =
+          status === 'APPROVED' ? 'Accepted' : status === 'REJECTED' ? 'Rejected' : 'Waiting Review';
+        if (!adminStudentStatusFilter.includes(label)) return false;
+      }
+      return true;
+    });
+  }, [
+    students,
+    adminStudentsSearch,
+    adminStudentYearFilter,
+    adminStudentFieldFilter,
+    adminStudentDepartmentFilter,
+    adminStudentStatusFilter,
+    studyYearLabel,
+  ]);
 
   const filteredAdminOpportunities = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -457,15 +518,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     if (oppDeadlineFilter === 'expired') return 'Expired opportunities';
     return 'All opportunities';
   }, [oppDeadlineFilter]);
-
-  const filteredAdminApplications = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return adminApplications;
-    return adminApplications.filter(
-      (a) =>
-        `${a.studentName} ${a.opportunityTitle} ${a.companyName}`.toLowerCase().includes(q)
-    );
-  }, [adminApplications, searchTerm]);
 
   const filteredPpas = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -634,136 +686,246 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   );
 
   const renderStudents = () => {
-    if (isAddingStudent) {
-      return (
-        <AddStudentForm 
-          onSave={async (newStudent) => {
-            const token = await resolveAccessToken();
-            if (!token) {
-              toast.error('Not signed in.');
-              return;
-            }
-            const deptId = parseInt(String(newStudent.departmentId), 10);
-            const fieldId = parseInt(String(newStudent.studyFieldId), 10);
-            if (Number.isNaN(deptId) || Number.isNaN(fieldId)) {
-              toast.error('Invalid department or study field.');
-              return;
-            }
-            const { data: created, errorMessage } = await createAdminStudent(token, {
-              fullName: newStudent.fullName,
-              email: newStudent.email,
-              departmentId: deptId,
-              studyFieldId: fieldId,
-              studyYear: newStudent.studyYear,
-              cgpa: newStudent.cgpa,
-            });
-            if (!created || errorMessage) {
-              toast.error(errorMessage || 'Could not create student.');
-              return;
-            }
-            setStudents((prev) => [created, ...prev]);
-            setStats((prev) => ({ ...prev, totalStudents: prev.totalStudents + 1 }));
-            setIsAddingStudent(false);
-          }} 
-          onCancel={() => setIsAddingStudent(false)} 
-          departments={departments}
-          studyFields={studyFields}
-        />
-      );
-    }
-
-    if (isImportingCSV) {
-      return (
-        <ImportCSVForm 
-          entityName="Students" 
-          onImport={(data) => {
-            // Mock import
-            setIsImportingCSV(false);
-          }} 
-          onCancel={() => setIsImportingCSV(false)} 
-        />
-      );
-    }
-
     return (
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h2 className="text-lg font-bold text-slate-900">Student Management</h2>
-          <div className="flex gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input 
-                type="text" 
-                placeholder="Search students..." 
+      <div className="space-y-5">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-[#002B5B] sm:text-3xl">Students</h2>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                type="text"
+                placeholder="Search student name or study field..."
                 suppressHydrationWarning
-                className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none w-64"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full rounded-full border border-slate-200 bg-white py-3.5 pl-11 pr-5 text-sm shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#002B5B]/25 focus:ring-2 focus:ring-[#002B5B]/20"
+                value={adminStudentsSearch}
+                onChange={(e) => setAdminStudentsSearch(e.target.value)}
               />
             </div>
-            <button 
-              onClick={() => setIsAddingStudent(true)}
+            <button
               suppressHydrationWarning
-              className="flex items-center gap-2 px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all shadow-lg shadow-indigo-500/20"
+              type="button"
+              onClick={() => setShowAdminStudentFilters((v) => !v)}
+              className={cn(
+                'inline-flex shrink-0 items-center justify-center gap-2 rounded-full border px-5 py-3.5 text-sm font-bold shadow-sm transition-all sm:min-w-[8.5rem]',
+                showAdminStudentFilters
+                  ? 'border-[#002B5B] bg-[#002B5B] text-white hover:bg-[#003a7a]'
+                  : 'border-slate-200 bg-white text-[#002B5B] hover:bg-slate-50'
+              )}
             >
-              <Plus size={16} />
-              Add Student
-            </button>
-            <button 
-              onClick={() => setIsImportingCSV(true)}
-              suppressHydrationWarning
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
-            >
-              <Upload size={16} />
-              Import CSV
+              <Filter size={18} strokeWidth={2} aria-hidden />
+              Filters
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+
+        {showAdminStudentFilters && (
+          <div className="grid grid-cols-2 gap-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-4">
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-700">Study Year</div>
+              <div className="space-y-1.5">
+                {[1, 2, 3, 4, 5].map((y) => {
+                  const label = studyYearLabel(y);
+                  return (
+                    <label key={y} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-[#002B5B]"
+                        checked={adminStudentYearFilter.includes(label)}
+                        onChange={(e) =>
+                          setAdminStudentYearFilter((prev) =>
+                            e.target.checked ? [...prev, label] : prev.filter((v) => v !== label)
+                          )
+                        }
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-700">Department</div>
+              <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+                {adminStudentFilterDepartments.map((d) => (
+                  <label key={d.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={adminStudentDepartmentFilter.includes(d.id)}
+                      onChange={(e) =>
+                        setAdminStudentDepartmentFilter((prev) =>
+                          e.target.checked ? [...prev, d.id] : prev.filter((v) => v !== d.id)
+                        )
+                      }
+                    />
+                    {d.name}
+                  </label>
+                ))}
+                {adminStudentFilterDepartments.length === 0 && <p className="text-xs text-slate-400">—</p>}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-700">Study Field</div>
+              <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+                {adminStudentFilterStudyFields.map((f) => (
+                  <label key={f.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={adminStudentFieldFilter.includes(f.id)}
+                      onChange={(e) =>
+                        setAdminStudentFieldFilter((prev) =>
+                          e.target.checked ? [...prev, f.id] : prev.filter((v) => v !== f.id)
+                        )
+                      }
+                    />
+                    {f.name}
+                  </label>
+                ))}
+                {adminStudentFilterStudyFields.length === 0 && <p className="text-xs text-slate-400">—</p>}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-700">Status</div>
+              <div className="space-y-1.5">
+                {['Waiting Review', 'Accepted', 'Rejected'].map((s) => (
+                  <label key={s} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={adminStudentStatusFilter.includes(s)}
+                      onChange={(e) =>
+                        setAdminStudentStatusFilter((prev) =>
+                          e.target.checked ? [...prev, s] : prev.filter((v) => v !== s)
+                        )
+                      }
+                    />
+                    {s}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="col-span-2 flex justify-end gap-3 md:col-span-4">
+              <button
+                suppressHydrationWarning
+                type="button"
+                onClick={() => {
+                  setAdminStudentYearFilter([]);
+                  setAdminStudentFieldFilter([]);
+                  setAdminStudentDepartmentFilter([]);
+                  setAdminStudentStatusFilter([]);
+                }}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition-all hover:bg-slate-50"
+              >
+                Clear All
+              </button>
+              <button
+                suppressHydrationWarning
+                type="button"
+                onClick={() => setShowAdminStudentFilters(false)}
+                className="rounded-xl bg-[#002B5B] px-4 py-2 text-sm font-bold text-white transition-all hover:bg-[#003a7a]"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[960px] border-collapse text-left">
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                <th className="px-6 py-4">Student ID</th>
-                <th className="px-6 py-4">Full Name</th>
-                <th className="px-6 py-4">Department</th>
-                <th className="px-6 py-4">Study Year</th>
-                <th className="px-6 py-4">CGPA</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+              <tr className="bg-[#002B5B] text-white">
+                <th className="rounded-tl-2xl px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                  Student name
+                </th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Email</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Study field</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Department</th>
+                <th className="whitespace-nowrap px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                  Academic year
+                </th>
+                <th className="rounded-tr-2xl px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                  Student status
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredStudents.map((student) => (
-                <tr key={student.id} className="hover:bg-slate-50 transition-all group">
-                  <td className="px-6 py-4 font-mono text-xs text-slate-500">{student.id}</td>
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-900">{student.fullName}</div>
-                    <div className="text-xs text-slate-500">{student.email}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 font-medium">{student.departmentId}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{student.studyYear}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2.5 py-1 bg-[#002B5B]/10 text-[#002B5B] rounded-lg text-xs font-bold">
-                      {student.cgpa}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-all">
-                    <div className="flex justify-end gap-2">
-                      <button 
-                        suppressHydrationWarning
-                        className="p-2 text-slate-400 hover:text-[#002B5B] hover:bg-indigo-50 rounded-lg transition-all"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button 
-                        suppressHydrationWarning
-                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
+                    Loading students…
                   </td>
                 </tr>
-              ))}
+              ) : students.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-600">
+                    No students are registered for your university yet.
+                  </td>
+                </tr>
+              ) : filteredStudents.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-600">
+                    No students match your search or filters.
+                  </td>
+                </tr>
+              ) : (
+                filteredStudents.map((student) => {
+                  const sid = Number(student.id);
+                  const status = student.applicationStatus;
+                  const decision: 'WAITING' | 'APPROVED' | 'REJECTED' =
+                    status === 'APPROVED'
+                      ? 'APPROVED'
+                      : status === 'REJECTED'
+                        ? 'REJECTED'
+                        : 'WAITING';
+                  return (
+                    <tr key={student.id} className="transition-colors hover:bg-slate-50/90">
+                      <td className="px-6 py-4 align-middle">
+                        <button
+                          type="button"
+                          className="text-left text-base font-bold text-[#002B5B] hover:underline"
+                          onClick={() => {
+                            if (!Number.isNaN(sid)) setViewStudentProfileId(sid);
+                          }}
+                        >
+                          {student.fullName}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {student.email || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {student.studyFieldName?.trim() || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {student.departmentName?.trim() || '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {studyYearLabel(student.studyYear)}
+                      </td>
+                      <td className="px-6 py-4 align-middle">
+                        <span
+                          className={cn(
+                            'inline-flex rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white',
+                            decision === 'APPROVED'
+                              ? 'bg-[#20948B]'
+                              : decision === 'REJECTED'
+                                ? 'bg-amber-600'
+                                : 'bg-slate-500'
+                          )}
+                        >
+                          {decision}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -1604,81 +1766,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     );
   };
 
-  const renderApplications = () => (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-        <h2 className="text-lg font-bold text-slate-900">All Applications Monitor</h2>
-        <div className="flex gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search applications..." 
-              suppressHydrationWarning
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none w-64"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-              <th className="px-6 py-4">Student</th>
-              <th className="px-6 py-4">Opportunity</th>
-              <th className="px-6 py-4">Type</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Created At</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filteredAdminApplications.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-500">
-                  No applications yet.
-                </td>
-              </tr>
-            ) : (
-              filteredAdminApplications.map((app) => (
-                <tr key={app.id} className="hover:bg-slate-50 transition-all">
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-900">{app.studentName}</div>
-                    <div className="text-xs text-slate-500">ID: {app.studentId}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-bold text-slate-900">{app.opportunityTitle}</div>
-                    <div className="text-xs text-slate-500">{app.companyName}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
-                      app.type === 'PROFESSIONAL_PRACTICE' ? "bg-[#002B5B]/10 text-[#002B5B]" : "bg-slate-100 text-slate-700"
-                    )}>
-                      {app.type.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                      app.status === 'APPROVED' ? "bg-emerald-50 text-emerald-700" :
-                      app.status === 'REJECTED' ? "bg-red-50 text-red-700" :
-                      "bg-amber-50 text-amber-700"
-                    )}>
-                      {app.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-xs text-slate-500">{app.createdAt}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-
   const renderPpas = () => (
     <div className="space-y-4">
       <div className="rounded-2xl border border-blue-200/60 bg-blue-50/40 shadow-sm p-4 backdrop-blur-[2px]">
@@ -2173,7 +2260,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
                   <h3 className="font-bold mb-2">Quick Actions</h3>
                   <p className="text-indigo-100 text-xs mb-4">Manage your academic structure and users efficiently.</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <button suppressHydrationWarning className="p-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all">New Student</button>
                     <button suppressHydrationWarning className="p-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all">New PPA</button>
                     <button suppressHydrationWarning className="p-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all">Export Data</button>
                     <button suppressHydrationWarning className="p-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all">Settings</button>
@@ -2193,8 +2279,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         return renderAcademic();
       case 'opportunities':
         return renderOpportunities();
-      case 'applications':
-        return renderApplications();
       default:
         return <UnderDevelopment moduleName={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} />;
     }
@@ -2208,6 +2292,13 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       onToggleSidebar={onToggleSidebar}
     >
       {renderContent()}
+      {viewStudentProfileId != null ? (
+        <ViewerStudentProfileOverlay
+          studentId={viewStudentProfileId}
+          onClose={() => setViewStudentProfileId(null)}
+          apiSegment="admin"
+        />
+      ) : null}
     </Dashboard>
   );
 };

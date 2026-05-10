@@ -159,6 +159,7 @@ export type AdminStudentRow = {
   email: string | null;
   universityName: string | null;
   departmentId: number | null;
+  departmentName?: string | null;
   studyFieldId: number | null;
   studyYear: number | null;
   cgpa: number | null;
@@ -456,11 +457,15 @@ export function mapAdminStudentToStudent(row: AdminStudentRow): Student {
     email: row.email || '',
     role: 'STUDENT',
     university: row.universityName || '',
-    departmentName: row.departmentId != null ? String(row.departmentId) : undefined,
-    studyFieldName: row.studyFieldId != null ? String(row.studyFieldId) : undefined,
+    departmentId: row.departmentId != null ? String(row.departmentId) : undefined,
+    studyFieldId: row.studyFieldId != null ? String(row.studyFieldId) : undefined,
+    departmentName: row.departmentName?.trim() || undefined,
+    studyFieldName: row.studyFieldName?.trim() || undefined,
     studyYear: row.studyYear ?? 1,
     cgpa: row.cgpa ?? 0,
     hasCompletedPP: false,
+    applicationCount: row.applicationCount ?? undefined,
+    applicationStatus: row.applicationStatus ?? undefined,
   };
 }
 

@@ -65,6 +65,9 @@ export interface Student extends User {
   university: string;
   departmentName?: string;
   studyFieldName?: string;
+  /** Set when row comes from admin/PPA student list (application aggregates). */
+  applicationStatus?: string | null;
+  applicationCount?: number | null;
   phone?: string;
   studyYear: number;
   cgpa: number;

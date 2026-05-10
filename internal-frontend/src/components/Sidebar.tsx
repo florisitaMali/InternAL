@@ -36,7 +36,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'ppa', label: 'PP Approvers', icon: GraduationCap },
       { id: 'academic', label: 'Academic Structure', icon: BookOpen },
       { id: 'opportunities', label: 'Opportunities', icon: Briefcase },
-      { id: 'applications', label: 'Applications', icon: FileText },
     ],
     PPA: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },

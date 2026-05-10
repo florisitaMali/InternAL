@@ -240,6 +240,12 @@ export default function Home() {
     else if (role === 'PPA') setActiveTab('dashboard');
   }, [activeTab, role]);
 
+  /** Applications tab removed for university admins. */
+  useEffect(() => {
+    if (role !== 'UNIVERSITY_ADMIN' || activeTab !== 'applications') return;
+    setActiveTab('dashboard');
+  }, [activeTab, role]);
+
   const handleLogin = (
     selectedRole: Role,
     name: string,

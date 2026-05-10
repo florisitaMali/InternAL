@@ -34,6 +34,8 @@ public record OpportunityResponseItem(
         int skillMatchCount,
         String code,
         String createdAt,
-        Integer applicantCount
+        Integer applicantCount,
+        /** Human-readable collaboration line when targets exist, e.g. "Approved by A. Rejected by B. Pending: C". */
+        String collaborationSummary
 ) {
 }

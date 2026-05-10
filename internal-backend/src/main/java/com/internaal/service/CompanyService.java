@@ -284,7 +284,8 @@ public class CompanyService {
                 0,
                 o.code(),
                 o.createdAt(),
-                0
+                0,
+                null
         );
     }
 

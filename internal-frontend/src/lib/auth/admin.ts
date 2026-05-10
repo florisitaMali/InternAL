@@ -1,4 +1,5 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
+import { mapOpportunity, type ApiOpportunityItem } from '@/src/lib/auth/company';
 import { getAccessTokenForMutatingApi, getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
 import {
@@ -121,6 +122,38 @@ async function putJson<T>(path: string, accessToken: string, body: unknown): Pro
   }
 }
 
+async function patchJson<T>(path: string, accessToken: string, body: unknown): Promise<{ data: T | null; errorMessage: string | null }> {
+  const t = await bearerForMutation(accessToken);
+  if (!t) {
+    return { data: null, errorMessage: 'Not signed in.' };
+  }
+  try {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${t}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    const raw = await response.text();
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!response.ok) {
+      let msg = `Request failed with status ${response.status}`;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
+        const e = (parsed as { error?: unknown }).error;
+        if (typeof e === 'string' && e.trim()) msg = e.trim();
+      }
+      return { data: null, errorMessage: msg };
+    }
+    return { data: parsed as T, errorMessage: null };
+  } catch (e) {
+    return { data: null, errorMessage: e instanceof Error ? e.message : 'Request failed' };
+  }
+}
+
 async function deleteJson(path: string, accessToken: string): Promise<{ errorMessage: string | null }> {
   const t = await bearerForMutation(accessToken);
   if (!t) {
@@ -184,6 +217,7 @@ export type AdminOpportunityRow = {
   createdAt: string | null;
   requiredSkills: string[] | null;
   applicantCount: number;
+  viewerCollaborationStatus: string | null;
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -250,6 +284,7 @@ function parseAdminOpportunitySummaryResponse(raw: unknown): AdminOpportunityRow
       createdAt: null,
       requiredSkills: null,
       applicantCount: 0,
+      viewerCollaborationStatus: null,
     };
   }
   const r = raw;
@@ -269,18 +304,26 @@ function parseAdminOpportunitySummaryResponse(raw: unknown): AdminOpportunityRow
     createdAt: pickStr(r, 'createdAt', 'created_at'),
     requiredSkills: pickStrList(r, 'requiredSkills', 'required_skills'),
     applicantCount: pickNum(r, 'applicantCount', 'applicant_count') ?? 0,
+    viewerCollaborationStatus: pickStr(r, 'viewerCollaborationStatus', 'viewer_collaboration_status'),
   };
 }
 
-function parseTargetUniversitiesFromDetail(raw: unknown): { universityId: number; name: string }[] | null {
+function parseTargetUniversitiesFromDetail(
+  raw: unknown
+): { universityId: number; name: string; collaborationStatus?: string | null }[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
-  const out: { universityId: number; name: string }[] = [];
+  const out: { universityId: number; name: string; collaborationStatus?: string | null }[] = [];
   for (const item of raw) {
     if (!isRecord(item)) continue;
     const uid = pickNum(item, 'universityId', 'university_id');
     if (uid == null) continue;
     const name = pickStr(item, 'name');
-    out.push({ universityId: uid, name: name ?? `University ${uid}` });
+    const collaborationStatus = pickStr(item, 'collaborationStatus', 'collaboration_status');
+    out.push({
+      universityId: uid,
+      name: name ?? `University ${uid}`,
+      ...(collaborationStatus != null ? { collaborationStatus } : {}),
+    });
   }
   return out.length ? out : null;
 }
@@ -333,6 +376,7 @@ function parseAdminOpportunityDetailResponse(raw: unknown): AdminOpportunityDeta
     code: pickStr(r, 'code'),
     createdAt,
     applicantCount: pickNum(r, 'applicantCount', 'applicant_count'),
+    collaborationSummary: pickStr(r, 'collaborationSummary', 'collaboration_summary'),
   };
 }
 
@@ -348,7 +392,7 @@ export type AdminOpportunityDetail = {
   deadline: string | null;
   startDate: string | null;
   targetUniversityIds: number[] | null;
-  targetUniversities: { universityId: number; name: string }[] | null;
+  targetUniversities: { universityId: number; name: string; collaborationStatus?: string | null }[] | null;
   type: string | null;
   location: string | null;
   isPaid: boolean | null;
@@ -364,6 +408,7 @@ export type AdminOpportunityDetail = {
   code: string | null;
   createdAt: string | null;
   applicantCount: number | null;
+  collaborationSummary: string | null;
 };
 
 /** List card: same shape as student explore cards (subset from admin summary API). */
@@ -388,6 +433,8 @@ export function mapAdminOpportunitySummaryToOpportunity(row: AdminOpportunityRow
     draft: false,
     postedAt,
     postedLabel: postedAt ? formatPostedDisplay(postedAt) : undefined,
+    summaryApprovedUniversityNames: row.targetUniversityNames?.filter(Boolean) ?? undefined,
+    viewerCollaborationStatus: row.viewerCollaborationStatus ?? undefined,
   };
 }
 
@@ -437,6 +484,7 @@ export function mapAdminOpportunityDetailToOpportunity(item: AdminOpportunityDet
     requirements: exp ? exp.split(/\r?\n/).map((s) => s.trim()).filter(Boolean) : undefined,
     postedAt,
     postedLabel: postedAt ? formatPostedDisplay(postedAt) : undefined,
+    collaborationSummary: item.collaborationSummary?.trim() || undefined,
   };
 }
 
@@ -677,6 +725,26 @@ export async function fetchAdminOpportunities(
     return { data: null, errorMessage: 'Invalid opportunities response.' };
   }
   return { data: data.map(parseAdminOpportunitySummaryResponse), errorMessage: null };
+}
+
+export async function patchAdminOpportunityCollaboration(
+  accessToken: string,
+  opportunityId: number,
+  approved: boolean
+): Promise<{ data: Opportunity | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await patchJson<ApiOpportunityItem>(
+    `/api/admin/opportunities/${encodeURIComponent(String(opportunityId))}/collaboration`,
+    accessToken,
+    { approved }
+  );
+  if (errorMessage || data == null) {
+    return { data: null, errorMessage: errorMessage ?? 'Could not update collaboration.' };
+  }
+  try {
+    return { data: mapOpportunity(data), errorMessage: null };
+  } catch {
+    return { data: null, errorMessage: 'Invalid opportunity response.' };
+  }
 }
 
 export async function fetchAdminOpportunityDetail(

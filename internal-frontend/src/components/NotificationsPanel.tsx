@@ -72,6 +72,8 @@ interface NotificationsPanelProps {
   onUnreadMayHaveChanged?: () => void;
   /** When set, row click (if notification has applicationId) marks read then opens the linked application. */
   onActivateApplication?: (applicationId: number) => void;
+  /** When set, row click (if notification has opportunityId and no application handler took precedence) opens the opportunity. */
+  onActivateOpportunity?: (opportunityId: number) => void;
 }
 
 const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
@@ -79,6 +81,7 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
   className,
   onUnreadMayHaveChanged,
   onActivateApplication,
+  onActivateOpportunity,
 }) => {
   const [tab, setTab] = useState<TabKey>('unread');
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -151,13 +154,20 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
   };
 
   const handleRowClick = (n: NotificationItem) => {
-    const aid = n.applicationId;
-    if (aid == null || !onActivateApplication) return;
+    const canActivateApplication = onActivateApplication != null && n.applicationId != null;
+    const canActivateOpportunity = onActivateOpportunity != null && n.opportunityId != null;
+    if (!canActivateApplication && !canActivateOpportunity) return;
     void (async () => {
       if (!n.isRead) {
         await handleMarkOne(n);
       }
-      onActivateApplication(aid);
+      if (canActivateApplication) {
+        onActivateApplication(n.applicationId as number);
+        return;
+      }
+      if (canActivateOpportunity) {
+        onActivateOpportunity(n.opportunityId as number);
+      }
     })();
   };
 
@@ -267,14 +277,20 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
             {filtered.map((n) => {
               const canOpenApp =
                 onActivateApplication != null && n.applicationId != null && n.applicationId !== undefined;
+              const canOpenOpp =
+                onActivateOpportunity != null &&
+                n.opportunityId != null &&
+                n.opportunityId !== undefined &&
+                !canOpenApp;
+              const canActivateRow = canOpenApp || canOpenOpp;
               return (
               <li
                 key={n.notificationId}
                 className={cn(
                   'px-5 py-4 transition-colors',
-                  canOpenApp ? 'cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50/80'
+                  canActivateRow ? 'cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50/80'
                 )}
-                {...(canOpenApp
+                {...(canActivateRow
                   ? {
                       role: 'button' as const,
                       tabIndex: 0,

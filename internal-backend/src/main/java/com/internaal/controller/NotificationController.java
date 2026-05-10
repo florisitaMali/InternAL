@@ -1,6 +1,7 @@
 package com.internaal.controller;
 
 import com.internaal.dto.NotificationsListResponse;
+import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.NotificationRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,7 +40,7 @@ public class NotificationController {
         if (jwt == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Missing bearer token"));
         }
-        int recipientId = parseLinkedEntityId(user);
+        int recipientId = notificationRecipientId(user);
         NotificationsListResponse body = notificationRepository.listForRecipient(
                 user.getRole(),
                 recipientId,
@@ -70,7 +71,7 @@ public class NotificationController {
                 read = Boolean.parseBoolean(s);
             }
         }
-        int recipientId = parseLinkedEntityId(user);
+        int recipientId = notificationRecipientId(user);
         boolean ok = notificationRepository.markRead(notificationId, user.getRole(), recipientId, read, jwt);
         if (!ok) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
@@ -90,7 +91,7 @@ public class NotificationController {
         if (jwt == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Missing bearer token"));
         }
-        int recipientId = parseLinkedEntityId(user);
+        int recipientId = notificationRecipientId(user);
         notificationRepository.markAllRead(user.getRole(), recipientId, jwt);
         NotificationsListResponse refreshed = notificationRepository.listForRecipient(
                 user.getRole(),
@@ -118,5 +119,13 @@ public class NotificationController {
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Account linked_entity_id must be numeric");
         }
+    }
+
+    /**
+     * {@code recipient_id} matches {@code useraccount.linked_entity_id} for each role (e.g. {@code university_id}
+     * for university admins, {@code company_id} for companies). Ensure notification RLS allows selects on that key.
+     */
+    private int notificationRecipientId(UserAccount user) {
+        return parseLinkedEntityId(user);
     }
 }

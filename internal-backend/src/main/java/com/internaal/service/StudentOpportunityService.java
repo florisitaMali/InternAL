@@ -10,6 +10,7 @@ import com.internaal.entity.Opportunity;
 import com.internaal.entity.TargetUniversity;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.ApplicationRepository;
+import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.OpportunityRepository;
 import com.internaal.repository.StudentProfileRepository;
 import org.springframework.http.HttpStatus;
@@ -163,7 +164,8 @@ public class StudentOpportunityService {
         return o.targetUniversities().stream()
                 .map(t -> new TargetUniversityOption(
                         t.id(),
-                        t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id())))
+                        t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id()),
+                        OpportunityMapper.normalizeCollaborationStatusForApi(t.collaborationStatus())))
                 .toList();
     }
 
@@ -200,7 +202,8 @@ public class StudentOpportunityService {
                 matches,
                 o.code(),
                 o.createdAt(),
-                applicantCount
+                applicantCount,
+                OpportunityMapper.buildCollaborationSummary(o.targetUniversities())
         );
     }
 

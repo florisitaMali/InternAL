@@ -170,7 +170,9 @@ export interface Opportunity {
   startDate?: string;
   targetUniversityIds: string[];
   /** From API embed `university(name)`; empty list with no ids means all universities. */
-  targetUniversities?: { universityId: number; name: string }[];
+  targetUniversities?: { universityId: number; name: string; collaborationStatus?: string | null }[];
+  /** Server-built line (hidden in most UIs); prefer target list + per-uni status. */
+  collaborationSummary?: string;
   type?: 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH' | string;
   location?: string;
   isPaid?: boolean | null;
@@ -196,6 +198,10 @@ export interface Opportunity {
   postedAt?: string;
   postedLabel?: string;
   applicationStats?: OpportunityApplicationStats;
+  /** University admin card list: approved partner names from summary endpoint. */
+  summaryApprovedUniversityNames?: string[];
+  /** University admin card list: PENDING | APPROVED | REJECTED for the viewer's university. */
+  viewerCollaborationStatus?: string;
 }
 
 export type ApplicationType = 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH';

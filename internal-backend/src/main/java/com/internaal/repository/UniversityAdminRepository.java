@@ -570,7 +570,7 @@ public class UniversityAdminRepository {
                     + "position_count,job_location,work_mode,work_type,duration,salary_monthly,nice_to_have,"
                     + "is_draft,is_paid,created_at,"
                     + "company(name,location,university(name)),"
-                    + "opportunitytarget(university_id,university(name))";
+                    + "opportunitytarget(university_id,university(name),collaboration_status)";
 
     /** When {@code company(university(name))} is not a valid PostgREST embed for the DB schema. */
     private static final String OPPORTUNITY_DETAIL_SELECT_NO_COMPANY_UNIVERSITY =
@@ -579,17 +579,17 @@ public class UniversityAdminRepository {
                     + "position_count,job_location,work_mode,work_type,duration,salary_monthly,nice_to_have,"
                     + "is_draft,is_paid,created_at,"
                     + "company(name,location),"
-                    + "opportunitytarget(university_id,university(name))";
+                    + "opportunitytarget(university_id,university(name),collaboration_status)";
 
     private static final String OPPORTUNITY_LIST_SELECT_WITH_COMPANY_UNIVERSITY =
             "opportunity_id,company_id,title,deadline,type,is_draft,description,job_location,work_mode,"
                     + "duration,required_skills,created_at,company(name,university(name)),"
-                    + "opportunitytarget(university_id,university(name))";
+                    + "opportunitytarget(university_id,university(name),collaboration_status)";
 
     private static final String OPPORTUNITY_LIST_SELECT_BASIC =
             "opportunity_id,company_id,title,deadline,type,is_draft,description,job_location,work_mode,"
                     + "duration,required_skills,created_at,company(name),"
-                    + "opportunitytarget(university_id,university(name))";
+                    + "opportunitytarget(university_id,university(name),collaboration_status)";
 
     /**
      * Published (non-draft) opportunities visible at {@code universityId}, matching student rules:
@@ -648,7 +648,8 @@ public class UniversityAdminRepository {
                     companyName = text(c, "name");
                     affiliatedUniversityName = OpportunityMapper.affiliatedUniversityFromCompanyEmbed(c);
                 }
-                List<String> uniNames = extractTargetUniversityNamesFromJson(n.get("opportunitytarget"));
+                List<String> uniNames = extractApprovedTargetUniversityNamesFromJson(n.get("opportunitytarget"));
+                String viewerCollab = extractViewerCollaborationStatus(n.get("opportunitytarget"), universityId);
                 List<String> skills = OpportunityMapper.skillsFromNode(n, "required_skills");
                 out.add(new AdminOpportunitySummaryResponse(
                         oid,
@@ -665,7 +666,8 @@ public class UniversityAdminRepository {
                         text(n, "duration"),
                         text(n, "created_at"),
                         skills,
-                        0));
+                        0,
+                        viewerCollab));
                 if (out.size() >= cap) {
                     break;
                 }
@@ -750,22 +752,123 @@ public class UniversityAdminRepository {
         }
     }
 
-    private List<String> extractTargetUniversityNamesFromJson(JsonNode targetsNode) {
+    public List<Integer> listActiveUniversityAdminUserIds(int universityId) {
+        if (universityId <= 0) {
+            return List.of();
+        }
+        String url = supabaseUrl + "/rest/v1/useraccount?role=eq.UNIVERSITY_ADMIN&linked_entity_id=eq." + universityId
+                + "&isActive=eq.true&select=user_id";
+        Optional<JsonNode> arr = fetchArray(url);
+        if (arr.isEmpty() || !arr.get().isArray()) {
+            return List.of();
+        }
+        List<Integer> out = new ArrayList<>();
+        for (JsonNode row : arr.get()) {
+            Integer uid = intVal(row, "user_id");
+            if (uid != null) {
+                out.add(uid);
+            }
+        }
+        return out;
+    }
+
+    /** Loads {@code university.name} for notification copy (service-key GET). */
+    public Optional<String> findUniversityNameById(int universityId) {
+        if (universityId <= 0) {
+            return Optional.empty();
+        }
+        String url = supabaseUrl + "/rest/v1/university?university_id=eq." + universityId
+                + "&select=name&limit=1";
+        Optional<JsonNode> arr = fetchArray(url);
+        if (arr.isEmpty() || !arr.get().isArray() || arr.get().isEmpty()) {
+            return Optional.empty();
+        }
+        JsonNode row = arr.get().get(0);
+        if (row == null || !row.has("name") || row.get("name").isNull()) {
+            return Optional.empty();
+        }
+        String name = row.get("name").asText();
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(name.trim());
+    }
+
+    private List<String> extractApprovedTargetUniversityNamesFromJson(JsonNode targetsNode) {
         List<String> names = new ArrayList<>();
         if (targetsNode == null || targetsNode.isNull()) {
             return names;
         }
         if (targetsNode.isObject()) {
-            names.add(resolveOneTargetUniversityLabel(targetsNode));
+            if (isApprovedCollaborationRow(targetsNode)) {
+                String label = resolveOneTargetUniversityLabel(targetsNode);
+                if (label != null && !label.isBlank() && !"—".equals(label)) {
+                    names.add(label);
+                }
+            }
             return names;
         }
         if (!targetsNode.isArray()) {
             return names;
         }
         for (JsonNode t : targetsNode) {
-            names.add(resolveOneTargetUniversityLabel(t));
+            if (isApprovedCollaborationRow(t)) {
+                String label = resolveOneTargetUniversityLabel(t);
+                if (label != null && !label.isBlank() && !"—".equals(label)) {
+                    names.add(label);
+                }
+            }
         }
         return names;
+    }
+
+    private boolean isApprovedCollaborationRow(JsonNode t) {
+        if (t == null || t.isNull()) {
+            return false;
+        }
+        String st = text(t, "collaboration_status");
+        if (st == null || st.isBlank()) {
+            return true;
+        }
+        return "APPROVED".equalsIgnoreCase(st.trim());
+    }
+
+    /**
+     * Collaboration status for {@code universityId} on this opportunity’s targets; null if listing is not targeted
+     * to a specific row for this university (e.g. open to all universities).
+     */
+    private String extractViewerCollaborationStatus(JsonNode targetsNode, int universityId) {
+        if (targetsNode == null || targetsNode.isNull()) {
+            return null;
+        }
+        if (targetsNode.isObject()) {
+            Integer uid = intVal(targetsNode, "university_id");
+            if (uid != null && uid == universityId) {
+                return normalizeCollaborationStatusToken(text(targetsNode, "collaboration_status"));
+            }
+            return null;
+        }
+        if (!targetsNode.isArray() || targetsNode.isEmpty()) {
+            return null;
+        }
+        for (JsonNode t : targetsNode) {
+            Integer uid = intVal(t, "university_id");
+            if (uid != null && uid == universityId) {
+                return normalizeCollaborationStatusToken(text(t, "collaboration_status"));
+            }
+        }
+        return null;
+    }
+
+    private static String normalizeCollaborationStatusToken(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "APPROVED";
+        }
+        String u = raw.trim().toUpperCase();
+        if ("PENDING".equals(u) || "REJECTED".equals(u) || "APPROVED".equals(u)) {
+            return u;
+        }
+        return "APPROVED";
     }
 
     private String resolveOneTargetUniversityLabel(JsonNode t) {

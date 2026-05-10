@@ -311,6 +311,7 @@ export default function Home() {
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
             linkedEntityId={linkedEntityId}
+            onNavigateTab={setActiveTab}
           />
         );
       case 'PPA':

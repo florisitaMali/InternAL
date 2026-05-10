@@ -1,11 +1,27 @@
 export function formatTargetUniversitiesDisplay(opp: {
-  targetUniversities?: { universityId: number; name: string }[];
+  targetUniversities?: { universityId: number; name: string; collaborationStatus?: string | null }[];
   targetUniversityIds?: string[];
+  summaryApprovedUniversityNames?: string[];
 }): string {
+  const approvedNames = opp.summaryApprovedUniversityNames?.filter(Boolean);
+  if (approvedNames?.length) {
+    return approvedNames.join(', ');
+  }
+  const isApprovedStatus = (s?: string | null) => {
+    if (s == null || !String(s).trim()) return true;
+    return String(s).trim().toUpperCase() === 'APPROVED';
+  };
   const names = (opp.targetUniversities ?? [])
+    .filter((t) => isApprovedStatus((t as { collaborationStatus?: string | null }).collaborationStatus))
     .map((t) => t.name?.trim())
     .filter((n): n is string => Boolean(n));
   if (names.length) return names.join(', ');
+  const hasTargetsWithStatuses = (opp.targetUniversities ?? []).some(
+    (t) => !isApprovedStatus((t as { collaborationStatus?: string | null }).collaborationStatus)
+  );
+  if (hasTargetsWithStatuses) {
+    return 'No approved partner universities yet';
+  }
   const ids = (opp.targetUniversityIds ?? []).filter(Boolean);
   if (ids.length) return ids.map((id) => `ID ${id}`).join(', ');
   return 'All universities';

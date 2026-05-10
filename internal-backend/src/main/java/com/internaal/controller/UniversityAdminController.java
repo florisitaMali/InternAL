@@ -5,6 +5,7 @@ import com.internaal.dto.AdminDashboardStatsResponse;
 import com.internaal.dto.AdminDepartmentCreateRequest;
 import com.internaal.dto.AdminDepartmentResponse;
 import com.internaal.dto.AdminDepartmentUpdateRequest;
+import com.internaal.dto.AdminOpportunityCollaborationDecisionRequest;
 import com.internaal.dto.AdminOpportunitySummaryResponse;
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.AdminPpaCreateRequest;
@@ -31,6 +32,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -214,6 +216,17 @@ public class UniversityAdminController {
             @AuthenticationPrincipal UserAccount user,
             @PathVariable("opportunityId") int opportunityId) {
         return universityAdminService.getOpportunityDetailForUniversity(user, opportunityId);
+    }
+
+    @PatchMapping("/opportunities/{opportunityId}/collaboration")
+    public OpportunityResponseItem setOpportunityCollaboration(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("opportunityId") int opportunityId,
+            @RequestBody AdminOpportunityCollaborationDecisionRequest body) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
+        }
+        return universityAdminService.setOpportunityCollaborationDecision(user, opportunityId, body.approved());
     }
 
     @GetMapping("/applications")

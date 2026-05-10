@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react';
 import Image from 'next/image';
 import Dashboard from './Dashboard';
+import NotificationsPanel from '@/src/components/NotificationsPanel';
 import UniversityProfileReadOnlyView from '@/src/components/UniversityProfileReadOnlyView';
 import AddStudentForm from './AddStudentForm';
 import ImportCSVForm from './ImportCSVForm';
@@ -29,6 +30,7 @@ import {
   mapAdminOpportunityDetailToOpportunity,
   mapAdminOpportunitySummaryToOpportunity,
   mapApplicationResponseToApplication,
+  patchAdminOpportunityCollaboration,
   updateAdminDepartment,
   updateAdminPpa,
   updateAdminStudyField,
@@ -41,11 +43,13 @@ import {
   type UniversityProfileUpdatePayload,
 } from '@/src/lib/auth/universityProfile';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
+import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
 import { uploadUniversityProfilePhoto } from '@/src/lib/supabase/companyProfilePhotos';
 import {
   formatDbDuration,
   formatExploreWorkMode,
   formatRelativePosted,
+  formatTargetUniversitiesDisplay,
   getOpportunityCardInitials,
 } from '@/src/lib/opportunityFormat';
 import type {
@@ -79,6 +83,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
+function normalizeCollaborationStatus(raw: string | null | undefined): 'PENDING' | 'APPROVED' | 'REJECTED' {
+  const t = (raw ?? '').trim().toUpperCase();
+  if (t === 'PENDING' || t === 'REJECTED' || t === 'APPROVED') return t;
+  return 'APPROVED';
+}
+
 interface UniversityAdminDashboardProps {
   activeTab: string;
   currentUserName: string;
@@ -87,6 +97,7 @@ interface UniversityAdminDashboardProps {
   accessToken?: string | null;
   accessTokenRef?: MutableRefObject<string | null>;
   linkedEntityId?: string | number | null;
+  onNavigateTab?: (tab: string) => void;
 }
 
 const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
@@ -97,7 +108,9 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   accessToken,
   accessTokenRef,
   linkedEntityId,
+  onNavigateTab,
 }) => {
+  const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingStudent, setIsAddingStudent] = useState(false);
   const [isImportingCSV, setIsImportingCSV] = useState(false);
@@ -117,6 +130,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   const [adminExploreDetail, setAdminExploreDetail] = useState<Opportunity | null>(null);
   const [adminExploreDetailLoading, setAdminExploreDetailLoading] = useState(false);
   const [adminExploreDetailError, setAdminExploreDetailError] = useState<string | null>(null);
+  const [collaborationBusy, setCollaborationBusy] = useState(false);
   const [adminApplications, setAdminApplications] = useState<Application[]>([]);
   const [adminCompanies, setAdminCompanies] = useState<{ companyId: number; name: string; industry: string | null }[]>([]);
   const [ppas, setPpas] = useState<PPAApprover[]>([]);
@@ -399,6 +413,16 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     return m;
   }, [adminOpportunities]);
 
+  const universityCollaborationForLinkedUni = useMemo(() => {
+    if (linkedEntityId == null || !adminExploreDetail) return null;
+    const uid = String(linkedEntityId);
+    const row = adminExploreDetail.targetUniversities?.find((t) => String(t.universityId) === uid);
+    const inIds = adminExploreDetail.targetUniversityIds?.some((id) => String(id) === uid) === true;
+    if (!row && !inIds) return null;
+    const status = row ? normalizeCollaborationStatus(row.collaborationStatus) : 'APPROVED';
+    return { status };
+  }, [linkedEntityId, adminExploreDetail]);
+
   const openOpportunityDetail = useCallback(
     async (id: number) => {
       setAdminExploreSelectedId(String(id));
@@ -424,6 +448,40 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     [resolveAccessToken]
   );
 
+  const handleCollaborationDecision = useCallback(
+    async (approved: boolean) => {
+      if (!adminExploreSelectedId) return;
+      const id = Number(adminExploreSelectedId);
+      if (!Number.isFinite(id)) return;
+      setCollaborationBusy(true);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const res = await patchAdminOpportunityCollaboration(token, id, approved);
+        if (res.errorMessage) {
+          toast.error(res.errorMessage);
+        } else if (res.data) {
+          setAdminExploreDetail(res.data);
+          toast.success(approved ? 'Collaboration approved.' : 'Collaboration declined.');
+        }
+      } finally {
+        setCollaborationBusy(false);
+      }
+    },
+    [adminExploreSelectedId, resolveAccessToken]
+  );
+
+  const openOpportunityFromNotification = useCallback(
+    (opportunityId: number) => {
+      onNavigateTab?.('opportunities');
+      void openOpportunityDetail(opportunityId);
+    },
+    [onNavigateTab, openOpportunityDetail]
+  );
+
   const filteredStudents = useMemo(
     () =>
       students.filter((student) =>
@@ -434,21 +492,27 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
 
   const filteredAdminOpportunities = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    if (!q) return adminOpportunities;
-    return adminOpportunities.filter((o) => {
-      const targets = (o.targetUniversityNames ?? []).join(' ').toLowerCase();
-      const skills = (o.requiredSkills ?? []).join(' ').toLowerCase();
-      const desc = (o.description ?? '').toLowerCase();
-      return (
-        (o.title || '').toLowerCase().includes(q) ||
-        (o.companyName || '').toLowerCase().includes(q) ||
-        (o.type || '').toLowerCase().includes(q) ||
-        (o.location || '').toLowerCase().includes(q) ||
-        (o.affiliatedUniversityName || '').toLowerCase().includes(q) ||
-        targets.includes(q) ||
-        skills.includes(q) ||
-        desc.includes(q)
-      );
+    const base = !q
+      ? adminOpportunities
+      : adminOpportunities.filter((o) => {
+          const targets = (o.targetUniversityNames ?? []).join(' ').toLowerCase();
+          const skills = (o.requiredSkills ?? []).join(' ').toLowerCase();
+          const desc = (o.description ?? '').toLowerCase();
+          return (
+            (o.title || '').toLowerCase().includes(q) ||
+            (o.companyName || '').toLowerCase().includes(q) ||
+            (o.type || '').toLowerCase().includes(q) ||
+            (o.location || '').toLowerCase().includes(q) ||
+            (o.affiliatedUniversityName || '').toLowerCase().includes(q) ||
+            targets.includes(q) ||
+            skills.includes(q) ||
+            desc.includes(q)
+          );
+        });
+    return [...base].sort((a, b) => {
+      const ap = (a.viewerCollaborationStatus ?? '').trim().toUpperCase() === 'PENDING' ? 0 : 1;
+      const bp = (b.viewerCollaborationStatus ?? '').trim().toUpperCase() === 'PENDING' ? 0 : 1;
+      return ap - bp;
     });
   }, [adminOpportunities, searchTerm]);
 
@@ -1465,6 +1529,16 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
             setAdminExploreDetailError(null);
           }}
           showApplicationStats={false}
+          universityCollaborationActions={
+            universityCollaborationForLinkedUni
+              ? {
+                  status: universityCollaborationForLinkedUni.status,
+                  busy: collaborationBusy,
+                  onApprove: () => void handleCollaborationDecision(true),
+                  onReject: () => void handleCollaborationDecision(false),
+                }
+              : null
+          }
         />
       );
     }
@@ -1525,15 +1599,42 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
               return (
                 <div
                   key={row.opportunityId}
-                  className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-5 hover:shadow-md transition-shadow duration-200 flex flex-col"
+                  className={cn(
+                    'bg-white rounded-xl border shadow-sm p-5 hover:shadow-md transition-shadow duration-200 flex flex-col',
+                    row.viewerCollaborationStatus === 'PENDING'
+                      ? 'border-amber-300 ring-2 ring-amber-400/60 shadow-md shadow-amber-100/40'
+                      : 'border-slate-200/80'
+                  )}
                 >
                   <div className="flex items-start gap-4">
                     <div className="flex-shrink-0 w-14 h-14 bg-[#002B5B] rounded-lg flex items-center justify-center font-bold text-white text-sm tracking-wide">
                       {getOpportunityCardInitials(opp.companyName)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-bold text-[#002B5B] leading-snug">{opp.title}</h3>
+                      <div className="flex flex-wrap items-start gap-2">
+                        <h3 className="text-base font-bold text-[#002B5B] leading-snug">{opp.title}</h3>
+                        {row.viewerCollaborationStatus ? (
+                          <span
+                            className={cn(
+                              'shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full',
+                              row.viewerCollaborationStatus === 'PENDING' && 'bg-amber-100 text-amber-900',
+                              row.viewerCollaborationStatus === 'APPROVED' && 'bg-emerald-100 text-emerald-900',
+                              row.viewerCollaborationStatus === 'REJECTED' && 'bg-slate-200 text-slate-700'
+                            )}
+                          >
+                            {row.viewerCollaborationStatus === 'PENDING'
+                              ? 'Awaiting your decision'
+                              : row.viewerCollaborationStatus === 'APPROVED'
+                                ? 'You approved'
+                                : 'You declined'}
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="text-slate-600 text-sm font-medium mt-0.5">{opp.companyName}</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        <span className="font-semibold text-slate-600">Partner universities (approved): </span>
+                        {formatTargetUniversitiesDisplay(opp)}
+                      </p>
                       {opp.affiliatedUniversityName?.trim() ? (
                         <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
                           <GraduationCap size={12} className="text-slate-400 shrink-0" aria-hidden />
@@ -2209,6 +2310,21 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}
+      notificationUnreadCount={unreadCount}
+      notificationPanel={(close) => (
+        <NotificationsPanel
+          onClose={() => {
+            void refreshUnreadNotifications();
+            close();
+          }}
+          onUnreadMayHaveChanged={refreshUnreadNotifications}
+          onActivateOpportunity={(opportunityId) => {
+            openOpportunityFromNotification(opportunityId);
+            close();
+          }}
+          className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
+        />
+      )}
     >
       {renderContent()}
     </Dashboard>

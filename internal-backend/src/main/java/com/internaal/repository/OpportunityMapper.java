@@ -45,10 +45,12 @@ public final class OpportunityMapper {
             targetOpts = o.targetUniversities().stream()
                     .map(t -> new TargetUniversityOption(
                             t.id(),
-                            t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id())))
+                            t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id()),
+                            normalizeCollaborationStatusForApi(t.collaborationStatus())))
                     .toList();
         }
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
+        String summary = buildCollaborationSummary(o.targetUniversities());
         return new OpportunityResponseItem(
                 o.id(),
                 o.companyId(),
@@ -76,7 +78,76 @@ public final class OpportunityMapper {
                 skillMatchCount,
                 o.code(),
                 o.createdAt(),
-                applicantCount);
+                applicantCount,
+                summary);
+    }
+
+    /** Normalize for JSON: null if legacy approved-only row. */
+    public static String normalizeCollaborationStatusForApi(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        return raw.trim().toUpperCase();
+    }
+
+    /**
+     * Builds a single sentence for opportunity detail: approved / rejected / pending university names.
+     */
+    public static String buildCollaborationSummary(List<TargetUniversity> targets) {
+        if (targets == null || targets.isEmpty()) {
+            return null;
+        }
+        List<String> approved = new ArrayList<>();
+        List<String> rejected = new ArrayList<>();
+        List<String> pending = new ArrayList<>();
+        for (TargetUniversity t : targets) {
+            String name = t.name() != null && !t.name().isBlank() ? t.name().trim() : ("University " + t.id());
+            String st = normalizedCollaborationBucket(t.collaborationStatus());
+            switch (st) {
+                case "REJECTED" -> rejected.add(name);
+                case "PENDING" -> pending.add(name);
+                default -> approved.add(name);
+            }
+        }
+        approved.sort(String.CASE_INSENSITIVE_ORDER);
+        rejected.sort(String.CASE_INSENSITIVE_ORDER);
+        pending.sort(String.CASE_INSENSITIVE_ORDER);
+        List<String> parts = new ArrayList<>();
+        if (!approved.isEmpty()) {
+            parts.add("Approved by " + String.join(", ", approved));
+        }
+        if (!rejected.isEmpty()) {
+            parts.add("Rejected by " + String.join(", ", rejected));
+        }
+        if (!pending.isEmpty()) {
+            parts.add("Pending collaboration from " + String.join(", ", pending));
+        }
+        if (parts.isEmpty()) {
+            return null;
+        }
+        return String.join(". ", parts);
+    }
+
+    private static String normalizedCollaborationBucket(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "APPROVED";
+        }
+        String u = raw.trim().toUpperCase();
+        if ("REJECTED".equals(u)) {
+            return "REJECTED";
+        }
+        if ("PENDING".equals(u)) {
+            return "PENDING";
+        }
+        return "APPROVED";
+    }
+
+    public static String collaborationStatusFromTargetJson(JsonNode t) {
+        String s = str(t, "collaboration_status");
+        if (s == null || s.isBlank()) {
+            return "APPROVED";
+        }
+        return s.trim().toUpperCase();
     }
 
     public static Opportunity fromJsonNode(JsonNode node) {
@@ -132,13 +203,15 @@ public final class OpportunityMapper {
                         continue;
                     }
                     String uniName = embeddedUniversityName(t.get("university"));
-                    targetUniversities.add(new TargetUniversity(uid, uniName));
+                    String collab = collaborationStatusFromTargetJson(t);
+                    targetUniversities.add(new TargetUniversity(uid, uniName, collab));
                 }
             } else if (targets.isObject()) {
                 Integer uid = intVal(targets, "university_id");
                 if (uid != null) {
                     String uniName = embeddedUniversityName(targets.get("university"));
-                    targetUniversities.add(new TargetUniversity(uid, uniName));
+                    String collab = collaborationStatusFromTargetJson(targets);
+                    targetUniversities.add(new TargetUniversity(uid, uniName, collab));
                 }
             }
         }
@@ -298,7 +371,7 @@ public final class OpportunityMapper {
                     changed = true;
                 }
             }
-            nu.add(new TargetUniversity(t.id(), n));
+            nu.add(new TargetUniversity(t.id(), n, t.collaborationStatus()));
         }
         if (!changed) {
             return o;

@@ -561,8 +561,16 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       formatDbWorkType(opp.workType),
       formatDbDuration(opp.duration),
     ].filter(Boolean);
-    const overviewItems = [
-      ['Target universities', opp.targetUniversities?.map((u) => u.name).join(', ') || 'All universities'],
+    const hasCollaborationTargets = (opp.targetUniversities?.length ?? 0) > 0;
+    const overviewItems: [string, string][] = [
+      ...(hasCollaborationTargets
+        ? []
+        : ([
+            [
+              'Target universities',
+              opp.targetUniversities?.map((u) => u.name).join(', ') || 'All universities',
+            ],
+          ] as [string, string][])),
       ['Application deadline', formatDeadline(opp.deadline)],
       ['Start date', formatDeadline(opp.startDate)],
       ['Positions', opp.positionCount != null ? String(opp.positionCount) : '—'],
@@ -626,6 +634,38 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                   <p className="mt-0.5 text-sm font-semibold text-slate-700">{value || '—'}</p>
                 </div>
               ))}
+              {hasCollaborationTargets ? (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                    University collaboration
+                  </p>
+                  <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/90 p-2">
+                    {(opp.targetUniversities ?? []).map((t) => {
+                      const raw = (t.collaborationStatus ?? '').trim().toUpperCase();
+                      const statusLabel =
+                        raw === 'APPROVED' ? 'Approved' : raw === 'REJECTED' ? 'Declined' : 'Pending';
+                      return (
+                        <li
+                          key={t.universityId}
+                          className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1.5 text-xs shadow-sm"
+                        >
+                          <span className="min-w-0 truncate font-semibold text-slate-800">{t.name}</span>
+                          <span
+                            className={cn(
+                              'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                              raw === 'APPROVED' && 'bg-emerald-100 text-emerald-900',
+                              raw === 'REJECTED' && 'bg-slate-200 text-slate-700',
+                              raw !== 'APPROVED' && raw !== 'REJECTED' && 'bg-amber-100 text-amber-900'
+                            )}
+                          >
+                            {statusLabel}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

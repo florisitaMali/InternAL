@@ -286,4 +286,36 @@ public class CompanyRepository {
         }
         return m;
     }
+
+    /** Service-role read of company display name (e.g. collaboration notifications). */
+    public Optional<String> findCompanyNameById(int companyId) {
+        if (supabaseServiceRoleKey == null || supabaseServiceRoleKey.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            String url = supabaseUrl + "/rest/v1/company?company_id=eq." + companyId + "&select=name&limit=1";
+            HttpHeaders h = serviceRoleReadHeaders();
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(h), String.class);
+            String body = response.getBody();
+            if (body == null || body.isBlank()) {
+                return Optional.empty();
+            }
+            JsonNode arr = objectMapper.readTree(body);
+            if (arr == null || !arr.isArray() || arr.isEmpty()) {
+                return Optional.empty();
+            }
+            JsonNode n = arr.get(0);
+            if (n.has("name") && !n.get("name").isNull()) {
+                String name = n.get("name").asText();
+                if (name != null && !name.isBlank()) {
+                    return Optional.of(name.trim());
+                }
+            }
+            return Optional.empty();
+        } catch (Exception e) {
+            log.debug("findCompanyNameById: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
 }

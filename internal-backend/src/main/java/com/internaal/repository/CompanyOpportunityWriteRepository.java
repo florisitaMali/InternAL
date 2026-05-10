@@ -135,6 +135,7 @@ public class CompanyOpportunityWriteRepository {
                 Map<String, Object> t = new LinkedHashMap<>();
                 t.put("opportunity_id", opportunityId);
                 t.put("university_id", uid);
+                t.put("collaboration_status", "PENDING");
                 rows.add(t);
             }
             if (rows.isEmpty()) {
@@ -147,6 +148,46 @@ public class CompanyOpportunityWriteRepository {
             throw new IllegalStateException(parseError(e.getResponseBodyAsString(), e.getMessage()));
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage() != null ? e.getMessage() : "Could not save target universities");
+        }
+    }
+
+    public List<Integer> listTargetUniversityIds(int opportunityId) {
+        try {
+            String url = supabaseUrl + "/rest/v1/opportunitytarget?opportunity_id=eq." + opportunityId
+                    + "&select=university_id";
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(writeHeaders()), String.class);
+            JsonNode arr = objectMapper.readTree(response.getBody());
+            List<Integer> out = new ArrayList<>();
+            if (arr != null && arr.isArray()) {
+                for (JsonNode n : arr) {
+                    if (n.has("university_id") && !n.get("university_id").isNull()) {
+                        out.add(n.get("university_id").asInt());
+                    }
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            log.warn("listTargetUniversityIds: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    public void patchTargetCollaborationStatus(int opportunityId, int universityId, String status) {
+        try {
+            String url = supabaseUrl + "/rest/v1/opportunitytarget?opportunity_id=eq." + opportunityId
+                    + "&university_id=eq." + universityId;
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("collaboration_status", status);
+            restTemplate.exchange(
+                    url,
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), writeHeaders()),
+                    String.class);
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            throw new IllegalStateException(parseError(e.getResponseBodyAsString(), e.getMessage()));
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage() != null ? e.getMessage() : "Could not update collaboration");
         }
     }
 

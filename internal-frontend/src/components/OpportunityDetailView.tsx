@@ -42,9 +42,27 @@ export type OpportunityDetailViewProps = {
   showBackButton?: boolean;
   /** When true, omit outer listing card and flatten sidebar (parent panel provides the card). */
   embeddedInCard?: boolean;
+  /** University admin: approve or reject collaboration for their institution (shown when status is pending or after decision). */
+  universityCollaborationActions?: {
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    busy?: boolean;
+    onApprove: () => void;
+    onReject: () => void;
+  } | null;
 };
 
 const defaultApplicationStats = { total: 0, inReview: 0, approved: 0, rejected: 0 };
+
+function collaborationRequestBadge(raw: string | null | undefined): { text: string; className: string } {
+  const t = (raw ?? '').trim().toUpperCase();
+  if (t === 'APPROVED') {
+    return { text: 'Approved', className: 'bg-emerald-100 text-emerald-900' };
+  }
+  if (t === 'REJECTED') {
+    return { text: 'Declined', className: 'bg-slate-200 text-slate-700' };
+  }
+  return { text: 'Awaiting response', className: 'bg-amber-100 text-amber-900' };
+}
 
 function postedDisplay(opp: Opportunity) {
   if (opp.draft === true) {
@@ -70,6 +88,7 @@ export default function OpportunityDetailView({
   showApplicationStats,
   showBackButton = true,
   embeddedInCard = false,
+  universityCollaborationActions = null,
 }: OpportunityDetailViewProps) {
   const stats = opportunity.applicationStats ?? defaultApplicationStats;
   const embedded = embeddedInCard === true;
@@ -96,6 +115,44 @@ export default function OpportunityDetailView({
       : '—';
   const targetUniversitiesLabel = formatTargetUniversitiesDisplay(opportunity);
   const embeddedStudentMeta = [location, workMode, jobType, duration].filter((v) => v && v !== '—');
+
+  const universityCollaborationBanner =
+    universityCollaborationActions != null ? (
+      <div
+        className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-4 md:p-5 shadow-sm"
+        role="region"
+        aria-label="University collaboration"
+      >
+        <p className="text-xs font-bold uppercase tracking-widest text-indigo-900/70">Collaboration with your university</p>
+        <p className="mt-2 text-sm font-semibold text-slate-900 leading-snug">
+          {universityCollaborationActions.status === 'PENDING'
+            ? 'This company is requesting your approval to collaborate on this listing.'
+            : universityCollaborationActions.status === 'APPROVED'
+              ? 'You have approved collaboration for this opportunity.'
+              : 'You have declined collaboration for this opportunity.'}
+        </p>
+        {universityCollaborationActions.status === 'PENDING' ? (
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              type="button"
+              disabled={universityCollaborationActions.busy}
+              onClick={universityCollaborationActions.onApprove}
+              className="inline-flex justify-center rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {universityCollaborationActions.busy ? 'Saving…' : 'Approve collaboration'}
+            </button>
+            <button
+              type="button"
+              disabled={universityCollaborationActions.busy}
+              onClick={universityCollaborationActions.onReject}
+              className="inline-flex justify-center rounded-xl border-2 border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Decline
+            </button>
+          </div>
+        ) : null}
+      </div>
+    ) : null;
 
   const companyNameEl =
     companyProfileHref ? (
@@ -129,6 +186,8 @@ export default function OpportunityDetailView({
           {variant === 'student' ? 'Back' : 'Back to Opportunities'}
         </button>
       ) : null}
+
+      {universityCollaborationBanner}
 
       <div
         className={cn(
@@ -451,6 +510,39 @@ export default function OpportunityDetailView({
                     ))}
                   </dl>
                 </div>
+
+                {variant === 'company' && (opportunity.targetUniversities?.length ?? 0) > 0 ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-5">
+                    <h3 className="text-base font-bold text-slate-900">University collaboration</h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Each invited university and its response to your collaboration request.
+                    </p>
+                    <ul
+                      className="mt-4 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white"
+                      aria-label="Collaboration status by university"
+                    >
+                      {(opportunity.targetUniversities ?? []).map((t) => {
+                        const st = collaborationRequestBadge(t.collaborationStatus);
+                        return (
+                          <li
+                            key={`${opportunity.id}-collab-${t.universityId}`}
+                            className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"
+                          >
+                            <span className="font-semibold text-slate-800">{t.name}</span>
+                            <span
+                              className={cn(
+                                'shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                                st.className
+                              )}
+                            >
+                              {st.text}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
 
                 {showStats ? (
                   <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-5">

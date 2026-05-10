@@ -24,6 +24,8 @@ import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.entity.Opportunity;
 import com.internaal.repository.ApplicationRepository;
+import com.internaal.repository.CompanyOpportunityWriteRepository;
+import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.StudentProfileRepository;
 import com.internaal.repository.UniversityAdminRepository;
@@ -45,18 +47,58 @@ public class UniversityAdminService {
     private final SupabaseAuthAdminService supabaseAuthAdminService;
     private final StudentProfileRepository studentProfileRepository;
     private final UniversityProfileRepository universityProfileRepository;
+    private final CompanyOpportunityWriteRepository companyOpportunityWriteRepository;
+    private final NotificationRepository notificationRepository;
 
     public UniversityAdminService(
             UniversityAdminRepository universityAdminRepository,
             ApplicationRepository applicationRepository,
             SupabaseAuthAdminService supabaseAuthAdminService,
             StudentProfileRepository studentProfileRepository,
-            UniversityProfileRepository universityProfileRepository) {
+            UniversityProfileRepository universityProfileRepository,
+            CompanyOpportunityWriteRepository companyOpportunityWriteRepository,
+            NotificationRepository notificationRepository) {
         this.universityAdminRepository = universityAdminRepository;
         this.applicationRepository = applicationRepository;
         this.supabaseAuthAdminService = supabaseAuthAdminService;
         this.studentProfileRepository = studentProfileRepository;
         this.universityProfileRepository = universityProfileRepository;
+        this.companyOpportunityWriteRepository = companyOpportunityWriteRepository;
+        this.notificationRepository = notificationRepository;
+    }
+
+    public OpportunityResponseItem setOpportunityCollaborationDecision(
+            UserAccount user, int opportunityId, boolean approved) {
+        requireAdmin(user);
+        int universityId = parseUniversityId(user);
+        Opportunity existing = universityAdminRepository
+                .findPublishedOpportunityForUniversity(opportunityId, universityId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Opportunity not found or not offered to your university"));
+        if (existing.companyId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Opportunity has no company");
+        }
+        try {
+            companyOpportunityWriteRepository.patchTargetCollaborationStatus(
+                    opportunityId, universityId, approved ? "APPROVED" : "REJECTED");
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, e.getMessage());
+        }
+        String uniLabel = universityAdminRepository.findUniversityNameById(universityId).orElse("A university");
+        String listing = existing.title() != null && !existing.title().isBlank()
+                ? existing.title().trim()
+                : "your listing";
+        String verb = approved ? "approved" : "declined";
+        String msg = uniLabel + " has " + verb + " collaboration request for \"" + listing + "\".";
+        notificationRepository.insertNotification(
+                Role.COMPANY,
+                existing.companyId(),
+                msg,
+                Role.UNIVERSITY_ADMIN,
+                universityId,
+                null,
+                opportunityId);
+        return getOpportunityDetailForUniversity(user, opportunityId);
     }
 
     public UniversityProfileResponse getUniversityProfile(UserAccount user) {
@@ -383,7 +425,8 @@ public class UniversityAdminService {
                         r.duration(),
                         r.createdAt(),
                         r.requiredSkills(),
-                        counts.getOrDefault(r.opportunityId(), 0)))
+                        counts.getOrDefault(r.opportunityId(), 0),
+                        r.viewerCollaborationStatus()))
                 .toList();
     }
 

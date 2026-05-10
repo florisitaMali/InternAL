@@ -1946,15 +1946,12 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
                     onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, website: e.target.value } : d))}
                   />
                 </label>
-                <label className="block text-sm">
+                <div className="block text-sm">
                   <span className="font-semibold text-slate-700">Contact email</span>
-                  <input
-                    type="email"
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                    value={uniProfileDraft.email ?? ''}
-                    onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, email: e.target.value } : d))}
-                  />
-                </label>
+                  <p className="mt-1 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                    {(uniProfileDraft.email ?? '').trim() || '—'}
+                  </p>
+                </div>
                 <label className="block text-sm">
                   <span className="font-semibold text-slate-700">Number of employees</span>
                   <input

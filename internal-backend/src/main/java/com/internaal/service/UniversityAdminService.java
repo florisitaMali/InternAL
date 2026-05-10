@@ -84,7 +84,7 @@ public class UniversityAdminService {
                 req.location(),
                 req.description(),
                 req.website(),
-                req.email(),
+                null,
                 req.employeeCount(),
                 req.foundedYear(),
                 req.specialties(),

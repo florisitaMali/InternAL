@@ -56,6 +56,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
     SYSTEM_ADMIN: [
       { id: 'admins', label: 'System Admins', icon: User },
       { id: 'universities', label: 'Universities', icon: Briefcase },
+      { id: 'companies', label: 'Companies', icon: Building2 },
       { id: 'audit', label: 'Audit Log', icon: FileText },
     ],
   };

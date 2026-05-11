@@ -4,6 +4,7 @@ import React, { MutableRefObject } from 'react';
 import Dashboard from './Dashboard';
 import UnderDevelopment from './UnderDevelopment';
 import SystemAdminUniversitiesTab from './SystemAdminUniversitiesTab';
+import SystemAdminCompaniesTab from './SystemAdminCompaniesTab';
 
 interface SystemAdminDashboardProps {
   activeTab: string;
@@ -27,6 +28,13 @@ const SystemAdminDashboard: React.FC<SystemAdminDashboardProps> = ({
       case 'universities':
         return (
           <SystemAdminUniversitiesTab
+            accessToken={accessToken ?? ''}
+            accessTokenRef={accessTokenRef}
+          />
+        );
+      case 'companies':
+        return (
+          <SystemAdminCompaniesTab
             accessToken={accessToken ?? ''}
             accessTokenRef={accessTokenRef}
           />

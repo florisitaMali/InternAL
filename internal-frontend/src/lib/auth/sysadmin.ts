@@ -45,7 +45,7 @@ interface ApiResult<T> {
   errorMessage: string | null;
 }
 
-async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH', path: string, accessToken: string, body?: unknown): Promise<ApiResult<T>> {
+async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, accessToken: string, body?: unknown): Promise<ApiResult<T>> {
   const t = accessToken.trim();
   if (!t) {
     return { data: null, errorMessage: 'Not signed in.' };
@@ -92,4 +92,80 @@ export function updateSysAdminUniversity(accessToken: string, universityId: numb
 
 export function setSysAdminUniversityActive(accessToken: string, universityId: number, isActive: boolean) {
   return request<AdminUniversityResponse>('PATCH', `/api/sysadmin/universities/${universityId}/status`, accessToken, { isActive });
+}
+
+/* ---------- Companies (US-24) ---------- */
+
+export interface AdminCompanyResponse {
+  companyId: number;
+  name: string;
+  email: string | null;
+  industry: string | null;
+  location: string | null;
+  description: string | null;
+  website: string | null;
+  foundedYear: number | null;
+  employeeCount: number | null;
+  specialties: string | null;
+  logoUrl: string | null;
+  coverUrl: string | null;
+  isActive: boolean;
+  canDelete: boolean;
+  opportunityCount: number;
+  applicationCount: number;
+  feedbackCount: number;
+}
+
+export interface AdminCompanyListResponse {
+  items: AdminCompanyResponse[];
+  total: number;
+  active: number;
+  inactive: number;
+}
+
+export interface AdminCompanyCreateRequest {
+  name: string;
+  email: string;
+  industry?: string | null;
+  location?: string | null;
+  description?: string | null;
+  website?: string | null;
+  foundedYear?: number | null;
+  employeeCount?: number | null;
+  specialties?: string | null;
+  logoUrl?: string | null;
+  coverUrl?: string | null;
+}
+
+export interface AdminCompanyUpdateRequest {
+  name: string;
+  industry?: string | null;
+  location?: string | null;
+  description?: string | null;
+  website?: string | null;
+  foundedYear?: number | null;
+  employeeCount?: number | null;
+  specialties?: string | null;
+  logoUrl?: string | null;
+  coverUrl?: string | null;
+}
+
+export function fetchSysAdminCompanies(accessToken: string) {
+  return request<AdminCompanyListResponse>('GET', '/api/sysadmin/companies', accessToken);
+}
+
+export function createSysAdminCompany(accessToken: string, body: AdminCompanyCreateRequest) {
+  return request<AdminCompanyResponse>('POST', '/api/sysadmin/companies', accessToken, body);
+}
+
+export function updateSysAdminCompany(accessToken: string, companyId: number, body: AdminCompanyUpdateRequest) {
+  return request<AdminCompanyResponse>('PUT', `/api/sysadmin/companies/${companyId}`, accessToken, body);
+}
+
+export function setSysAdminCompanyActive(accessToken: string, companyId: number, isActive: boolean) {
+  return request<AdminCompanyResponse>('PATCH', `/api/sysadmin/companies/${companyId}/status`, accessToken, { isActive });
+}
+
+export function deleteSysAdminCompany(accessToken: string, companyId: number) {
+  return request<void>('DELETE', `/api/sysadmin/companies/${companyId}`, accessToken);
 }

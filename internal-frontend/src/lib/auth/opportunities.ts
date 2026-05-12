@@ -159,6 +159,8 @@ export type ApplicationResponse = {
   isApprovedByPPA: boolean | null;
   isApprovedByCompany: boolean | null;
   opportunityTitle: string | null;
+  /** Opportunity listing category from embedded opportunity (e.g. internship type). */
+  opportunityType?: string | null;
   companyName: string | null;
   studentName?: string | null;
   createdAt: string | null;

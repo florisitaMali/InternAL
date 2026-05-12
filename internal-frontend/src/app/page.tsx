@@ -257,6 +257,12 @@ export default function Home() {
     else if (role === 'PPA') setActiveTab('dashboard');
   }, [activeTab, role]);
 
+  /** Applications tab removed for university admins. */
+  useEffect(() => {
+    if (role !== 'UNIVERSITY_ADMIN' || activeTab !== 'applications') return;
+    setActiveTab('dashboard');
+  }, [activeTab, role]);
+
   const handleLogin = (
     selectedRole: Role,
     name: string,
@@ -327,6 +333,7 @@ export default function Home() {
             onToggleSidebar={handleToggleSidebar}
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
+            linkedEntityId={linkedEntityId}
           />
         );
       case 'PPA':
@@ -336,6 +343,7 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            sidebarExpanded={sidebarOpen}
             onNavigateTab={setActiveTab}
           />
         );

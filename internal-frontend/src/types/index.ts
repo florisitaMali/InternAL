@@ -65,6 +65,9 @@ export interface Student extends User {
   university: string;
   departmentName?: string;
   studyFieldName?: string;
+  /** Set when row comes from admin/PPA student list (application aggregates). */
+  applicationStatus?: string | null;
+  applicationCount?: number | null;
   phone?: string;
   studyYear: number;
   cgpa: number;
@@ -131,6 +134,21 @@ export interface CompanyProfileFromApi {
   description: string | null;
   website: string | null;
   industry: string | null;
+  employeeCount: number | null;
+  foundedYear: number | null;
+  specialties: string | null;
+  logoUrl: string | null;
+  coverUrl: string | null;
+}
+
+/** University profile from GET /api/admin/university/profile */
+export interface UniversityProfileFromApi {
+  universityId: number;
+  name: string;
+  location: string | null;
+  description: string | null;
+  website: string | null;
+  email: string | null;
   employeeCount: number | null;
   foundedYear: number | null;
   specialties: string | null;

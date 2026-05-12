@@ -1106,7 +1106,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({
               {overviewItems.map(([label, value]) => (
                 <div key={label}>
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{label}</p>
-                  <p className="mt-0.5 text-sm font-semibold text-slate-700">{value || '—'}</p>
+                  <p className="mt-0.5 text-sm font-bold text-[#0E2A50]">{value || '—'}</p>
                 </div>
               ))}
             </div>

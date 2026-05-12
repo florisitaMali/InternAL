@@ -92,21 +92,24 @@ public class PpaRepository {
         return ids;
     }
 
-    public List<AdminStudentResponse> listStudentsByFieldIds(List<Integer> fieldIds) {
-        String inList = fieldIds.stream().map(String::valueOf).collect(Collectors.joining(","));
-        String url = supabaseUrl + "/rest/v1/student?field_id=in.(" + inList + ")"
-                + "&select=student_id,full_name,email,study_year,cgpa,field_id,studyfield(name)"
-                + "&order=full_name";
+    private List<AdminStudentResponse> fetchStudentRows(String url) {
         List<AdminStudentResponse> out = new ArrayList<>();
         fetchArray(url).ifPresent(arr -> {
             if (arr.isArray()) {
                 for (JsonNode n : arr) {
                     Integer sid = intVal(n, "student_id");
-                    if (sid == null) continue;
+                    if (sid == null) {
+                        continue;
+                    }
                     String fieldName = null;
                     JsonNode sf = n.get("studyfield");
                     if (sf != null && !sf.isNull()) {
                         fieldName = textVal(sf, "name");
+                    }
+                    String deptName = null;
+                    JsonNode dept = n.get("department");
+                    if (dept != null && !dept.isNull()) {
+                        deptName = textVal(dept, "name");
                     }
                     BigDecimal cgpa = null;
                     if (n.has("cgpa") && !n.get("cgpa").isNull()) {
@@ -117,7 +120,8 @@ public class PpaRepository {
                             textVal(n, "full_name"),
                             textVal(n, "email"),
                             null,
-                            null,
+                            intVal(n, "department_id"),
+                            deptName,
                             intVal(n, "field_id"),
                             intVal(n, "study_year"),
                             cgpa,
@@ -129,6 +133,28 @@ public class PpaRepository {
             }
         });
         return out;
+    }
+
+    public List<AdminStudentResponse> listStudentsByFieldIds(List<Integer> fieldIds) {
+        String inList = fieldIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+        String url = supabaseUrl + "/rest/v1/student?field_id=in.(" + inList + ")"
+                + "&select=student_id,full_name,email,study_year,cgpa,field_id,studyfield(name)"
+                + "&order=full_name";
+        return fetchStudentRows(url);
+    }
+
+    /** Students in one of the fields and in the given department (PPA scope). */
+    public List<AdminStudentResponse> listStudentsByFieldIdsAndDepartment(List<Integer> fieldIds, int departmentId) {
+        if (fieldIds == null || fieldIds.isEmpty()) {
+            return List.of();
+        }
+        String inList = fieldIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+        String url = supabaseUrl + "/rest/v1/student?field_id=in.(" + inList + ")"
+                + "&department_id=eq." + departmentId
+                + "&select=student_id,full_name,email,study_year,cgpa,field_id,department_id,"
+                + "studyfield(name),department(name)"
+                + "&order=full_name";
+        return fetchStudentRows(url);
     }
 
     public Map<Integer, int[]> getApplicationStatsByStudentIds(List<Integer> studentIds) {
@@ -185,5 +211,33 @@ public class PpaRepository {
             case 1 -> "PENDING";
             default -> "WAITING";
         };
+    }
+
+    /**
+     * Department assigned to this PPA on {@code professionalpracticeapprover}.
+     */
+    public Optional<Integer> findDepartmentIdByPpaId(int ppaId) {
+        String url = supabaseUrl + "/rest/v1/professionalpracticeapprover?ppa_id=eq." + ppaId
+                + "&select=department_id&limit=1";
+        return fetchArray(url).flatMap(arr ->
+                arr.isArray() && arr.size() > 0 ? Optional.ofNullable(intVal(arr.get(0), "department_id")) : Optional.empty());
+    }
+
+    /**
+     * True if the student belongs to this PPA&apos;s department and study field assignment.
+     */
+    public boolean ppaCoversStudent(int ppaId, int studentId) {
+        Optional<Integer> deptOpt = findDepartmentIdByPpaId(ppaId);
+        List<Integer> fields = getPpaFieldIds(ppaId);
+        if (deptOpt.isEmpty() || fields.isEmpty()) {
+            return false;
+        }
+        int dept = deptOpt.get();
+        String inList = fields.stream().map(String::valueOf).collect(Collectors.joining(","));
+        String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId
+                + "&department_id=eq." + dept
+                + "&field_id=in.(" + inList + ")"
+                + "&select=student_id&limit=1";
+        return fetchArray(url).map(arr -> arr.isArray() && arr.size() > 0).orElse(false);
     }
 }

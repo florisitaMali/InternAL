@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import { fetchNotifications } from '@/src/lib/auth/notifications';
+import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
 
 const DEFAULT_POLL_MS = 30_000;
 
@@ -48,6 +49,19 @@ export function useNotificationUnreadCount(pollMs: number = DEFAULT_POLL_MS) {
     return () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    const channel = supabase
+      .channel('notifications-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notification' }, () => {
+        void refresh();
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
     };
   }, [refresh]);
 

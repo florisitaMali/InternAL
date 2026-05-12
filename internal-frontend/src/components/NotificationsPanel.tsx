@@ -271,7 +271,8 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
               <li
                 key={n.notificationId}
                 className={cn(
-                  'px-5 py-4 transition-colors',
+                  'px-5 py-4 transition-colors border-l-[3px]',
+                  !n.isRead ? 'border-l-indigo-400 bg-indigo-50/40' : 'border-l-transparent',
                   canOpenApp ? 'cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50/80'
                 )}
                 {...(canOpenApp

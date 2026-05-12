@@ -234,6 +234,38 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     }
   }, []);
 
+  const openApplicationFromNotification = useCallback(
+    async (applicationId: number) => {
+      if (activeTab !== 'applications') {
+        onNavigateTab?.('applications');
+      }
+
+      let row = companyApplications.find((a) => a.applicationId === applicationId) ?? null;
+      if (!row) {
+        const token = await getSessionAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { data, errorMessage } = await fetchCompanyApplications(token);
+        if (errorMessage) {
+          toast.error(errorMessage);
+          return;
+        }
+        const list = data ?? [];
+        setCompanyApplications(list);
+        row = list.find((a) => a.applicationId === applicationId) ?? null;
+      }
+
+      if (!row) {
+        toast.error('Could not open this application.');
+        return;
+      }
+      setSelectedApplicationDetail(row);
+    },
+    [activeTab, companyApplications, onNavigateTab]
+  );
+
   const loadCompanyOpportunities = useCallback(async () => {
     setOppListLoading(true);
     try {
@@ -1527,6 +1559,10 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             close();
           }}
           onUnreadMayHaveChanged={refreshUnreadNotifications}
+          onActivateApplication={(applicationId) => {
+            void openApplicationFromNotification(applicationId);
+            close();
+          }}
           className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
         />
       )}

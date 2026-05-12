@@ -101,9 +101,11 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Bell size={20} />
               {showUnreadBadge ? (
                 <span
-                  className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white pointer-events-none"
+                  className="absolute top-1 right-1 min-w-[1rem] h-4 bg-red-500 rounded-full border-2 border-white pointer-events-none flex items-center justify-center text-white text-[9px] font-bold leading-none px-0.5"
                   aria-hidden
-                />
+                >
+                  {notificationUnreadCount > 9 ? '9+' : notificationUnreadCount}
+                </span>
               ) : null}
             </button>
 

@@ -1,45 +1,28 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle, CreditCard, Loader2, Smartphone, Sparkles } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, Sparkles } from 'lucide-react';
 import {
-  clearCheckoutAccessToken,
-  PREMIUM_STUDENT_PROFILE_KEY,
   resolveBackendAccessToken,
 } from '@/src/lib/auth/getSessionAccessToken';
 import {
-  completeMockPremiumPayment,
+  createPremiumBillingPortalSession,
+  createPremiumCheckoutSession,
   fetchCurrentStudentProfile,
   mapStudentProfileToStudent,
 } from '@/src/lib/auth/userAccount';
 import { toast } from 'sonner';
-import { cn } from '@/src/lib/utils';
-
-const PAYMENT_OPTIONS = [
-  {
-    id: 'CARD',
-    label: 'Card',
-    description: 'Visa, Mastercard, and other major cards (demo).',
-    Icon: CreditCard,
-  },
-  {
-    id: 'WALLET',
-    label: 'Mobile wallet',
-    description: 'Apple Pay / Google Pay style (demo).',
-    Icon: Smartphone,
-  },
-] as const;
+import type { Student } from '@/src/types';
 
 type Gate = 'loading' | 'login' | 'already' | 'checkout';
 
 export default function PremiumCheckoutPage() {
-  const router = useRouter();
   const [gate, setGate] = useState<Gate>('loading');
   const [resolvedToken, setResolvedToken] = useState<string | null>(null);
-  const [method, setMethod] = useState<string>('CARD');
-  const [payPhase, setPayPhase] = useState<'idle' | 'processing'>('idle');
+  const [checkoutPhase, setCheckoutPhase] = useState<'idle' | 'redirecting'>('idle');
+  const [premiumStudent, setPremiumStudent] = useState<Student | null>(null);
+  const [portalPhase, setPortalPhase] = useState<'idle' | 'opening'>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +43,7 @@ export default function PremiumCheckoutPage() {
       }
       const student = mapStudentProfileToStudent(profile);
       if (student.hasPremium) {
+        setPremiumStudent(student);
         setGate('already');
         return;
       }
@@ -70,32 +54,53 @@ export default function PremiumCheckoutPage() {
     };
   }, []);
 
-  const handlePay = async () => {
+  const handleStripeCheckout = async () => {
     const token = resolvedToken ?? (await resolveBackendAccessToken());
     if (!token?.trim()) {
       toast.error('Please sign in again from the home page, then return here.');
       setGate('login');
       return;
     }
-    setPayPhase('processing');
+    setCheckoutPhase('redirecting');
     try {
-      const { data, errorMessage } = await completeMockPremiumPayment(token, method);
-      if (!data || errorMessage) {
-        toast.error(errorMessage || 'Could not complete checkout.');
-        setPayPhase('idle');
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const { url, errorMessage } = await createPremiumCheckoutSession(token, {
+        successUrl: `${origin}/premium/success`,
+        cancelUrl: `${origin}/premium`,
+      });
+      if (!url || errorMessage) {
+        toast.error(errorMessage || 'Could not start checkout.');
+        setCheckoutPhase('idle');
         return;
       }
-      clearCheckoutAccessToken();
-      try {
-        sessionStorage.setItem(PREMIUM_STUDENT_PROFILE_KEY, JSON.stringify(data));
-      } catch {
-        /* ignore quota */
-      }
-      setPayPhase('idle');
-      router.replace('/');
+      window.location.href = url;
     } catch {
       toast.error('Something went wrong.');
-      setPayPhase('idle');
+      setCheckoutPhase('idle');
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    const token = resolvedToken ?? (await resolveBackendAccessToken());
+    if (!token?.trim()) {
+      toast.error('Please sign in again.');
+      return;
+    }
+    setPortalPhase('opening');
+    try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const { url, errorMessage } = await createPremiumBillingPortalSession(token, {
+        returnUrl: `${origin}/premium/`,
+      });
+      if (!url || errorMessage) {
+        toast.error(errorMessage || 'Could not open billing portal.');
+        setPortalPhase('idle');
+        return;
+      }
+      window.location.href = url;
+    } catch {
+      toast.error('Something went wrong.');
+      setPortalPhase('idle');
     }
   };
 
@@ -122,7 +127,7 @@ export default function PremiumCheckoutPage() {
           <h1 className="text-xl font-bold text-slate-900">Sign in required</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600">
             Open Premium checkout from the app while you are logged in, or sign in on the home page first. Your session
-            token is sent securely with each payment request.
+            is used to create a secure Stripe Checkout session.
           </p>
           <Link
             href="/"
@@ -153,9 +158,43 @@ export default function PremiumCheckoutPage() {
           <p className="mt-2 text-sm text-slate-600">
             Best Matches and Premium highlights are unlocked on your account.
           </p>
+          {(premiumStudent?.premiumSubscriptionStatus || premiumStudent?.premiumCurrentPeriodEnd) && (
+            <div className="mt-4 rounded-xl border border-emerald-200/80 bg-white/80 px-4 py-3 text-left text-xs text-slate-600">
+              {premiumStudent?.premiumSubscriptionStatus ? (
+                <p>
+                  <span className="font-semibold text-slate-800">Status:</span>{' '}
+                  {premiumStudent.premiumSubscriptionStatus}
+                </p>
+              ) : null}
+              {premiumStudent?.premiumCurrentPeriodEnd ? (
+                <p className={premiumStudent?.premiumSubscriptionStatus ? 'mt-1' : ''}>
+                  <span className="font-semibold text-slate-800">Current period ends:</span>{' '}
+                  {new Date(premiumStudent.premiumCurrentPeriodEnd).toLocaleString(undefined, {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  })}
+                </p>
+              ) : null}
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={portalPhase === 'opening'}
+            onClick={() => void handleManageSubscription()}
+            className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-emerald-700/50 bg-white px-6 py-3 text-sm font-bold text-emerald-900 shadow-sm hover:bg-emerald-50 disabled:opacity-60"
+          >
+            {portalPhase === 'opening' ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                Opening billing portal…
+              </>
+            ) : (
+              'Manage subscription'
+            )}
+          </button>
           <Link
             href="/"
-            className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white hover:bg-emerald-700"
+            className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white hover:bg-emerald-700"
           >
             Back to the app
           </Link>
@@ -182,7 +221,9 @@ export default function PremiumCheckoutPage() {
             </span>
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-[#002B5B]">InternAL Premium</h1>
-              <p className="mt-1 text-sm text-slate-600">Benefits and payment on one page — demo checkout, no real charges.</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Monthly subscription — secure payment via Stripe Checkout (cards and wallets where available).
+              </p>
             </div>
           </div>
         </header>
@@ -201,15 +242,15 @@ export default function PremiumCheckoutPage() {
               <li className="flex gap-2.5">
                 <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
                 <span>
-                  <strong className="text-slate-900">Premium highlights</strong> across Explore and matches so
-                  high-fit roles stand out.
+                  <strong className="text-slate-900">Premium highlights</strong> across Explore and matches so high-fit
+                  roles stand out.
                 </span>
               </li>
               <li className="flex gap-2.5">
                 <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
                 <span>
-                  <strong className="text-slate-900">Coming soon:</strong> smarter recommendations and alerts tied to
-                  your profile.
+                  <strong className="text-slate-900">Manage billing</strong> in Stripe Customer Portal (configure in your
+                  Stripe Dashboard) — cancel or update payment method anytime.
                 </span>
               </li>
             </ul>
@@ -217,60 +258,29 @@ export default function PremiumCheckoutPage() {
 
           <section className="space-y-6">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Payment method</h2>
-              <p className="mt-1 text-sm text-slate-600">Demo only — no real charges. Choose any option to run the mock flow.</p>
-
-              <div className="mt-4 space-y-2">
-                {PAYMENT_OPTIONS.map(({ id, label, description, Icon }) => {
-                  const selected = method === id;
-                  return (
-                    <label
-                      key={id}
-                      className={cn(
-                        'flex cursor-pointer gap-3 rounded-xl border px-3 py-3 transition',
-                        selected
-                          ? 'border-[#002B5B] bg-sky-50 ring-2 ring-[#002B5B]/15'
-                          : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                      )}
-                    >
-                      <input
-                        type="radio"
-                        name="premiumPayment"
-                        value={id}
-                        checked={selected}
-                        onChange={() => setMethod(id)}
-                        disabled={payPhase === 'processing'}
-                        className="mt-1 accent-[#002B5B] disabled:opacity-50"
-                      />
-                      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-[#002B5B]" aria-hidden />
-                      <span className="min-w-0">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-bold text-slate-900">{label}</span>
-                        </span>
-                        <span className="mt-1 block text-xs leading-snug text-slate-600">{description}</span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
+              <h2 className="text-lg font-bold text-slate-900">Subscribe</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                You will be redirected to Stripe&apos;s hosted checkout to enter payment details. Premium activates after
+                Stripe confirms payment — usually within seconds.
+              </p>
 
               <button
                 type="button"
-                disabled={payPhase === 'processing'}
-                onClick={() => void handlePay()}
+                disabled={checkoutPhase === 'redirecting'}
+                onClick={() => void handleStripeCheckout()}
                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 py-3.5 text-sm font-bold text-white shadow-sm transition hover:from-amber-600 hover:to-amber-700 disabled:opacity-60"
               >
-                {payPhase === 'processing' ? (
+                {checkoutPhase === 'redirecting' ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                    Processing demo payment…
+                    Opening secure checkout…
                   </>
                 ) : (
-                  'Complete checkout (demo)'
+                  'Continue to secure checkout'
                 )}
               </button>
               <p className="mt-3 text-center text-[11px] font-medium text-slate-400">
-                Production will verify payment with your card or wallet provider before activating Premium.
+                Subscription renews monthly until you cancel in the Stripe Customer Portal.
               </p>
             </div>
           </section>

@@ -76,6 +76,10 @@ export interface Student extends User {
   canApplyForPP?: boolean;
   /** Unlocks full Premium features (e.g. Best Matches) when true. */
   hasPremium?: boolean;
+  /** Last known Stripe subscription status (e.g. active, canceled). */
+  premiumSubscriptionStatus?: string | null;
+  /** ISO timestamp for current billing period end from Stripe. */
+  premiumCurrentPeriodEnd?: string | null;
   accessStartDate?: string;
   accessEndDate?: string;
   /** Public or signed URL from `studentprofile.photo`. */

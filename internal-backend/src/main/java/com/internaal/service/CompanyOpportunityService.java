@@ -16,6 +16,7 @@ import com.internaal.exception.ValidationException;
 import com.internaal.repository.CompanyOpportunityWriteRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.OpportunityRepository;
+import com.internaal.repository.CompanyRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,14 +32,17 @@ import java.util.UUID;
 @Service
 public class CompanyOpportunityService {
 
-    private final OpportunityRepository opportunityRepository;
+     private final OpportunityRepository opportunityRepository;
     private final CompanyOpportunityWriteRepository writeRepository;
+    private final CompanyRepository companyRepository;
 
     public CompanyOpportunityService(
             OpportunityRepository opportunityRepository,
-            CompanyOpportunityWriteRepository writeRepository) {
+            CompanyOpportunityWriteRepository writeRepository,
+            CompanyRepository companyRepository) {
         this.opportunityRepository = opportunityRepository;
         this.writeRepository = writeRepository;
+        this.companyRepository = companyRepository;
     }
 
     public CompanyOpportunitiesResponse list(UserAccount user) {
@@ -71,10 +75,31 @@ public class CompanyOpportunityService {
         return toItem(o, skillMatchCount);
     }
 
+    private static String requireJwt() {
+    org.springframework.security.core.Authentication auth =
+            org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+    if (auth == null || !(auth.getCredentials() instanceof String jwt) || jwt.isBlank()) {
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing token");
+    }
+    return jwt;
+}
+
     public CompanyOpportunityDetailResponse create(UserAccount user, CompanyOpportunityCreateRequest req) {
         requireCompany(user);
         int companyId = parseCompanyId(user);
         validateCreate(req);
+
+        // Inside create() — before you persist the opportunity
+ String jwt = requireJwt();
+        com.fasterxml.jackson.databind.JsonNode companyNode = companyRepository
+                .findByCompanyId(companyId, jwt)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found"));
+        int allowed = companyNode.hasNonNull("total_number_of_opportunities_allowed")
+                ? companyNode.get("total_number_of_opportunities_allowed").asInt(5) : 5;
+        long currentCount = opportunityRepository.findForCompanyId(companyId).size();
+        if (currentCount >= allowed) {
+            throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                    "Opportunity limit reached. Upgrade to premium to post more.");}
 
         List<Integer> targets = req.targetUniversityIds() != null ? req.targetUniversityIds() : List.of();
         List<String> skills = normalizeSkills(req.requiredSkills());

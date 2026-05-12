@@ -13,6 +13,7 @@ import {
   BookOpen,
   Menu,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Role } from '@/src/types';
@@ -51,6 +52,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'opportunities', label: 'My Opportunities', icon: Briefcase },
       { id: 'applications', label: 'Applications', icon: FileText },
       { id: 'profile', label: 'Company Profile', icon: Building2 },
+      { id: 'upgrade', label: 'Upgrade to Premium', icon: Zap },
     ],
     SYSTEM_ADMIN: [
       { id: 'admins', label: 'System Admins', icon: User },

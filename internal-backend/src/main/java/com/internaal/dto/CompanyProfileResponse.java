@@ -14,6 +14,9 @@ public record CompanyProfileResponse(
         Integer foundedYear,
         String specialties,
         String logoUrl,
-        String coverUrl
+        String coverUrl,
+        boolean canSeeOpportunitiesOfOtherCompanies,
+        int totalNumberOfOpportunitiesAllowed,
+        int totalNumberOfApplicationsAllowed
 ) {
 }

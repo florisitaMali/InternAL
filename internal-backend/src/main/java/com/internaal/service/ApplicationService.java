@@ -1,11 +1,14 @@
 package com.internaal.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.internaal.dto.ApplicationRequest;
 import com.internaal.dto.ApplicationResponse;
 import com.internaal.dto.StudentBrief;
 import com.internaal.entity.Role;
 import com.internaal.repository.ApplicationRepository;
+import com.internaal.repository.CompanyRepository;
 import com.internaal.repository.NotificationRepository;
+import com.internaal.repository.OpportunityRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -25,12 +28,18 @@ public class ApplicationService {
 
     private final ApplicationRepository applicationRepository;
     private final NotificationRepository notificationRepository;
+    private final CompanyRepository companyRepository;
+    private final OpportunityRepository opportunityRepository;
 
     public ApplicationService(
             ApplicationRepository applicationRepository,
-            NotificationRepository notificationRepository) {
+            NotificationRepository notificationRepository,
+            CompanyRepository companyRepository,
+            OpportunityRepository opportunityRepository) {
         this.applicationRepository = applicationRepository;
         this.notificationRepository = notificationRepository;
+        this.companyRepository = companyRepository;
+        this.opportunityRepository = opportunityRepository;
     }
 
     public ApplicationResponse submitApplication(Integer studentId, ApplicationRequest request) {
@@ -39,6 +48,26 @@ public class ApplicationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Your university is deactivated; Professional Practice applications are paused. Individual Growth is still available.");
         }
+
+        // Application limit guard
+        if (request != null && request.getOpportunityId() != null) {
+            opportunityRepository.findById(request.getOpportunityId()).ifPresent(o -> {
+                Integer companyId = o.companyId();
+                if (companyId != null) {
+                    companyRepository.findByCompanyIdReadable(companyId, "service")
+                            .ifPresent(companyNode -> {
+                                int allowed = companyNode.hasNonNull("total_number_of_applications_allowed")
+                                        ? companyNode.get("total_number_of_applications_allowed").asInt(50) : 50;
+                                int current = applicationRepository.findByCompanyId(companyId).size();
+                                if (current >= allowed) {
+                                    throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                                            "This company has reached its application limit.");
+                                }
+                            });
+                }
+            });
+        }
+
         ApplicationResponse result = applicationRepository.save(studentId, request)
                 .orElseThrow(() -> new RuntimeException("Failed to submit application"));
         try {
@@ -49,12 +78,6 @@ public class ApplicationService {
         return result;
     }
 
-    /**
-     * Professional practice → PPA ({@code recipient_id} = student's {@code university_id}, matching
-     * {@code useraccount.linked_entity_id} for PPA accounts).
-     * Individual growth → company that owns the listing ({@code recipient_id} = {@code company_id},
-     * matching {@code useraccount.linked_entity_id} for company accounts).
-     */
     private void notifyAfterSubmission(Integer studentId, ApplicationResponse application) {
         String normalized = normalizeApplicationType(application.getApplicationType());
         if (PROFESSIONAL_PRACTICE_TYPE.equals(normalized)) {

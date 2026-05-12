@@ -130,6 +130,9 @@ export interface CompanyProfileFromApi {
   specialties: string | null;
   logoUrl: string | null;
   coverUrl: string | null;
+  canSeeOpportunitiesOfOtherCompanies: boolean;
+  totalNumberOfOpportunitiesAllowed: number;
+  totalNumberOfApplicationsAllowed: number;
 }
 
 /** Aggregates returned with opportunity detail (or a separate summary endpoint). */

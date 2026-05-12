@@ -26,6 +26,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -284,9 +285,40 @@ public class CompanyService {
                 intOrNull(n, "founded_year"),
                 text(n, "specialties"),
                 text(n, "logo_url"),
-                text(n, "cover_url")
+                text(n, "cover_url"),
+                booleanOrDefault(n, "can_see_opportunities_of_other_companies", false),
+                intOrDefault(n, "total_number_of_opportunities_allowed",5),
+                intOrDefault(n, "total_number_of_applications_allowed",50)
         );
     }
+
+    private static boolean booleanOrDefault(JsonNode n, String field, boolean defaultValue) {
+    if (n == null || !n.has(field) || n.get(field).isNull()) return defaultValue;
+    return n.get(field).asBoolean(defaultValue);
+}
+
+    private static int intOrDefault(JsonNode n, String field, int defaultValue) {
+    Integer v = intOrNull(n, field);
+    return v != null ? v : defaultValue;
+}
+
+public void upgradeToPremium(int companyId, String userJwt) {
+    Map<String, Object> patch = new HashMap<>();
+    patch.put("can_see_opportunities_of_other_companies", true);
+    patch.put("total_number_of_opportunities_allowed", 1000);
+    patch.put("total_number_of_applications_allowed", 20000);
+    companyRepository.patchCompany(companyId, userJwt, patch)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not upgrade company plan."));
+}
+
+public void downgradeToBase(int companyId, String userJwt) {
+    Map<String, Object> patch = new HashMap<>();
+    patch.put("can_see_opportunities_of_other_companies", false);
+    patch.put("total_number_of_opportunities_allowed", 5);
+    patch.put("total_number_of_applications_allowed", 50);
+    companyRepository.patchCompany(companyId, userJwt, patch)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not downgrade company plan."));
+}
 
     private static String text(JsonNode n, String field) {
         if (n == null || !n.has(field) || n.get(field).isNull()) {

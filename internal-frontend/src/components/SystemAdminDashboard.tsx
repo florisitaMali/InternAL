@@ -5,6 +5,7 @@ import Dashboard from './Dashboard';
 import UnderDevelopment from './UnderDevelopment';
 import SystemAdminUniversitiesTab from './SystemAdminUniversitiesTab';
 import SystemAdminCompaniesTab from './SystemAdminCompaniesTab';
+import SystemAdminAnalyticsTab from './SystemAdminAnalyticsTab';
 
 interface SystemAdminDashboardProps {
   activeTab: string;
@@ -25,6 +26,13 @@ const SystemAdminDashboard: React.FC<SystemAdminDashboardProps> = ({
 }) => {
   const renderContent = () => {
     switch (activeTab) {
+      case 'dashboard':
+        return (
+          <SystemAdminAnalyticsTab
+            accessToken={accessToken ?? ''}
+            accessTokenRef={accessTokenRef}
+          />
+        );
       case 'universities':
         return (
           <SystemAdminUniversitiesTab
@@ -52,6 +60,7 @@ const SystemAdminDashboard: React.FC<SystemAdminDashboardProps> = ({
       userName={currentUserName}
       userRole={currentUserRoleLabel}
       onToggleSidebar={onToggleSidebar}
+      hidePageIntro={activeTab === 'dashboard'}
     >
       {renderContent()}
     </Dashboard>

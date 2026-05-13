@@ -169,3 +169,57 @@ export function setSysAdminCompanyActive(accessToken: string, companyId: number,
 export function deleteSysAdminCompany(accessToken: string, companyId: number) {
   return request<void>('DELETE', `/api/sysadmin/companies/${companyId}`, accessToken);
 }
+
+/* ---------- Platform analytics ---------- */
+
+export type SysAdminAnalyticsGranularity = 'daily' | 'weekly' | 'monthly';
+export type SysAdminAnalyticsRange = 'monthly' | 'yearly' | 'total';
+
+export interface SysAdminChartPoint {
+  label: string;
+  value: number;
+}
+
+export interface SysAdminOpportunityApplicationPoint {
+  label: string;
+  opportunities: number;
+  applications: number;
+}
+
+export interface SysAdminAnalyticsResponse {
+  summary: {
+    totalUniversities: number;
+    totalCompanies: number;
+    totalOpportunities: number;
+    totalApplications: number;
+  };
+  applicationStatusDistribution: SysAdminChartPoint[];
+  applicationsOverTime: SysAdminChartPoint[];
+  opportunitiesVsApplications: SysAdminOpportunityApplicationPoint[];
+  applicationTypeDistribution: SysAdminChartPoint[];
+  approvalRate: {
+    approved: number;
+    rejected: number;
+    total: number;
+    approvalPercentage: number;
+    rejectionPercentage: number;
+  };
+}
+
+export function fetchSysAdminAnalytics(
+  accessToken: string,
+  params: {
+    universityId?: number | null;
+    companyId?: number | null;
+    granularity?: SysAdminAnalyticsGranularity;
+    range?: SysAdminAnalyticsRange;
+  } = {},
+) {
+  const query = new URLSearchParams();
+  if (params.universityId != null) query.set('universityId', String(params.universityId));
+  if (params.companyId != null) query.set('companyId', String(params.companyId));
+  if (params.granularity) query.set('granularity', params.granularity);
+  if (params.range) query.set('range', params.range);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request<SysAdminAnalyticsResponse>('GET', `/api/sysadmin/analytics${suffix}`, accessToken);
+}

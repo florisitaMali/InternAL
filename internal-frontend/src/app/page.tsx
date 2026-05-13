@@ -245,9 +245,6 @@ export default function Home() {
     if ((role === 'STUDENT' || role === 'COMPANY') && activeTab === 'dashboard') {
       setActiveTab('opportunities');
     }
-    if (role === 'SYSTEM_ADMIN' && activeTab === 'dashboard') {
-      setActiveTab('universities');
-    }
   }, [isLoggedIn, role, activeTab]);
 
   /** Legacy sidebar tab id removed; migrate old sessions still on "notifications". */

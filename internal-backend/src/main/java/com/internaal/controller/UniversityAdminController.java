@@ -10,6 +10,7 @@ import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.AdminPpaCreateRequest;
 import com.internaal.dto.AdminPpaResponse;
 import com.internaal.dto.AdminPpaUpdateRequest;
+import com.internaal.dto.PpaCsvImportResult;
 import com.internaal.dto.AdminStudentCreateRequest;
 import com.internaal.dto.AdminStudentResponse;
 import com.internaal.dto.AdminStudyFieldCreateRequest;
@@ -38,6 +39,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -162,6 +164,31 @@ public class UniversityAdminController {
             @AuthenticationPrincipal UserAccount user,
             @PathVariable("ppaId") int ppaId) {
         universityAdminService.deletePpa(user, ppaId);
+    }
+
+    @PostMapping(value = "/ppas/import-csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public PpaCsvImportResult importPpaCsv(
+            @AuthenticationPrincipal UserAccount user,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("nameColumn") String nameColumn,
+            @RequestParam("emailColumn") String emailColumn,
+            @RequestParam("departmentColumn") String departmentColumn,
+            @RequestParam("studyFieldColumn") String studyFieldColumn) {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File is required.");
+        }
+        String originalName = file.getOriginalFilename();
+        if (originalName == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid file format. Please upload a CSV or Excel file.");
+        }
+        String lower = originalName.toLowerCase();
+        if (!lower.endsWith(".csv") && !lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid file format. Please upload a CSV or Excel file.");
+        }
+        return universityAdminService.importPpaFile(user, file,
+                nameColumn, emailColumn, departmentColumn, studyFieldColumn);
     }
 
     @PostMapping("/students")

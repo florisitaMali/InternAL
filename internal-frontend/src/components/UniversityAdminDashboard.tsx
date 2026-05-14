@@ -8,9 +8,13 @@ import UniversityProfileReadOnlyView from '@/src/components/UniversityProfileRea
 import ViewerStudentProfileOverlay from '@/src/components/ViewerStudentProfileOverlay';
 import UnderDevelopment from './UnderDevelopment';
 import OpportunityDetailView from '@/src/components/OpportunityDetailView';
+import * as XLSX from 'xlsx';
 import {
   createAdminPpa,
   deleteAdminPpa,
+  importAdminPpaCsv,
+  type PpaCsvImportResult,
+  type PpaImportMapping,
   fetchAdminCompanies,
   fetchAdminDashboardStats,
   createAdminDepartment,
@@ -130,6 +134,15 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     departmentId: '',
     studyFieldIds: [] as string[],
   });
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState<PpaCsvImportResult | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [importMapping, setImportMapping] = useState<PpaImportMapping>({
+    nameColumn: '', emailColumn: '', departmentColumn: '', studyFieldColumn: '',
+  });
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const [academicDeptName, setAcademicDeptName] = useState('');
   const [academicDeptError, setAcademicDeptError] = useState<string | null>(null);
@@ -641,6 +654,73 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     setPpas((prev) => prev.filter((p) => p.id !== ppa.id));
     setStats((prev) => ({ ...prev, ppaApprovers: Math.max(0, (prev.ppaApprovers ?? 1) - 1) }));
     toast.success('PP approver deleted.');
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (csvFileInputRef.current) csvFileInputRef.current.value = '';
+    if (!file) return;
+
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.csv') && !name.endsWith('.xlsx') && !name.endsWith('.xls')) {
+      toast.error('Invalid file format. Please upload a CSV or Excel file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) { toast.error('File has no sheets.'); return; }
+        const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1 });
+        if (!rows.length || !rows[0].length) { toast.error('File has no headers.'); return; }
+        const headers = rows[0].map(h => (h == null ? '' : String(h))).filter(h => h.trim() !== '' && h !== 'undefined');
+        setImportFile(file);
+        setImportHeaders(headers);
+        setImportMapping({ nameColumn: '', emailColumn: '', departmentColumn: '', studyFieldColumn: '' });
+        setCsvImportResult(null);
+        setShowImportModal(true);
+      } catch {
+        toast.error('Could not read file.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleImportSubmit = async () => {
+    if (!importFile) return;
+    if (!importMapping.nameColumn || !importMapping.emailColumn ||
+        !importMapping.departmentColumn || !importMapping.studyFieldColumn) {
+      toast.error('Please map all fields before importing.');
+      return;
+    }
+    const token = await resolveAccessToken();
+    if (!token) { toast.error('Not signed in.'); return; }
+
+    setCsvImporting(true);
+    setCsvImportResult(null);
+    try {
+      const { data, errorMessage } = await importAdminPpaCsv(token, importFile, importMapping);
+      if (errorMessage) { toast.error(errorMessage); return; }
+      if (data) {
+        setCsvImportResult(data);
+        if (data.created > 0) {
+          const freshToken = await resolveAccessToken();
+          if (freshToken) {
+            const { data: refreshed } = await fetchAdminPpas(freshToken);
+            if (refreshed) setPpas(refreshed);
+          }
+          toast.success(`Imported: ${data.created} PPA(s) created` +
+            (data.failed > 0 ? `, ${data.failed} failed` : ''));
+        } else if (data.failed > 0) {
+          toast.error(`Import failed: ${data.failed} row(s) had errors.`);
+        }
+      }
+    } finally {
+      setCsvImporting(false);
+    }
   };
 
   const addStudyFieldFromPicker = (fieldId: string) => {
@@ -1897,6 +1977,100 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      <div className="rounded-2xl border border-blue-200/60 bg-blue-50/40 shadow-sm p-4 backdrop-blur-[2px]">
+        <h2 className="text-lg font-bold text-[#002B5B] mb-3">Import PPAs from File</h2>
+        <p className="text-sm text-blue-900/55 mb-3">
+          Upload a <strong>.csv</strong>, <strong>.xlsx</strong>, or <strong>.xls</strong> file.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            ref={csvFileInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <button
+            onClick={() => csvFileInputRef.current?.click()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#002B5B] text-white text-sm font-bold hover:bg-[#001F42] disabled:opacity-60"
+          >
+            <Upload size={16} />
+            Upload CSV / Excel
+          </button>
+        </div>
+        {csvImportResult && (
+          <div className="mt-3 rounded-xl border border-blue-200/70 p-3 bg-blue-100/35">
+            <div className="flex gap-4 text-sm font-semibold mb-1">
+              {csvImportResult.created > 0 && (
+                <span className="text-emerald-700">{csvImportResult.created} created</span>
+              )}
+              {csvImportResult.failed > 0 && (
+                <span className="text-red-600">{csvImportResult.failed} failed</span>
+              )}
+              {csvImportResult.created === 0 && csvImportResult.failed === 0 && (
+                <span className="text-blue-900/55">No rows found in file.</span>
+              )}
+            </div>
+            {csvImportResult.errors.length > 0 && (
+              <ul className="mt-2 space-y-1 text-xs text-red-700 max-h-40 overflow-y-auto">
+                {csvImportResult.errors.map((err, i) => (
+                  <li key={i} className="flex gap-1">
+                    <span className="shrink-0">•</span>
+                    <span>{err}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-blue-200/60 w-full max-w-md mx-4 p-6">
+            <h2 className="text-lg font-bold text-[#002B5B] mb-1">Map File Columns</h2>
+            <p className="text-sm text-blue-900/55 mb-5">
+              Select which column in your file corresponds to each field.
+            </p>
+            {([
+              { label: 'Name', key: 'nameColumn' as const },
+              { label: 'Email', key: 'emailColumn' as const },
+              { label: 'Department', key: 'departmentColumn' as const },
+              { label: 'Study Field', key: 'studyFieldColumn' as const },
+            ]).map(({ label, key }) => (
+              <div key={key} className="flex items-center gap-4 mb-4">
+                <span className="w-28 text-sm font-semibold text-[#002B5B] shrink-0">{label}</span>
+                <select
+                  value={importMapping[key]}
+                  onChange={(e) => setImportMapping(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="flex-1 px-3 py-2 rounded-xl border border-blue-200/80 bg-white text-sm focus:ring-2 focus:ring-[#002B5B]/25 focus:border-[#002B5B]/35 outline-none"
+                >
+                  <option value="">Select column</option>
+                  {importHeaders.map((h) => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => { setShowImportModal(false); setImportFile(null); }}
+                className="px-4 py-2 rounded-xl border border-blue-200/80 bg-white/70 text-sm font-semibold text-[#002B5B] hover:bg-blue-100/50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowImportModal(false); void handleImportSubmit(); }}
+                disabled={csvImporting || !importMapping.nameColumn || !importMapping.emailColumn || !importMapping.departmentColumn || !importMapping.studyFieldColumn}
+                className="px-4 py-2 rounded-xl bg-[#002B5B] text-white text-sm font-bold hover:bg-[#001F42] disabled:opacity-60"
+              >
+                {csvImporting ? 'Importing…' : 'Insert'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-blue-200/60 bg-blue-50/35 shadow-sm overflow-hidden backdrop-blur-[2px]">
         <div className="p-4 border-b border-blue-200/60 flex justify-between items-center bg-blue-100/50">

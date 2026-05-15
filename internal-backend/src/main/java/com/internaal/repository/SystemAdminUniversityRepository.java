@@ -39,6 +39,9 @@ public class SystemAdminUniversityRepository {
 
     private static final String UNIVERSITY_TABLE = "university";
     private static final String USER_ACCOUNT_TABLE = "useraccount";
+    private static final String DEPARTMENT_TABLE = "department";
+    private static final String STUDENT_TABLE = "student";
+    private static final String OPPORTUNITY_TARGET_TABLE = "opportunitytarget";
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -75,7 +78,7 @@ public class SystemAdminUniversityRepository {
 
     public List<AdminUniversityResponse> listUniversitiesWithAdminActiveFlag() {
         String url = supabaseUrl + "/rest/v1/" + UNIVERSITY_TABLE
-                + "?select=university_id,name,email,location,website,founded,specialties,number_of_employees"
+                + "?select=university_id,name,email,location,description,website,founded,specialties,number_of_employees,logo_url,cover_url"
                 + "&order=name";
         Optional<JsonNode> arr = fetchArray(url);
         if (arr.isEmpty() || !arr.get().isArray()) {
@@ -94,22 +97,71 @@ public class SystemAdminUniversityRepository {
                     text(u, "name"),
                     text(u, "email"),
                     text(u, "location"),
+                    text(u, "description"),
                     text(u, "website"),
                     intVal(u, "founded"),
                     text(u, "specialties"),
                     intVal(u, "number_of_employees"),
-                    true /* placeholder, replaced below */
+                    text(u, "logo_url"),
+                    text(u, "cover_url"),
+                    true /* isActive placeholder, replaced below */,
+                    true /* canDelete placeholder, replaced below */,
+                    0    /* departmentCount placeholder */,
+                    0    /* studentCount placeholder */
             ));
         }
         Map<Integer, Boolean> activeByUniversityId = fetchAdminActiveByUniversityIds(universityIds);
+        Map<Integer, Integer> deptCounts = countByUniversityId(DEPARTMENT_TABLE, universityIds);
+        Map<Integer, Integer> studentCounts = countByUniversityId(STUDENT_TABLE, universityIds);
         List<AdminUniversityResponse> merged = new ArrayList<>(rows.size());
         for (AdminUniversityResponse r : rows) {
             boolean active = activeByUniversityId.getOrDefault(r.universityId(), true);
+            int deptCount = deptCounts.getOrDefault(r.universityId(), 0);
+            int studentCount = studentCounts.getOrDefault(r.universityId(), 0);
+            boolean canDelete = deptCount == 0 && studentCount == 0;
             merged.add(new AdminUniversityResponse(
-                    r.universityId(), r.name(), r.email(), r.location(), r.website(),
-                    r.founded(), r.specialties(), r.numberOfEmployees(), active));
+                    r.universityId(), r.name(), r.email(), r.location(), r.description(),
+                    r.website(), r.founded(), r.specialties(), r.numberOfEmployees(),
+                    r.logoUrl(), r.coverUrl(),
+                    active, canDelete, deptCount, studentCount));
         }
         return merged;
+    }
+
+    /**
+     * Returns counts of rows in {@code table} grouped by {@code university_id} for the given ids.
+     * Used to populate {@code departmentCount}/{@code studentCount} on the list view and to
+     * gate hard-delete (see {@link #countDependents}).
+     */
+    private Map<Integer, Integer> countByUniversityId(String table, List<Integer> universityIds) {
+        Map<Integer, Integer> result = new HashMap<>();
+        if (universityIds == null || universityIds.isEmpty()) {
+            return result;
+        }
+        String idList = universityIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+        String url = supabaseUrl + "/rest/v1/" + table
+                + "?university_id=in.(" + idList + ")"
+                + "&select=university_id";
+        Optional<JsonNode> arr = fetchArray(url);
+        if (arr.isEmpty() || !arr.get().isArray()) {
+            return result;
+        }
+        for (JsonNode row : arr.get()) {
+            Integer uid = intVal(row, "university_id");
+            if (uid == null) continue;
+            result.merge(uid, 1, Integer::sum);
+        }
+        return result;
+    }
+
+    /** Returns {departmentCount, studentCount} for the given university. Used at delete time. */
+    public int[] countDependents(int universityId) {
+        Map<Integer, Integer> dept = countByUniversityId(DEPARTMENT_TABLE, List.of(universityId));
+        Map<Integer, Integer> student = countByUniversityId(STUDENT_TABLE, List.of(universityId));
+        return new int[] {
+                dept.getOrDefault(universityId, 0),
+                student.getOrDefault(universityId, 0)
+        };
     }
 
     private Map<Integer, Boolean> fetchAdminActiveByUniversityIds(List<Integer> universityIds) {
@@ -158,7 +210,7 @@ public class SystemAdminUniversityRepository {
     public Optional<AdminUniversityResponse> findById(int universityId) {
         String url = supabaseUrl + "/rest/v1/" + UNIVERSITY_TABLE
                 + "?university_id=eq." + universityId
-                + "&select=university_id,name,email,location,website,founded,specialties,number_of_employees"
+                + "&select=university_id,name,email,location,description,website,founded,specialties,number_of_employees,logo_url,cover_url"
                 + "&limit=1";
         Optional<JsonNode> arr = fetchArray(url);
         if (arr.isEmpty() || !arr.get().isArray() || arr.get().isEmpty()) {
@@ -171,16 +223,26 @@ public class SystemAdminUniversityRepository {
         }
         boolean active = fetchAdminActiveByUniversityIds(List.of(id))
                 .getOrDefault(id, true);
+        int[] deps = countDependents(id);
+        int deptCount = deps[0];
+        int studentCount = deps[1];
+        boolean canDelete = deptCount == 0 && studentCount == 0;
         return Optional.of(new AdminUniversityResponse(
                 id,
                 text(u, "name"),
                 text(u, "email"),
                 text(u, "location"),
+                text(u, "description"),
                 text(u, "website"),
                 intVal(u, "founded"),
                 text(u, "specialties"),
                 intVal(u, "number_of_employees"),
-                active
+                text(u, "logo_url"),
+                text(u, "cover_url"),
+                active,
+                canDelete,
+                deptCount,
+                studentCount
         ));
     }
 
@@ -279,10 +341,13 @@ public class SystemAdminUniversityRepository {
         row.put("name", req.name() == null ? null : req.name().trim());
         row.put("email", email);
         if (req.location() != null && !req.location().isBlank()) row.put("location", req.location().trim());
+        if (req.description() != null && !req.description().isBlank()) row.put("description", req.description().trim());
         if (req.website() != null && !req.website().isBlank()) row.put("website", req.website().trim());
         if (req.founded() != null) row.put("founded", req.founded());
         if (req.specialties() != null && !req.specialties().isBlank()) row.put("specialties", req.specialties().trim());
         if (req.numberOfEmployees() != null) row.put("number_of_employees", req.numberOfEmployees());
+        if (req.logoUrl() != null && !req.logoUrl().isBlank()) row.put("logo_url", req.logoUrl().trim());
+        if (req.coverUrl() != null && !req.coverUrl().isBlank()) row.put("cover_url", req.coverUrl().trim());
 
         HttpHeaders headers = serviceHeaders();
         headers.set("Prefer", "return=representation");
@@ -379,10 +444,23 @@ public class SystemAdminUniversityRepository {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("name", req.name() == null ? null : req.name().trim());
         row.put("location", req.location() == null || req.location().isBlank() ? null : req.location().trim());
+        row.put("description", req.description() == null || req.description().isBlank() ? null : req.description().trim());
         row.put("website", req.website() == null || req.website().isBlank() ? null : req.website().trim());
         row.put("founded", req.founded());
         row.put("specialties", req.specialties() == null || req.specialties().isBlank() ? null : req.specialties().trim());
         row.put("number_of_employees", req.numberOfEmployees());
+        // Tri-state semantics for image URLs (mirrors SystemAdminCompanyRepository):
+        //   - field absent / null  → "no change", column not touched
+        //   - field is empty string → "clear", column set to NULL
+        //   - field is a non-blank string → "set", column updated
+        if (req.logoUrl() != null) {
+            String trimmed = req.logoUrl().trim();
+            row.put("logo_url", trimmed.isEmpty() ? null : trimmed);
+        }
+        if (req.coverUrl() != null) {
+            String trimmed = req.coverUrl().trim();
+            row.put("cover_url", trimmed.isEmpty() ? null : trimmed);
+        }
 
         HttpHeaders headers = serviceHeaders();
         headers.set("Prefer", "return=representation");
@@ -447,6 +525,159 @@ public class SystemAdminUniversityRepository {
         } catch (Exception e) {
             log.error("updateUserAccounts({}) failed: {}", filter, e.getMessage());
             return false;
+        }
+    }
+
+    /* ---------- DELETE ---------- */
+
+    /**
+     * Hard-delete: removes the UNIVERSITY_ADMIN useraccount, the Supabase auth user, cleans
+     * up stale opportunitytarget rows, then deletes the university row. The caller (service)
+     * must have already confirmed there are no department/student dependents.
+     */
+    public void deleteUniversity(int universityId) {
+        String authUserId = findUniversityAuthUserId(universityId);
+        deleteUniversityUserAccountRows(universityId);
+        if (authUserId != null) {
+            deleteAuthUserStrict(authUserId);
+        }
+        deleteOpportunityTargetRows(universityId);
+        deleteUniversityRow(universityId);
+    }
+
+    /**
+     * Resolves the Supabase auth user UUID for a university's admin by looking up the
+     * UNIVERSITY_ADMIN useraccount email and querying the Supabase Auth Admin API.
+     */
+    private String findUniversityAuthUserId(int universityId) {
+        String url = supabaseUrl + "/rest/v1/" + USER_ACCOUNT_TABLE
+                + "?role=eq.UNIVERSITY_ADMIN&linked_entity_id=eq." + universityId
+                + "&select=email&limit=1";
+        Optional<JsonNode> arr = fetchArray(url);
+        if (arr.isEmpty() || !arr.get().isArray() || arr.get().isEmpty()) {
+            return null;
+        }
+        JsonNode row = arr.get().get(0);
+        String email = text(row, "email");
+        if (email == null || email.isBlank()) {
+            return null;
+        }
+        return findAuthUserIdByEmail(email);
+    }
+
+    /** Calls Supabase's Auth Admin API to find an auth user UUID by email. URL-encodes to handle '+' aliases. */
+    private String findAuthUserIdByEmail(String email) {
+        if (serviceRoleKey == null || serviceRoleKey.isBlank()) {
+            return null;
+        }
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("apikey", serviceRoleKey);
+            headers.set("Authorization", "Bearer " + serviceRoleKey);
+            String encoded = java.net.URLEncoder.encode(email, StandardCharsets.UTF_8);
+            ResponseEntity<String> resp = restTemplate.exchange(
+                    supabaseUrl + "/auth/v1/admin/users?email=" + encoded,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    String.class
+            );
+            if (!resp.getStatusCode().is2xxSuccessful() || resp.getBody() == null) {
+                return null;
+            }
+            JsonNode root = objectMapper.readTree(resp.getBody());
+            JsonNode users = root.get("users");
+            if (users == null || !users.isArray() || users.isEmpty()) {
+                return null;
+            }
+            JsonNode first = users.get(0);
+            JsonNode idNode = first.get("id");
+            if (idNode == null || idNode.isNull()) {
+                return null;
+            }
+            String id = idNode.asText();
+            return (id == null || id.isBlank()) ? null : id;
+        } catch (Exception e) {
+            log.warn("findAuthUserIdByEmail failed for {}: {}", email, e.getMessage());
+            return null;
+        }
+    }
+
+    private void deleteUniversityUserAccountRows(int universityId) {
+        try {
+            restTemplate.exchange(
+                    supabaseUrl + "/rest/v1/" + USER_ACCOUNT_TABLE
+                            + "?role=eq.UNIVERSITY_ADMIN&linked_entity_id=eq." + universityId,
+                    HttpMethod.DELETE,
+                    new HttpEntity<>(serviceHeaders()),
+                    String.class
+            );
+        } catch (HttpStatusCodeException e) {
+            log.error("Delete useraccount for university {} failed: {} {}",
+                    universityId, e.getStatusCode(), e.getResponseBodyAsString(StandardCharsets.UTF_8));
+            throw new IllegalStateException("Could not remove the university's admin account. Please try again.");
+        }
+    }
+
+    private void deleteAuthUserStrict(String authUserId) {
+        if (serviceRoleKey == null || serviceRoleKey.isBlank()) {
+            log.warn("Cannot revoke auth user {} without service role key", authUserId);
+            return;
+        }
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("apikey", serviceRoleKey);
+            headers.set("Authorization", "Bearer " + serviceRoleKey);
+            restTemplate.exchange(
+                    supabaseUrl + "/auth/v1/admin/users/" + authUserId,
+                    HttpMethod.DELETE,
+                    new HttpEntity<>(headers),
+                    String.class
+            );
+        } catch (HttpStatusCodeException e) {
+            // 404 = already gone, treat as success.
+            if (e.getStatusCode().value() == 404) {
+                log.warn("Auth user {} already gone (404); continuing", authUserId);
+                return;
+            }
+            log.error("Delete auth user {} failed: {} {}",
+                    authUserId, e.getStatusCode(), e.getResponseBodyAsString(StandardCharsets.UTF_8));
+            throw new IllegalStateException("Could not remove the linked auth user. Please try again.");
+        }
+    }
+
+    /**
+     * Removes stale {@code opportunitytarget} rows for this university so the FK on
+     * {@code opportunitytarget.university_id} doesn't reject the final university row delete.
+     * Safe here because the service has already ensured 0 departments and 0 students.
+     */
+    private void deleteOpportunityTargetRows(int universityId) {
+        try {
+            restTemplate.exchange(
+                    supabaseUrl + "/rest/v1/" + OPPORTUNITY_TARGET_TABLE
+                            + "?university_id=eq." + universityId,
+                    HttpMethod.DELETE,
+                    new HttpEntity<>(serviceHeaders()),
+                    String.class
+            );
+        } catch (HttpStatusCodeException e) {
+            log.error("Delete opportunitytarget for university {} failed: {} {}",
+                    universityId, e.getStatusCode(), e.getResponseBodyAsString(StandardCharsets.UTF_8));
+            throw new IllegalStateException("Could not clean up opportunity targets. Please try again.");
+        }
+    }
+
+    private void deleteUniversityRow(int universityId) {
+        try {
+            restTemplate.exchange(
+                    supabaseUrl + "/rest/v1/" + UNIVERSITY_TABLE + "?university_id=eq." + universityId,
+                    HttpMethod.DELETE,
+                    new HttpEntity<>(serviceHeaders()),
+                    String.class
+            );
+        } catch (HttpStatusCodeException e) {
+            log.error("Delete university {} failed: {} {}",
+                    universityId, e.getStatusCode(), e.getResponseBodyAsString(StandardCharsets.UTF_8));
+            throw new IllegalStateException("Could not delete the university. Please try again.");
         }
     }
 

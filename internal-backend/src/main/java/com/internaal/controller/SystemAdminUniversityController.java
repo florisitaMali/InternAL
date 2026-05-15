@@ -8,7 +8,9 @@ import com.internaal.dto.AdminUniversityUpdateRequest;
 import com.internaal.entity.UserAccount;
 import com.internaal.service.SystemAdminUniversityService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -64,5 +66,13 @@ public class SystemAdminUniversityController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body required");
         }
         return systemAdminUniversityService.setStatus(user, universityId, body.isActive());
+    }
+
+    @DeleteMapping("/universities/{universityId}")
+    public ResponseEntity<Void> delete(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("universityId") int universityId) {
+        systemAdminUniversityService.deleteUniversity(user, universityId);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -95,6 +95,36 @@ public class SystemAdminUniversityService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "University not found."));
     }
 
+    /**
+     * Hard-delete the university and its admin account. Refuses with 409 if any department
+     * or student references the university; the AC requires deactivation in that case.
+     */
+    public void deleteUniversity(UserAccount user, int universityId) {
+        requireSystemAdmin(user);
+        if (repository.findById(universityId).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "University not found.");
+        }
+        int[] counts = repository.countDependents(universityId);
+        int deptCount = counts[0];
+        int studentCount = counts[1];
+        // OR: any single dependency type blocks hard-delete.
+        if (deptCount > 0 || studentCount > 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "University has dependent records (" + deptCount + " departments, "
+                            + studentCount + " students). Deactivate instead.");
+        }
+        try {
+            repository.deleteUniversity(universityId);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            String userMessage = e.getMessage() == null || e.getMessage().isBlank()
+                    ? "Could not delete the university. Please try again."
+                    : e.getMessage();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, userMessage);
+        }
+    }
+
     /* ---------- VALIDATION ---------- */
 
     private static void validateName(String name) {

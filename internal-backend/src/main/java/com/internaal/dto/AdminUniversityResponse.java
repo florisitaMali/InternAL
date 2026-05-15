@@ -5,10 +5,16 @@ public record AdminUniversityResponse(
         String name,
         String email,
         String location,
+        String description,
         String website,
         Integer founded,
         String specialties,
         Integer numberOfEmployees,
-        boolean isActive
+        String logoUrl,
+        String coverUrl,
+        boolean isActive,
+        boolean canDelete,
+        int departmentCount,
+        int studentCount
 ) {
 }

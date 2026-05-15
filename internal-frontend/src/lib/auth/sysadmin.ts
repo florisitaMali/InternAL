@@ -7,11 +7,17 @@ export interface AdminUniversityResponse {
   name: string;
   email: string | null;
   location: string | null;
+  description: string | null;
   website: string | null;
   founded: number | null;
   specialties: string | null;
   numberOfEmployees: number | null;
+  logoUrl: string | null;
+  coverUrl: string | null;
   isActive: boolean;
+  canDelete: boolean;
+  departmentCount: number;
+  studentCount: number;
 }
 
 export interface AdminUniversityListResponse {
@@ -25,19 +31,25 @@ export interface AdminUniversityCreateRequest {
   name: string;
   email: string;
   location?: string | null;
+  description?: string | null;
   website?: string | null;
   founded?: number | null;
   specialties?: string | null;
   numberOfEmployees?: number | null;
+  logoUrl?: string | null;
+  coverUrl?: string | null;
 }
 
 export interface AdminUniversityUpdateRequest {
   name: string;
   location?: string | null;
+  description?: string | null;
   website?: string | null;
   founded?: number | null;
   specialties?: string | null;
   numberOfEmployees?: number | null;
+  logoUrl?: string | null;
+  coverUrl?: string | null;
 }
 
 interface ApiResult<T> {
@@ -92,6 +104,10 @@ export function updateSysAdminUniversity(accessToken: string, universityId: numb
 
 export function setSysAdminUniversityActive(accessToken: string, universityId: number, isActive: boolean) {
   return request<AdminUniversityResponse>('PATCH', `/api/sysadmin/universities/${universityId}/status`, accessToken, { isActive });
+}
+
+export function deleteSysAdminUniversity(accessToken: string, universityId: number) {
+  return request<void>('DELETE', `/api/sysadmin/universities/${universityId}`, accessToken);
 }
 
 /* ---------- Companies (US-24) ---------- */

@@ -173,7 +173,7 @@ export function deleteSysAdminCompany(accessToken: string, companyId: number) {
 /* ---------- Platform analytics ---------- */
 
 export type SysAdminAnalyticsGranularity = 'daily' | 'weekly' | 'monthly';
-export type SysAdminAnalyticsRange = 'monthly' | 'yearly' | 'total';
+export type SysAdminAnalyticsRange = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'total';
 
 export interface SysAdminChartPoint {
   label: string;

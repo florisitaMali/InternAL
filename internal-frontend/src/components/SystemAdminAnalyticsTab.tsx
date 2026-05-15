@@ -16,13 +16,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { BarChart3, BriefcaseBusiness, Building2, CalendarDays, GraduationCap, RefreshCcw, Users } from 'lucide-react';
+import { BarChart3, BriefcaseBusiness, Building2, CalendarDays, RefreshCcw, Users } from 'lucide-react';
 import {
   AdminCompanyResponse,
-  AdminUniversityResponse,
   fetchSysAdminAnalytics,
   fetchSysAdminCompanies,
-  fetchSysAdminUniversities,
   SysAdminAnalyticsGranularity,
   SysAdminAnalyticsRange,
   SysAdminAnalyticsResponse,
@@ -41,6 +39,10 @@ const GREEN = '#67ba68';
 const RED = '#f05252';
 const PURPLE = '#a936d4';
 const AMBER = '#ffae2d';
+
+type AnalyticsTimeFilter = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'total';
+
+const timeFilters: AnalyticsTimeFilter[] = ['daily', 'weekly', 'monthly', 'yearly', 'total'];
 
 const emptyAnalytics: SysAdminAnalyticsResponse = {
   summary: {
@@ -64,34 +66,28 @@ const emptyAnalytics: SysAdminAnalyticsResponse = {
 
 const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef }) => {
   const [analytics, setAnalytics] = useState<SysAdminAnalyticsResponse>(emptyAnalytics);
-  const [universities, setUniversities] = useState<AdminUniversityResponse[]>([]);
   const [companies, setCompanies] = useState<AdminCompanyResponse[]>([]);
-  const [universityId, setUniversityId] = useState<number | null>(null);
   const [companyId, setCompanyId] = useState<number | null>(null);
-  const [granularity, setGranularity] = useState<SysAdminAnalyticsGranularity>('weekly');
-  const [timeScope, setTimeScope] = useState<SysAdminAnalyticsRange>('total');
+  const [timeFilter, setTimeFilter] = useState<AnalyticsTimeFilter>('total');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const hasActiveCompanyFilter = companyId !== null;
+  const analyticsQuery = useMemo(() => queryForTimeFilter(timeFilter), [timeFilter]);
 
   const selectedScope = useMemo(() => {
-    const university = universities.find((u) => u.universityId === universityId);
     const company = companies.find((c) => c.companyId === companyId);
-    const rangeLabel = timeScope === 'total' ? 'All Time' : timeScope.charAt(0).toUpperCase() + timeScope.slice(1);
-    if (university && company) return `${university.name} + ${company.name} (${rangeLabel})`;
-    if (university) return `${university.name} (${rangeLabel})`;
+    const rangeLabel = timeFilter === 'total' ? 'All Time' : timeFilter.charAt(0).toUpperCase() + timeFilter.slice(1);
     if (company) return `${company.name} (${rangeLabel})`;
     return rangeLabel;
-  }, [companies, companyId, timeScope, universities, universityId]);
+  }, [companies, companyId, timeFilter]);
 
   const refresh = useCallback(async () => {
     const token = (accessTokenRef?.current ?? '') || accessToken;
     setLoading(true);
-    const [analyticsRes, universitiesRes, companiesRes] = await Promise.all([
-      fetchSysAdminAnalytics(token, { universityId, companyId, granularity, range: timeScope }),
-      fetchSysAdminUniversities(token),
+    const [analyticsRes, companiesRes] = await Promise.all([
+      fetchSysAdminAnalytics(token, { companyId, ...analyticsQuery }),
       fetchSysAdminCompanies(token),
     ]);
-    if (universitiesRes.data) setUniversities(universitiesRes.data.items);
     if (companiesRes.data) setCompanies(companiesRes.data.items);
     if (analyticsRes.errorMessage) {
       setAnalytics(emptyAnalytics);
@@ -101,18 +97,19 @@ const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef 
       setErrorMessage(null);
     }
     setLoading(false);
-  }, [accessToken, accessTokenRef, companyId, granularity, timeScope, universityId]);
+  }, [accessToken, accessTokenRef, analyticsQuery, companyId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   const clearFilters = () => {
-    setUniversityId(null);
     setCompanyId(null);
   };
 
   const statusData = withStatusColors(analytics.applicationStatusDistribution);
+  const applicationsOverTime = sortTimeSeries(analytics.applicationsOverTime, timeFilter);
+  const opportunitiesVsApplications = sortTimeSeries(analytics.opportunitiesVsApplications, timeFilter);
   const typeData = analytics.applicationTypeDistribution.map((item, index) => ({
     ...item,
     fill: index === 0 ? NAVY : BLUE,
@@ -135,17 +132,17 @@ const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef 
           <h1 className="text-4xl lg:text-5xl font-extrabold text-[#08275c] tracking-normal">Platform Analytics</h1>
           <p className="mt-3 text-xl text-slate-500">Monitor system-wide performance and engagement</p>
         </div>
-        <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-          {(['monthly', 'yearly', 'total'] as const).map((scope) => (
+        <div className="inline-flex w-fit rounded-lg border border-slate-200 bg-white p-1 shadow-sm" aria-label="Analytics period">
+          {timeFilters.map((filter) => (
             <button
-              key={scope}
+              key={filter}
               type="button"
-              onClick={() => setTimeScope(scope)}
-              className={`px-6 py-3 rounded-md text-sm font-bold transition-colors ${
-                timeScope === scope ? 'bg-[#08275c] text-white' : 'text-slate-500 hover:bg-slate-50'
+              onClick={() => setTimeFilter(filter)}
+              className={`px-5 py-3 rounded-md text-sm font-bold transition-colors ${
+                timeFilter === filter ? 'bg-[#08275c] text-white' : 'text-slate-500 hover:bg-slate-50'
               }`}
             >
-              {scope.charAt(0).toUpperCase() + scope.slice(1)}
+              {filter.charAt(0).toUpperCase() + filter.slice(1)}
             </button>
           ))}
         </div>
@@ -153,21 +150,6 @@ const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef 
 
       <section className="mt-8 flex flex-col gap-4">
         <div className="flex flex-col gap-4 md:flex-row">
-          <SelectBox
-            value={universityId ?? ''}
-            icon={<GraduationCap size={18} />}
-            label="All Universities"
-            onChange={(value) => {
-              setUniversityId(value ? Number(value) : null);
-            }}
-          >
-            <option value="">All Universities</option>
-            {universities.map((university) => (
-              <option key={university.universityId} value={university.universityId}>
-                {university.name}
-              </option>
-            ))}
-          </SelectBox>
           <SelectBox
             value={companyId ?? ''}
             icon={<Building2 size={18} />}
@@ -204,18 +186,19 @@ const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef 
         <div className="mt-8 rounded-lg border border-rose-100 bg-white p-6 text-rose-600 shadow-sm">{errorMessage}</div>
       ) : null}
 
-      <section className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard icon={<GraduationCap size={24} />} tone="teal" label="Total Universities" value={analytics.summary.totalUniversities} tag="Active" />
-        <SummaryCard icon={<BriefcaseBusiness size={24} />} tone="blue" label="Total Companies" value={analytics.summary.totalCompanies} tag="Active" />
-        <SummaryCard icon={<BarChart3 size={24} />} tone="orange" label="Total Opportunities" value={analytics.summary.totalOpportunities} tag={`${analytics.summary.totalOpportunities} active`} />
-        <SummaryCard
-          icon={<Users size={24} />}
-          tone="purple"
-          label="Total Applications"
-          value={analytics.summary.totalApplications}
-          tag={analytics.summary.totalApplications > 0 ? 'Growing' : 'No activity'}
-        />
-      </section>
+      {!hasActiveCompanyFilter ? (
+        <section className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-3">
+          <SummaryCard icon={<BriefcaseBusiness size={24} />} tone="blue" label="Total Companies" value={analytics.summary.totalCompanies} tag="Active" />
+          <SummaryCard icon={<BarChart3 size={24} />} tone="orange" label="Total Opportunities" value={analytics.summary.totalOpportunities} tag={`${analytics.summary.totalOpportunities} active`} />
+          <SummaryCard
+            icon={<Users size={24} />}
+            tone="purple"
+            label="Total Applications"
+            value={analytics.summary.totalApplications}
+            tag={analytics.summary.totalApplications > 0 ? 'Growing' : 'No activity'}
+          />
+        </section>
+      ) : null}
 
       <section className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
         <ChartCard title="Application Status Distribution">
@@ -264,27 +247,9 @@ const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef 
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard
-          title="Applications Over Time"
-          action={
-            <div className="inline-flex rounded-md bg-slate-100 p-1">
-              {(['daily', 'weekly', 'monthly'] as const).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setGranularity(item)}
-                  className={`rounded px-4 py-2 text-xs font-bold ${
-                    granularity === item ? 'bg-white text-[#08275c] shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {item.charAt(0).toUpperCase() + item.slice(1)}
-                </button>
-              ))}
-            </div>
-          }
-        >
+        <ChartCard title="Applications Over Time">
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={analytics.applicationsOverTime} margin={{ top: 20, right: 22, bottom: 0, left: 0 }}>
+            <LineChart data={applicationsOverTime} margin={{ top: 20, right: 22, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#dfe7f1" />
               <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 12 }} />
               <YAxis allowDecimals={false} tick={{ fill: '#6b7280' }} />
@@ -296,7 +261,7 @@ const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef 
 
         <ChartCard title="Opportunities vs Applications">
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={analytics.opportunitiesVsApplications} margin={{ top: 20, right: 22, bottom: 0, left: 0 }}>
+            <LineChart data={opportunitiesVsApplications} margin={{ top: 20, right: 22, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#dfe7f1" />
               <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 12 }} />
               <YAxis allowDecimals={false} tick={{ fill: '#6b7280' }} />
@@ -311,11 +276,20 @@ const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef 
 
       <section className="mt-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <SectionTitle title="Approval Rate" />
-        <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-2">
-          <ResponsiveContainer width="100%" height={340}>
+        <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-[1.05fr_1.25fr]">
+          <ResponsiveContainer width="100%" height={410}>
             <PieChart>
               <Tooltip />
-              <Pie data={approvalData} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={112} label={renderPieLabel}>
+              <Pie
+                data={approvalData}
+                dataKey="value"
+                nameKey="label"
+                cx="50%"
+                cy="50%"
+                outerRadius={122}
+                label={renderPieLabelOutside}
+                labelLine
+              >
                 {approvalData.map((entry) => (
                   <Cell key={entry.label} fill={entry.fill} />
                 ))}
@@ -327,18 +301,24 @@ const SystemAdminAnalyticsTab: React.FC<Props> = ({ accessToken, accessTokenRef 
               label="Approval Rate"
               value={analytics.approvalRate.approvalPercentage}
               detail={`${analytics.approvalRate.approved} of ${analytics.approvalRate.total} applications approved`}
+              count={analytics.approvalRate.approved}
+              total={analytics.approvalRate.total}
               tone="approved"
             />
             <RatePanel
               label="Rejection Rate"
               value={analytics.approvalRate.rejectionPercentage}
               detail={`${analytics.approvalRate.rejected} of ${analytics.approvalRate.total} applications rejected`}
+              count={analytics.approvalRate.rejected}
+              total={analytics.approvalRate.total}
               tone="rejected"
             />
             <RatePanel
               label="Pending Rate"
               value={pendingPercentage}
               detail={`${pendingApplications} of ${analytics.approvalRate.total} applications waiting or pending`}
+              count={pendingApplications}
+              total={analytics.approvalRate.total}
               tone="pending"
             />
           </div>
@@ -438,22 +418,53 @@ function RatePanel({
   label,
   value,
   detail,
+  count,
+  total,
   tone,
 }: {
   label: string;
   value: number;
   detail: string;
+  count: number;
+  total: number;
   tone: 'approved' | 'rejected' | 'pending';
 }) {
   const colors = {
-    approved: 'bg-teal-50 text-teal-600',
-    rejected: 'bg-red-50 text-red-500',
-    pending: 'bg-amber-50 text-amber-600',
+    approved: {
+      panel: 'bg-teal-50 text-teal-600',
+      bar: 'bg-teal-500',
+      track: 'bg-teal-100',
+      chip: 'bg-white text-teal-700',
+    },
+    rejected: {
+      panel: 'bg-red-50 text-red-500',
+      bar: 'bg-red-500',
+      track: 'bg-red-100',
+      chip: 'bg-white text-red-600',
+    },
+    pending: {
+      panel: 'bg-amber-50 text-amber-600',
+      bar: 'bg-amber-500',
+      track: 'bg-amber-100',
+      chip: 'bg-white text-amber-700',
+    },
   }[tone];
+  const width = total > 0 ? Math.min(Math.max(value, 0), 100) : 0;
+
   return (
-    <div className={`rounded-lg p-7 ${colors}`}>
-      <p className="text-base text-slate-500">{label}</p>
-      <p className="mt-2 text-5xl font-extrabold">{value}%</p>
+    <div className={`rounded-lg p-7 ${colors.panel}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-base text-slate-500">{label}</p>
+          <p className="mt-2 text-5xl font-extrabold">{value}%</p>
+        </div>
+        <span className={`rounded-md px-3 py-2 text-sm font-extrabold shadow-sm ${colors.chip}`}>
+          {count}/{total}
+        </span>
+      </div>
+      <div className={`mt-5 h-3 overflow-hidden rounded-full ${colors.track}`}>
+        <div className={`h-full rounded-full ${colors.bar}`} style={{ width: `${width}%` }} />
+      </div>
       <p className="mt-3 text-sm text-slate-500">{detail}</p>
     </div>
   );
@@ -470,14 +481,64 @@ function withStatusColors(data: { label: string; value: number }[]) {
   return data.map((item) => ({ ...item, fill: colors[item.label] ?? BLUE }));
 }
 
-function renderPieLabel({ name, value, percent }: { name?: string; value?: number; percent?: number }) {
-  if (!value) return '';
-  return `${name ?? ''}: ${Math.round((percent ?? 0) * 100)}%`;
+function queryForTimeFilter(filter: AnalyticsTimeFilter): {
+  granularity: SysAdminAnalyticsGranularity;
+  range: SysAdminAnalyticsRange;
+} {
+  if (filter === 'daily') {
+    return { granularity: 'daily', range: 'daily' };
+  }
+  if (filter === 'weekly') {
+    return { granularity: 'weekly', range: 'weekly' };
+  }
+  if (filter === 'monthly') {
+    return { granularity: 'monthly', range: 'monthly' };
+  }
+  if (filter === 'yearly') {
+    return { granularity: 'monthly', range: 'yearly' };
+  }
+  return { granularity: 'monthly', range: 'total' };
+}
+
+function sortTimeSeries<T extends { label: string }>(data: T[], filter: AnalyticsTimeFilter) {
+  return [...data].sort((a, b) => timeSeriesSortValue(a.label, filter) - timeSeriesSortValue(b.label, filter));
+}
+
+function timeSeriesSortValue(label: string, filter: AnalyticsTimeFilter) {
+  if (filter === 'daily') {
+    return leadingNumber(label);
+  }
+
+  if (filter === 'weekly') {
+    return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(label);
+  }
+
+  if (filter === 'monthly') {
+    const week = label.match(/Week\s+(\d+)/i);
+    return week ? Number(week[1]) : Number.MAX_SAFE_INTEGER;
+  }
+
+  if (filter === 'yearly') {
+    const monthIndex = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].indexOf(label);
+    return monthIndex < 0 ? Number.MAX_SAFE_INTEGER : monthIndex;
+  }
+
+  return leadingNumber(label);
+}
+
+function leadingNumber(label: string) {
+  const value = Number(label.match(/\d+/)?.[0] ?? Number.MAX_SAFE_INTEGER);
+  return Number.isNaN(value) ? Number.MAX_SAFE_INTEGER : value;
 }
 
 function renderPieLabelInside({ percent }: { percent?: number }) {
   if (!percent) return '';
   return `${Math.round(percent * 100)}%`;
+}
+
+function renderPieLabelOutside({ name, value, percent }: { name?: string; value?: number; percent?: number }) {
+  if (!value) return '';
+  return `${name ?? ''}: ${Math.round((percent ?? 0) * 100)}%`;
 }
 
 function percentage(value: number, total: number) {

@@ -16,9 +16,11 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.IsoFields;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -52,7 +54,7 @@ public class SystemAdminAnalyticsRepository {
     }
 
     public SystemAdminAnalyticsResponse analytics(Integer universityId, Integer companyId, String granularity, String range) {
-        String bucket = normalizeGranularity(granularity);
+        String bucket = bucketForRange(range, granularity);
         LocalDate startDate = startDateForRange(range);
         List<ApplicationRow> applications = loadApplications(universityId, companyId, startDate);
         List<OpportunityRow> opportunities = loadOpportunities(universityId, companyId, startDate);
@@ -93,7 +95,7 @@ public class SystemAdminAnalyticsRepository {
         allTrendLabels.addAll(opportunityTrend.keySet());
         allTrendLabels.addAll(applicationTrend.keySet());
         List<String> orderedLabels = allTrendLabels.stream()
-                .sorted(Comparator.comparing(SystemAdminAnalyticsRepository::sortKeyForBucket))
+                .sorted(Comparator.comparing(label -> sortKeyForBucket(label, bucket)))
                 .toList();
 
         int totalApplications = applications.size();
@@ -107,7 +109,7 @@ public class SystemAdminAnalyticsRepository {
                         opportunities.size(),
                         totalApplications),
                 toChartPoints(statusCounts),
-                toChartPoints(applicationTrend),
+                toChartPoints(orderedValues(applicationTrend, orderedLabels)),
                 orderedLabels.stream()
                         .map(label -> new SystemAdminAnalyticsResponse.OpportunityApplicationPoint(
                                 label,
@@ -301,6 +303,14 @@ public class SystemAdminAnalyticsRepository {
                 .toList();
     }
 
+    private static Map<String, Integer> orderedValues(Map<String, Integer> values, List<String> labels) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (String label : labels) {
+            out.put(label, values.getOrDefault(label, 0));
+        }
+        return out;
+    }
+
     private static String statusLabel(ApplicationRow row) {
         if (Boolean.FALSE.equals(row.approvedByPpa()) || Boolean.FALSE.equals(row.approvedByCompany())) {
             return "Rejected";
@@ -328,61 +338,99 @@ public class SystemAdminAnalyticsRepository {
     private static Map<String, Integer> seedBuckets(String granularity) {
         Map<String, Integer> out = new LinkedHashMap<>();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        if ("daily".equals(granularity)) {
-            for (int i = 6; i >= 0; i--) {
-                out.put(today.minusDays(i).format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)), 0);
+        if ("hourly".equals(granularity)) {
+            for (int hour = 0; hour < 24; hour++) {
+                out.put(String.format(Locale.ENGLISH, "%02d:00", hour), 0);
+            }
+        } else if ("daily".equals(granularity)) {
+            LocalDate monday = today.with(java.time.DayOfWeek.MONDAY);
+            for (int i = 0; i < 7; i++) {
+                out.put(monday.plusDays(i).format(DateTimeFormatter.ofPattern("EEE", Locale.ENGLISH)), 0);
+            }
+        } else if ("weekly".equals(granularity)) {
+            LocalDate firstDay = today.withDayOfMonth(1);
+            LocalDate cursor = firstDay.with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+            LocalDate lastDay = today.withDayOfMonth(today.lengthOfMonth());
+            while (!cursor.isAfter(lastDay)) {
+                out.put("Week " + cursor.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR), 0);
+                cursor = cursor.plusWeeks(1);
             }
         } else if ("monthly".equals(granularity)) {
-            for (int i = 5; i >= 0; i--) {
-                out.put(today.minusMonths(i).format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)), 0);
+            for (int i = 1; i <= 12; i++) {
+                out.put(LocalDate.of(today.getYear(), i, 1).format(DateTimeFormatter.ofPattern("MMM", Locale.ENGLISH)), 0);
             }
         } else {
-            for (int i = 3; i >= 0; i--) {
-                LocalDate d = today.minusWeeks(i);
-                out.put("Week " + d.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR), 0);
-            }
+            return out;
         }
         return out;
     }
 
     private static void incrementBucket(Map<String, Integer> buckets, String granularity, String createdAt) {
-        LocalDate date = parseDate(createdAt);
-        if (date == null) {
+        LocalDateTime dateTime = parseDateTime(createdAt);
+        if (dateTime == null) {
             return;
         }
-        String label = labelForDate(date, granularity);
+        String label = labelForDate(dateTime, granularity);
         buckets.merge(label, 1, Integer::sum);
     }
 
-    private static String labelForDate(LocalDate date, String granularity) {
+    private static String labelForDate(LocalDateTime dateTime, String granularity) {
+        LocalDate date = dateTime.toLocalDate();
+        if ("hourly".equals(granularity)) {
+            return dateTime.format(DateTimeFormatter.ofPattern("HH:00", Locale.ENGLISH));
+        }
         if ("daily".equals(granularity)) {
-            return date.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH));
+            return date.format(DateTimeFormatter.ofPattern("EEE", Locale.ENGLISH));
+        }
+        if ("weekly".equals(granularity)) {
+            return "Week " + date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
         }
         if ("monthly".equals(granularity)) {
-            return date.format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH));
+            return date.format(DateTimeFormatter.ofPattern("MMM", Locale.ENGLISH));
         }
-        return "Week " + date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
+        return String.valueOf(date.getYear());
     }
 
     private static LocalDate parseDate(String value) {
+        LocalDateTime dateTime = parseDateTime(value);
+        return dateTime == null ? null : dateTime.toLocalDate();
+    }
+
+    private static LocalDateTime parseDateTime(String value) {
         if (value == null || value.isBlank()) {
             return null;
         }
         try {
-            return Instant.parse(value).atZone(ZoneOffset.UTC).toLocalDate();
+            return Instant.parse(value).atZone(ZoneOffset.UTC).toLocalDateTime();
         } catch (Exception ignored) {
             try {
-                return LocalDate.parse(value.substring(0, Math.min(10, value.length())));
+                return LocalDate.parse(value.substring(0, Math.min(10, value.length()))).atStartOfDay();
             } catch (Exception ignoredAgain) {
                 return null;
             }
         }
     }
 
-    private static String normalizeGranularity(String granularity) {
-        String value = granularity == null ? "" : granularity.trim().toLowerCase(Locale.ROOT);
-        if ("daily".equals(value) || "monthly".equals(value)) {
-            return value;
+    private static String bucketForRange(String range, String granularity) {
+        String value = range == null ? "" : range.trim().toLowerCase(Locale.ROOT);
+        if ("daily".equals(value)) {
+            return "hourly";
+        }
+        if ("weekly".equals(value)) {
+            return "daily";
+        }
+        if ("monthly".equals(value)) {
+            return "weekly";
+        }
+        if ("yearly".equals(value)) {
+            return "monthly";
+        }
+        if ("total".equals(value)) {
+            return "yearly";
+        }
+        String granularityValue = granularity == null ? "" : granularity.trim().toLowerCase(Locale.ROOT);
+        if ("daily".equals(granularityValue) || "monthly".equals(granularityValue)) {
+            return granularityValue;
         }
         return "weekly";
     }
@@ -390,6 +438,12 @@ public class SystemAdminAnalyticsRepository {
     private static LocalDate startDateForRange(String range) {
         String value = range == null ? "" : range.trim().toLowerCase(Locale.ROOT);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        if ("daily".equals(value)) {
+            return today;
+        }
+        if ("weekly".equals(value)) {
+            return today.with(java.time.DayOfWeek.MONDAY);
+        }
         if ("monthly".equals(value)) {
             return today.withDayOfMonth(1);
         }
@@ -430,8 +484,43 @@ public class SystemAdminAnalyticsRepository {
         return Math.round((value * 100f) / total);
     }
 
-    private static String sortKeyForBucket(String label) {
-        return label == null ? "" : label;
+    private static String sortKeyForBucket(String label, String granularity) {
+        if (label == null) {
+            return "";
+        }
+        if ("hourly".equals(granularity)) {
+            return String.format(Locale.ENGLISH, "%02d", leadingNumber(label));
+        }
+        if ("daily".equals(granularity)) {
+            return String.format(Locale.ENGLISH, "%02d", dayOrder(label));
+        }
+        if ("weekly".equals(granularity)) {
+            return String.format(Locale.ENGLISH, "%02d", leadingNumber(label));
+        }
+        if ("monthly".equals(granularity)) {
+            return String.format(Locale.ENGLISH, "%02d", monthOrder(label));
+        }
+        return String.format(Locale.ENGLISH, "%04d", leadingNumber(label));
+    }
+
+    private static int leadingNumber(String label) {
+        String digits = label.replaceAll("\\D+", " ").trim();
+        if (digits.isBlank()) {
+            return 0;
+        }
+        return Integer.parseInt(digits.split("\\s+")[0]);
+    }
+
+    private static int dayOrder(String label) {
+        List<String> days = List.of("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun");
+        int index = days.indexOf(label);
+        return index < 0 ? 99 : index;
+    }
+
+    private static int monthOrder(String label) {
+        List<String> months = List.of("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec");
+        int index = months.indexOf(label);
+        return index < 0 ? 99 : index;
     }
 
     private static Integer readEmbeddedUniversityId(JsonNode student) {

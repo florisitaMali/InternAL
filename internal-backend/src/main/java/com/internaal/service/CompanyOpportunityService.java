@@ -12,8 +12,8 @@ import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.exception.ValidationException;
 import com.internaal.repository.ApplicationRepository;
-import com.internaal.repository.CompanyRepository;
 import com.internaal.repository.CompanyOpportunityWriteRepository;
+import com.internaal.repository.CompanyRepository;
 import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.OpportunityRepository;
@@ -28,6 +28,8 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -144,7 +146,7 @@ public class CompanyOpportunityService {
                         HttpStatus.BAD_GATEWAY,
                         "Opportunity was created but could not be reloaded."
                 ));
-        if (!Boolean.TRUE.equals(req.draft())) {
+        if (!Boolean.TRUE.equals(created.draft()) && !targets.isEmpty()) {
             notifyUniversitiesOfNewCollaboration(companyId, newId, created.title(), targets);
         }
         return new CompanyOpportunityDetailResponse(toItem(created, 0), emptyStats());
@@ -254,9 +256,9 @@ public class CompanyOpportunityService {
                         "Opportunity could not be reloaded after update."
                 ));
         if (req.targetUniversityIds() != null && !Boolean.TRUE.equals(updated.draft())) {
-            java.util.Set<Integer> prev = new HashSet<>(previousTargets);
+            Set<Integer> prev = new HashSet<>(previousTargets);
             List<Integer> newlyAdded = req.targetUniversityIds().stream()
-                    .filter(java.util.Objects::nonNull)
+                    .filter(Objects::nonNull)
                     .filter(id -> !prev.contains(id))
                     .toList();
             notifyUniversitiesOfNewCollaboration(companyId, opportunityId, updated.title(), newlyAdded);
@@ -283,6 +285,10 @@ public class CompanyOpportunityService {
         return new OpportunityApplicationStatsDto(0, 0, 0, 0);
     }
 
+    /**
+     * Notifies each targeted university (inbox keyed by {@code university_id}) that the company requested
+     * collaboration on a published opportunity.
+     */
     private void notifyUniversitiesOfNewCollaboration(
             int companyId, int opportunityId, String title, List<Integer> universityIds) {
         if (universityIds == null || universityIds.isEmpty()) {
@@ -290,12 +296,12 @@ public class CompanyOpportunityService {
         }
         String companyLabel = companyRepository.findCompanyNameById(companyId).orElse("A company");
         String listing = title != null && !title.isBlank() ? title.trim() : "an internship opportunity";
+        String msg = companyLabel + " has added \"" + listing
+                + "\" and wants to collaborate with your university.";
         for (Integer uid : universityIds) {
             if (uid == null) {
                 continue;
             }
-            String msg = companyLabel + " has added \"" + listing
-                    + "\" and wants to collaborate with your university.";
             notificationRepository.insertNotification(
                     Role.UNIVERSITY_ADMIN,
                     uid,

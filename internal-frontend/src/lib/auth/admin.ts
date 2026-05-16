@@ -1,5 +1,4 @@
 import type { ApplicationResponse } from '@/src/lib/auth/opportunities';
-import { mapOpportunity, type ApiOpportunityItem } from '@/src/lib/auth/company';
 import { getAccessTokenForMutatingApi, getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import type { Application, DashboardStats, Department, Opportunity, PPAApprover, Student, StudyField } from '@/src/types';
 import {
@@ -196,6 +195,7 @@ export type AdminStudentRow = {
   studyYear: number | null;
   cgpa: number | null;
   studyFieldName?: string | null;
+  departmentName?: string | null;
   applicationCount?: number | null;
   applicationStatus?: string | null;
 };
@@ -377,6 +377,9 @@ function parseAdminOpportunityDetailResponse(raw: unknown): AdminOpportunityDeta
     createdAt,
     applicantCount: pickNum(r, 'applicantCount', 'applicant_count'),
     collaborationSummary: pickStr(r, 'collaborationSummary', 'collaboration_summary'),
+    collaborationApproved: parseTargetUniversitiesFromDetail(r.collaborationApproved ?? r.collaboration_approved),
+    collaborationRejected: parseTargetUniversitiesFromDetail(r.collaborationRejected ?? r.collaboration_rejected),
+    collaborationPending: parseTargetUniversitiesFromDetail(r.collaborationPending ?? r.collaboration_pending),
   };
 }
 
@@ -409,6 +412,9 @@ export type AdminOpportunityDetail = {
   createdAt: string | null;
   applicantCount: number | null;
   collaborationSummary: string | null;
+  collaborationApproved?: { universityId: number; name: string }[] | null;
+  collaborationRejected?: { universityId: number; name: string }[] | null;
+  collaborationPending?: { universityId: number; name: string }[] | null;
 };
 
 /** List card: same shape as student explore cards (subset from admin summary API). */
@@ -485,6 +491,9 @@ export function mapAdminOpportunityDetailToOpportunity(item: AdminOpportunityDet
     postedAt,
     postedLabel: postedAt ? formatPostedDisplay(postedAt) : undefined,
     collaborationSummary: item.collaborationSummary?.trim() || undefined,
+    collaborationApproved: item.collaborationApproved ?? undefined,
+    collaborationRejected: item.collaborationRejected ?? undefined,
+    collaborationPending: item.collaborationPending ?? undefined,
   };
 }
 
@@ -498,14 +507,20 @@ type AdminPpaRow = {
 };
 
 export function mapAdminStudentToStudent(row: AdminStudentRow): Student {
+  const departmentId = row.departmentId != null ? String(row.departmentId) : undefined;
+  const studyFieldId = row.studyFieldId != null ? String(row.studyFieldId) : undefined;
+  const departmentName = row.departmentName?.trim() || undefined;
+  const studyFieldName = row.studyFieldName?.trim() || undefined;
   return {
     id: String(row.studentId),
     fullName: row.fullName || '—',
     email: row.email || '',
     role: 'STUDENT',
     university: row.universityName || '',
-    departmentName: row.departmentId != null ? String(row.departmentId) : undefined,
-    studyFieldName: row.studyFieldId != null ? String(row.studyFieldId) : undefined,
+    departmentId,
+    studyFieldId,
+    departmentName: departmentName ?? departmentId,
+    studyFieldName: studyFieldName ?? studyFieldId,
     studyYear: row.studyYear ?? 1,
     cgpa: row.cgpa ?? 0,
     hasCompletedPP: false,
@@ -727,26 +742,6 @@ export async function fetchAdminOpportunities(
   return { data: data.map(parseAdminOpportunitySummaryResponse), errorMessage: null };
 }
 
-export async function patchAdminOpportunityCollaboration(
-  accessToken: string,
-  opportunityId: number,
-  approved: boolean
-): Promise<{ data: Opportunity | null; errorMessage: string | null }> {
-  const { data, errorMessage } = await patchJson<ApiOpportunityItem>(
-    `/api/admin/opportunities/${encodeURIComponent(String(opportunityId))}/collaboration`,
-    accessToken,
-    { approved }
-  );
-  if (errorMessage || data == null) {
-    return { data: null, errorMessage: errorMessage ?? 'Could not update collaboration.' };
-  }
-  try {
-    return { data: mapOpportunity(data), errorMessage: null };
-  } catch {
-    return { data: null, errorMessage: 'Invalid opportunity response.' };
-  }
-}
-
 export async function fetchAdminOpportunityDetail(
   accessToken: string,
   opportunityId: number
@@ -757,6 +752,26 @@ export async function fetchAdminOpportunityDetail(
   );
   if (errorMessage || data == null) {
     return { data: null, errorMessage: errorMessage ?? 'Could not load opportunity.' };
+  }
+  const parsed = parseAdminOpportunityDetailResponse(data);
+  if (!parsed) {
+    return { data: null, errorMessage: 'Invalid opportunity response.' };
+  }
+  return { data: parsed, errorMessage: null };
+}
+
+export async function patchAdminOpportunityCollaboration(
+  accessToken: string,
+  opportunityId: number,
+  approved: boolean
+): Promise<{ data: AdminOpportunityDetail | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await patchJson<unknown>(
+    `/api/admin/opportunities/${encodeURIComponent(String(opportunityId))}/collaboration`,
+    accessToken,
+    { approved }
+  );
+  if (errorMessage || data == null) {
+    return { data: null, errorMessage: errorMessage ?? 'Could not update collaboration.' };
   }
   const parsed = parseAdminOpportunityDetailResponse(data);
   if (!parsed) {

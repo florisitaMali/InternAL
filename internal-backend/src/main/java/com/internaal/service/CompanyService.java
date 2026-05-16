@@ -17,6 +17,7 @@ import com.internaal.dto.StudentProfileResponse;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyRepository;
 import com.internaal.repository.NotificationRepository;
+import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.OpportunityRepository;
 import com.internaal.repository.StudentProfileRepository;
 import org.springframework.http.HttpStatus;
@@ -114,7 +115,7 @@ public class CompanyService {
         List<Opportunity> rows = opportunityRepository.findForCompanyId(companyId);
         List<OpportunityResponseItem> items = rows.stream()
                 .sorted(Comparator.comparing(Opportunity::title, String.CASE_INSENSITIVE_ORDER))
-                .map(this::toItem)
+                .map(o -> OpportunityMapper.toResponseItem(o, 0, 0))
                 .collect(Collectors.toList());
         return new StudentOpportunitiesResponse(items);
     }
@@ -123,7 +124,11 @@ public class CompanyService {
         int companyId = requireCompanyId(user);
         Opportunity o = opportunityRepository.findByIdAndCompanyId(opportunityId, companyId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
-        return new CompanyOpportunityDetailResponse(toItem(o), statsForOpportunity(companyId, opportunityId));
+        int applicants = applicationRepository.countApplicationsByOpportunityIds(List.of(opportunityId))
+                .getOrDefault(opportunityId, 0);
+        return new CompanyOpportunityDetailResponse(
+                OpportunityMapper.toResponseItem(o, 0, applicants),
+                statsForOpportunity(companyId, opportunityId));
     }
 
     public List<ApplicationResponse> listApplications(UserAccount user) {
@@ -244,49 +249,6 @@ public class CompanyService {
 
     private OpportunityApplicationStatsDto statsForOpportunity(int companyId, int opportunityId) {
         return applicationRepository.statsForCompanyOpportunity(companyId, opportunityId);
-    }
-
-    private static String resolveTypeDisplay(Opportunity o) {
-        if (o.typeRaw() != null && !o.typeRaw().isBlank()) {
-            return o.typeRaw().trim();
-        }
-        return o.type();
-    }
-
-    private OpportunityResponseItem toItem(Opportunity o) {
-        String typeStr = resolveTypeDisplay(o);
-        String wm = o.workMode() == null ? null : o.workMode().toApiValue();
-        String wt = o.workType();
-        return new OpportunityResponseItem(
-                o.id(),
-                o.companyId(),
-                o.companyName(),
-                o.affiliatedUniversityName(),
-                o.title(),
-                o.description(),
-                o.requiredSkills(),
-                o.requiredExperience(),
-                o.deadline(),
-                o.startDate(),
-                List.of(),
-                List.of(),
-                typeStr,
-                o.location(),
-                o.isPaid(),
-                wm,
-                o.positionCount(),
-                wt,
-                o.duration(),
-                o.salaryMonthly(),
-                o.niceToHave(),
-                o.draft(),
-                o.postedAt(),
-                0,
-                o.code(),
-                o.createdAt(),
-                0,
-                null
-        );
     }
 
     private static CompanyProfileResponse mapCompany(JsonNode n, int fallbackCompanyId) {

@@ -424,6 +424,33 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     }
   };
 
+  const openOpportunityFromNotification = useCallback(
+    async (opportunityId: number) => {
+      onNavigateTab?.('opportunities');
+      setDetailOpenedFrom('manage');
+      setSelectedOpportunityDetail(null);
+      try {
+        const accessToken = await getSessionAccessToken();
+        if (!accessToken) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { data, errorMessage } = await fetchCompanyOpportunityDetail(
+          accessToken,
+          String(opportunityId)
+        );
+        if (data) {
+          setSelectedOpportunityDetail(data);
+        } else if (errorMessage) {
+          toast.error(errorMessage);
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not load opportunity.');
+      }
+    },
+    [onNavigateTab]
+  );
+
   const beginEditProfile = () => {
     if (!companyProfile) return;
     setProfileLogoFile(null);
@@ -1567,6 +1594,7 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
             close();
           }}
           onUnreadMayHaveChanged={refreshUnreadNotifications}
+          onActivateOpportunity={(id) => void openOpportunityFromNotification(id)}
           className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
         />
       )}

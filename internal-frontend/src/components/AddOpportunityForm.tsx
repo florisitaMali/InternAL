@@ -105,7 +105,6 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken,
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
-
   const validate = (): string | null => {
     if (!title.trim()) return 'Job title is required.';
     const pc = Number(positionCount);
@@ -213,45 +212,48 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken,
             <label className="block">
               <Req>Application Deadline</Req>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <Calendar
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={18}
+                />
                 <input
                   type="date"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
                 />
               </div>
               <p className="text-xs text-slate-400 mt-1">Stored as YYYY-MM-DD; shown in your locale elsewhere.</p>
             </label>
             <label className="block">
-              <Req>Expected start date</Req>
+              <Req>Expected Start Date</Req>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <Calendar
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={18}
+                />
                 <input
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
                 />
               </div>
               <p className="text-xs text-slate-400 mt-1">When the internship or role is expected to begin.</p>
             </label>
-          </div>
-        </section>
-
-        <section>
-          <SectionTitle>Job Details</SectionTitle>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <label className="block">
-              <Req>Location</Req>
+            <label className="block md:col-span-2">
+              <Req>Job Location</Req>
               <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <MapPin
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={18}
+                />
                 <input
                   type="text"
                   value={jobLocation}
                   onChange={(e) => setJobLocation(e.target.value)}
-                  placeholder="e.g. San Francisco, CA"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                  placeholder="City, country, or remote policy"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
                 />
               </div>
             </label>

@@ -429,20 +429,32 @@ public class UniversityAdminRepository {
 
     public List<AdminStudentResponse> listStudentsByUniversityId(int universityId) {
         String url = supabaseUrl + "/rest/v1/student?university_id=eq." + universityId
-                + "&select=student_id,full_name,email,university_id,department_id,field_id,study_year,cgpa,university(name)"
+                + "&select=student_id,full_name,email,university_id,department_id,field_id,study_year,cgpa,"
+                + "university(name),department(name),studyfield(name)"
                 + "&order=full_name&limit=2000";
         return fetchStudentRows(url);
     }
 
     public List<AdminStudentResponse> listStudents() {
-        String url = supabaseUrl + "/rest/v1/student?select=student_id,full_name,email,university_id,department_id,field_id,study_year,cgpa"
-                + ",university(name)&order=full_name&limit=2000";
+        String url = supabaseUrl + "/rest/v1/student?select=student_id,full_name,email,university_id,department_id,field_id,"
+                + "study_year,cgpa,university(name),department(name),studyfield(name)"
+                + "&order=full_name&limit=2000";
         return fetchStudentRows(url);
     }
 
     public boolean existsStudentById(int studentId) {
         String url = supabaseUrl + "/rest/v1/student?student_id=eq." + studentId + "&select=student_id&limit=1";
         return fetchArray(url).map(arr -> arr.isArray() && arr.size() > 0).orElse(false);
+    }
+
+    private static JsonNode firstRelation(JsonNode embed) {
+        if (embed == null || embed.isNull()) {
+            return null;
+        }
+        if (embed.isArray() && embed.size() > 0) {
+            return embed.get(0);
+        }
+        return embed;
     }
 
     private List<AdminStudentResponse> fetchStudentRows(String url) {
@@ -455,9 +467,19 @@ public class UniversityAdminRepository {
                         continue;
                     }
                     String uniName = null;
-                    JsonNode u = n.get("university");
-                    if (u != null && !u.isNull()) {
+                    JsonNode u = firstRelation(n.get("university"));
+                    if (u != null && u.isObject()) {
                         uniName = text(u, "name");
+                    }
+                    String studyFieldName = null;
+                    JsonNode sf = firstRelation(n.get("studyfield"));
+                    if (sf != null && sf.isObject()) {
+                        studyFieldName = text(sf, "name");
+                    }
+                    String departmentName = null;
+                    JsonNode dep = firstRelation(n.get("department"));
+                    if (dep != null && dep.isObject()) {
+                        departmentName = text(dep, "name");
                     }
                     BigDecimal cgpa = null;
                     if (n.has("cgpa") && !n.get("cgpa").isNull()) {
@@ -472,7 +494,8 @@ public class UniversityAdminRepository {
                             intVal(n, "field_id"),
                             intVal(n, "study_year"),
                             cgpa,
-                            null,
+                            studyFieldName,
+                            departmentName,
                             null,
                             null
                     ));
@@ -534,6 +557,7 @@ public class UniversityAdminRepository {
                 intVal(first, "field_id"),
                 intVal(first, "study_year"),
                 cgpa,
+                null,
                 null,
                 null,
                 null
@@ -1338,6 +1362,42 @@ public class UniversityAdminRepository {
             return Optional.empty();
         }
         return Optional.ofNullable(intVal(opt.get().get(0), "department_id"));
+    }
+
+    public Optional<String> getCollaborationStatus(int opportunityId, int universityId) {
+        String url = supabaseUrl + "/rest/v1/opportunitytarget?opportunity_id=eq." + opportunityId
+                + "&university_id=eq." + universityId + "&select=collaboration_status&limit=1";
+        Optional<JsonNode> opt = fetchJsonBodyLogged(url).filter(JsonNode::isArray);
+        if (opt.isEmpty() || !opt.get().isArray() || opt.get().isEmpty()) {
+            return Optional.empty();
+        }
+        JsonNode row = opt.get().get(0);
+        String st = text(row, "collaboration_status");
+        if (st == null || st.isBlank()) {
+            return Optional.of("PENDING");
+        }
+        return Optional.of(st.trim());
+    }
+
+    public void patchCollaborationStatus(int opportunityId, int universityId, String status) {
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("collaboration_status", status);
+            String json = objectMapper.writeValueAsString(body);
+            String url = supabaseUrl + "/rest/v1/opportunitytarget?opportunity_id=eq." + opportunityId
+                    + "&university_id=eq." + universityId;
+            restTemplate.exchange(
+                    url,
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(json, createServiceHeaders()),
+                    String.class);
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            log.warn("patchCollaborationStatus failed: HTTP {}", e.getStatusCode().value());
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    e.getMessage() != null ? e.getMessage() : "Could not update collaboration status");
+        }
     }
 
     /**

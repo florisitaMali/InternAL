@@ -20,6 +20,12 @@ public record OpportunityResponseItem(
         LocalDate startDate,
         List<Integer> targetUniversityIds,
         List<TargetUniversityOption> targetUniversities,
+        /** Target universities that approved collaboration (company + admin detail). */
+        List<TargetUniversityOption> collaborationApproved,
+        /** Target universities that rejected collaboration. */
+        List<TargetUniversityOption> collaborationRejected,
+        /** Target universities with no decision yet. */
+        List<TargetUniversityOption> collaborationPending,
         String type,
         String location,
         Boolean isPaid,

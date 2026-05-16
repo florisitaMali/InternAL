@@ -170,6 +170,7 @@ public class PpaService {
                     s.studyYear(),
                     s.cgpa(),
                     s.studyFieldName(),
+                    s.departmentName(),
                     count,
                     status
             );

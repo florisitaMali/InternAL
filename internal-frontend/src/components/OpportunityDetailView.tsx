@@ -23,6 +23,31 @@ import {
 } from '@/src/lib/opportunityFormat';
 import type { Opportunity } from '@/src/types';
 
+function collaborationNamesLine(list: { universityId: number; name: string }[] | undefined): string {
+  if (!list?.length) return '—';
+  return list
+    .map((t) => (t.name?.trim() ? t.name.trim() : `University ${t.universityId}`))
+    .join(', ');
+}
+
+function CollaborationPendingOnePerLine({
+  list,
+  rowClassName,
+}: {
+  list: { universityId: number; name: string }[];
+  rowClassName: string;
+}) {
+  return (
+    <div className="mt-0.5 flex flex-col gap-1">
+      {list.map((t, i) => (
+        <p key={`pending-${t.universityId}-${i}`} className={rowClassName}>
+          {t.name?.trim() ? t.name.trim() : `University ${t.universityId}`}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export type OpportunityDetailViewProps = {
   opportunity: Opportunity;
   variant: 'company' | 'student';
@@ -42,13 +67,13 @@ export type OpportunityDetailViewProps = {
   showBackButton?: boolean;
   /** When true, omit outer listing card and flatten sidebar (parent panel provides the card). */
   embeddedInCard?: boolean;
-  /** University admin: approve or reject collaboration for their institution (shown when status is pending or after decision). */
-  universityCollaborationActions?: {
-    status: 'PENDING' | 'APPROVED' | 'REJECTED';
-    busy?: boolean;
-    onApprove: () => void;
-    onReject: () => void;
-  } | null;
+  /** University admin: accept/decline collaboration while status is pending for this university. */
+  universityAdminCollaboration?: {
+    linkedUniversityId: number;
+    onAccept: () => void | Promise<void>;
+    onReject: () => void | Promise<void>;
+    busy: boolean;
+  };
 };
 
 const defaultApplicationStats = { total: 0, inReview: 0, approved: 0, rejected: 0 };
@@ -88,7 +113,7 @@ export default function OpportunityDetailView({
   showApplicationStats,
   showBackButton = true,
   embeddedInCard = false,
-  universityCollaborationActions = null,
+  universityAdminCollaboration,
 }: OpportunityDetailViewProps) {
   const stats = opportunity.applicationStats ?? defaultApplicationStats;
   const embedded = embeddedInCard === true;
@@ -115,42 +140,84 @@ export default function OpportunityDetailView({
       : '—';
   const targetUniversitiesLabel = formatTargetUniversitiesDisplay(opportunity);
   const embeddedStudentMeta = [location, workMode, jobType, duration].filter((v) => v && v !== '—');
+  const bucketsProvided =
+    opportunity.collaborationApproved != null ||
+    opportunity.collaborationRejected != null ||
+    opportunity.collaborationPending != null;
+  const approvedList = opportunity.collaborationApproved ?? [];
+  const rejectedList = opportunity.collaborationRejected ?? [];
+  let pendingList = opportunity.collaborationPending ?? [];
+  if (!bucketsProvided) {
+    const tu = opportunity.targetUniversities;
+    if (tu?.length) {
+      pendingList = tu.map((t) => ({
+        universityId: t.universityId,
+        name: t.name?.trim() ? t.name.trim() : `University ${t.universityId}`,
+      }));
+    } else {
+      const ids = opportunity.targetUniversityIds?.filter(Boolean) ?? [];
+      if (ids.length) {
+        pendingList = ids.map((id) => ({
+          universityId: Number(id),
+          name: `University ${id}`,
+        }));
+      }
+    }
+  }
+  const hasCollabBuckets =
+    approvedList.length + rejectedList.length + pendingList.length > 0;
+  const uid = universityAdminCollaboration?.linkedUniversityId;
+  const myCollabPending =
+    uid != null && universityAdminCollaboration != null && pendingList.some((t) => t.universityId === uid);
+  const myCollabApproved =
+    uid != null && approvedList.some((t) => t.universityId === uid);
+  const myCollabRejected =
+    uid != null && rejectedList.some((t) => t.universityId === uid);
 
   const universityCollaborationBanner =
-    universityCollaborationActions != null ? (
+    universityAdminCollaboration != null &&
+    (myCollabPending || myCollabApproved || myCollabRejected) ? (
       <div
         className="rounded-xl border border-indigo-200 bg-indigo-50/90 p-4 md:p-5 shadow-sm"
         role="region"
         aria-label="University collaboration"
       >
-        <p className="text-xs font-bold uppercase tracking-widest text-indigo-900/70">Collaboration with your university</p>
-        <p className="mt-2 text-sm font-semibold text-slate-900 leading-snug">
-          {universityCollaborationActions.status === 'PENDING'
-            ? 'This company is requesting your approval to collaborate on this listing.'
-            : universityCollaborationActions.status === 'APPROVED'
-              ? 'You have approved collaboration for this opportunity.'
-              : 'You have declined collaboration for this opportunity.'}
+        <p className="text-xs font-bold uppercase tracking-widest text-indigo-900/70">
+          Collaboration with your university
         </p>
-        {universityCollaborationActions.status === 'PENDING' ? (
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <button
-              type="button"
-              disabled={universityCollaborationActions.busy}
-              onClick={universityCollaborationActions.onApprove}
-              className="inline-flex justify-center rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {universityCollaborationActions.busy ? 'Saving…' : 'Approve collaboration'}
-            </button>
-            <button
-              type="button"
-              disabled={universityCollaborationActions.busy}
-              onClick={universityCollaborationActions.onReject}
-              className="inline-flex justify-center rounded-xl border-2 border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Decline
-            </button>
-          </div>
-        ) : null}
+        {myCollabPending ? (
+          <>
+            <p className="mt-2 text-sm font-semibold text-slate-900 leading-snug">
+              This company is requesting your approval to collaborate on this listing.
+            </p>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <button
+                type="button"
+                disabled={universityAdminCollaboration.busy}
+                onClick={() => void universityAdminCollaboration.onAccept()}
+                className="inline-flex justify-center rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {universityAdminCollaboration.busy ? 'Saving…' : 'Approve collaboration'}
+              </button>
+              <button
+                type="button"
+                disabled={universityAdminCollaboration.busy}
+                onClick={() => void universityAdminCollaboration.onReject()}
+                className="inline-flex justify-center rounded-xl border-2 border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Decline
+              </button>
+            </div>
+          </>
+        ) : myCollabApproved ? (
+          <p className="mt-2 text-sm font-semibold text-slate-900 leading-snug">
+            You have approved collaboration for this opportunity.
+          </p>
+        ) : (
+          <p className="mt-2 text-sm font-semibold text-slate-900 leading-snug">
+            You have declined collaboration for this opportunity.
+          </p>
+        )}
       </div>
     ) : null;
 
@@ -278,7 +345,7 @@ export default function OpportunityDetailView({
               <div className="mt-3 space-y-3">
                 {(
                   [
-                    ['TARGET UNIVERSITIES', targetUniversitiesLabel],
+                    ...(!hasCollabBuckets ? ([['TARGET UNIVERSITIES', targetUniversitiesLabel]] as [string, string][]) : []),
                     ['APPLICATION DEADLINE', appDeadline],
                     ['START DATE', startDate],
                     ['POSITIONS', positions],
@@ -289,6 +356,41 @@ export default function OpportunityDetailView({
                     <p className="mt-0.5 text-sm font-bold text-[#0E2A50]">{value || '—'}</p>
                   </div>
                 ))}
+                {hasCollabBuckets ? (
+                  <div className="space-y-3 border-t border-slate-100 pt-3">
+                    {approvedList.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                          Approved by
+                        </p>
+                        <p className="mt-0.5 text-sm font-bold text-[#0E2A50]">
+                          {collaborationNamesLine(approvedList)}
+                        </p>
+                      </div>
+                    ) : null}
+                    {rejectedList.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                          Rejected by
+                        </p>
+                        <p className="mt-0.5 text-sm font-bold text-[#0E2A50]">
+                          {collaborationNamesLine(rejectedList)}
+                        </p>
+                      </div>
+                    ) : null}
+                    {pendingList.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                          Pending response
+                        </p>
+                        <CollaborationPendingOnePerLine
+                          list={pendingList}
+                          rowClassName="text-sm font-bold text-[#0E2A50]"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -489,7 +591,7 @@ export default function OpportunityDetailView({
                   <h3 className="text-base font-bold text-slate-900">Overview</h3>
                   <dl className="mt-4 space-y-3">
                     {[
-                      ['TARGET UNIVERSITIES', targetUniversitiesLabel],
+                      ...(!hasCollabBuckets ? ([['TARGET UNIVERSITIES', targetUniversitiesLabel]] as [string, string][]) : []),
                       ['APPLICATION DEADLINE', appDeadline],
                       ['START DATE', startDate],
                       ['POSITIONS', positions],
@@ -509,6 +611,41 @@ export default function OpportunityDetailView({
                       </div>
                     ))}
                   </dl>
+                  {hasCollabBuckets ? (
+                    <div className="mt-5 space-y-3 border-t border-slate-200 pt-4">
+                      {approvedList.length > 0 ? (
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                            Approved by
+                          </p>
+                          <p className="mt-1 text-sm font-medium text-slate-800">
+                            {collaborationNamesLine(approvedList)}
+                          </p>
+                        </div>
+                      ) : null}
+                      {rejectedList.length > 0 ? (
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                            Rejected by
+                          </p>
+                          <p className="mt-1 text-sm font-medium text-slate-800">
+                            {collaborationNamesLine(rejectedList)}
+                          </p>
+                        </div>
+                      ) : null}
+                      {pendingList.length > 0 ? (
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                            Pending response
+                          </p>
+                          <CollaborationPendingOnePerLine
+                            list={pendingList}
+                            rowClassName="text-sm font-medium text-slate-800"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
 
                 {variant === 'company' && (opportunity.targetUniversities?.length ?? 0) > 0 ? (

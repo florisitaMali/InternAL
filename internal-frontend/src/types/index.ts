@@ -171,8 +171,11 @@ export interface Opportunity {
   targetUniversityIds: string[];
   /** From API embed `university(name)`; empty list with no ids means all universities. */
   targetUniversities?: { universityId: number; name: string; collaborationStatus?: string | null }[];
-  /** Server-built line (hidden in most UIs); prefer target list + per-uni status. */
+  /** Server-built line (hidden in most UIs); prefer target list + per-uni status or collaboration buckets. */
   collaborationSummary?: string;
+  collaborationApproved?: { universityId: number; name: string }[];
+  collaborationRejected?: { universityId: number; name: string }[];
+  collaborationPending?: { universityId: number; name: string }[];
   type?: 'PROFESSIONAL_PRACTICE' | 'INDIVIDUAL_GROWTH' | string;
   location?: string;
   isPaid?: boolean | null;

@@ -308,10 +308,10 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             onToggleSidebar={handleToggleSidebar}
+            onNavigateTab={setActiveTab}
             accessToken={accessToken}
             accessTokenRef={accessTokenRef}
             linkedEntityId={linkedEntityId}
-            onNavigateTab={setActiveTab}
           />
         );
       case 'PPA':

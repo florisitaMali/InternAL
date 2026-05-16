@@ -178,7 +178,8 @@ public class NotificationRepository {
     }
 
     /**
-     * @param applicationId optional FK for student deep-link (omit column when null).
+     * @param applicationId optional FK for application-related notifications.
+     * @param opportunityId optional FK for opportunity / collaboration notifications.
      */
     public boolean insertNotification(
             Role recipientRole,
@@ -192,7 +193,7 @@ public class NotificationRepository {
 
     /**
      * @param applicationId optional FK for application-related notifications.
-     * @param opportunityId optional FK for university-admin collaboration notifications.
+     * @param opportunityId optional FK for opportunity / collaboration notifications.
      */
     public boolean insertNotification(
             Role recipientRole,

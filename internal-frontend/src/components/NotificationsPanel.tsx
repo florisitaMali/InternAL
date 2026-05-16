@@ -70,9 +70,9 @@ interface NotificationsPanelProps {
   className?: string;
   /** Called after mark read / mark all so the header bell badge can refresh without waiting for poll. */
   onUnreadMayHaveChanged?: () => void;
-  /** When set, row click (if notification has applicationId) marks read then opens the linked application. */
+  /** When set, row click with applicationId marks read then opens that application. */
   onActivateApplication?: (applicationId: number) => void;
-  /** When set, row click (if notification has opportunityId and no application handler took precedence) opens the opportunity. */
+  /** When set, row click with opportunityId marks read then opens that opportunity (applications take precedence when both are present). */
   onActivateOpportunity?: (opportunityId: number) => void;
 }
 
@@ -154,19 +154,22 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
   };
 
   const handleRowClick = (n: NotificationItem) => {
-    const canActivateApplication = onActivateApplication != null && n.applicationId != null;
-    const canActivateOpportunity = onActivateOpportunity != null && n.opportunityId != null;
-    if (!canActivateApplication && !canActivateOpportunity) return;
     void (async () => {
+      const aid = n.applicationId;
+      const oid = n.opportunityId;
+      const canActivateApp = aid != null && onActivateApplication != null;
+      const canActivateOpp =
+        oid != null &&
+        onActivateOpportunity != null &&
+        !(aid != null && onActivateApplication != null);
+      if (!canActivateApp && !canActivateOpp) return;
       if (!n.isRead) {
         await handleMarkOne(n);
       }
-      if (canActivateApplication) {
-        onActivateApplication(n.applicationId as number);
-        return;
-      }
-      if (canActivateOpportunity) {
-        onActivateOpportunity(n.opportunityId as number);
+      if (canActivateApp) {
+        onActivateApplication!(aid as number);
+      } else if (canActivateOpp) {
+        onActivateOpportunity!(oid as number);
       }
     })();
   };
@@ -275,14 +278,14 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
         ) : (
           <ul className="divide-y divide-slate-100">
             {filtered.map((n) => {
-              const canOpenApp =
-                onActivateApplication != null && n.applicationId != null && n.applicationId !== undefined;
-              const canOpenOpp =
+              const aid = n.applicationId;
+              const oid = n.opportunityId;
+              const canActivateApp = aid != null && onActivateApplication != null;
+              const canActivateOpp =
+                oid != null &&
                 onActivateOpportunity != null &&
-                n.opportunityId != null &&
-                n.opportunityId !== undefined &&
-                !canOpenApp;
-              const canActivateRow = canOpenApp || canOpenOpp;
+                !(aid != null && onActivateApplication != null);
+              const canActivateRow = canActivateApp || canActivateOpp;
               return (
               <li
                 key={n.notificationId}

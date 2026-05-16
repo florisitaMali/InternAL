@@ -96,6 +96,8 @@ public class SecurityConfig {
         config.setAllowCredentials(true);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
+        /** Chrome Private Network Access: public/staging pages calling a local API need this on preflight. */
+        config.setAllowPrivateNetwork(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);

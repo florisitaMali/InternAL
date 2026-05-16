@@ -12,6 +12,7 @@ public record AdminStudentResponse(
         Integer studyYear,
         BigDecimal cgpa,
         String studyFieldName,
+        String departmentName,
         Integer applicationCount,
         String applicationStatus
 ) {

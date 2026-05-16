@@ -15,6 +15,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Maps PostgREST JSON rows for {@code opportunity} (+ embedded {@code company}, {@code opportunitytarget}) to {@link Opportunity}.
@@ -49,6 +50,20 @@ public final class OpportunityMapper {
                             normalizeCollaborationStatusForApi(t.collaborationStatus())))
                     .toList();
         }
+        List<TargetUniversityOption> approved = new ArrayList<>();
+        List<TargetUniversityOption> rejected = new ArrayList<>();
+        List<TargetUniversityOption> pending = new ArrayList<>();
+        if (o.targetUniversities() != null) {
+            for (TargetUniversity t : o.targetUniversities()) {
+                String label = t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id());
+                TargetUniversityOption opt = new TargetUniversityOption(t.id(), label);
+                switch (normalizeCollaborationStatus(t.collaborationStatus())) {
+                    case "APPROVED" -> approved.add(opt);
+                    case "REJECTED" -> rejected.add(opt);
+                    default -> pending.add(opt);
+                }
+            }
+        }
         String wm = o.workMode() == null ? null : o.workMode().toApiValue();
         String summary = buildCollaborationSummary(o.targetUniversities());
         return new OpportunityResponseItem(
@@ -64,7 +79,10 @@ public final class OpportunityMapper {
                 o.startDate(),
                 targetIds,
                 targetOpts,
-                o.type(),
+                List.copyOf(approved),
+                List.copyOf(rejected),
+                List.copyOf(pending),
+                resolveTypeForApi(o),
                 o.location(),
                 o.isPaid(),
                 wm,
@@ -148,6 +166,20 @@ public final class OpportunityMapper {
             return "APPROVED";
         }
         return s.trim().toUpperCase();
+    }
+
+    public static String normalizeCollaborationStatus(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "PENDING";
+        }
+        return raw.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String resolveTypeForApi(Opportunity o) {
+        if (o.typeRaw() != null && !o.typeRaw().isBlank()) {
+            return o.typeRaw().trim();
+        }
+        return o.type();
     }
 
     public static Opportunity fromJsonNode(JsonNode node) {

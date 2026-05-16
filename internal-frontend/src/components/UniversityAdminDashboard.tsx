@@ -17,6 +17,7 @@ import {
   fetchAdminApplications,
   fetchAdminCompanies,
   fetchAdminDashboardStats,
+  patchAdminOpportunityCollaboration,
   createAdminDepartment,
   createAdminStudyField,
   deleteAdminDepartment,
@@ -30,20 +31,19 @@ import {
   mapAdminOpportunityDetailToOpportunity,
   mapAdminOpportunitySummaryToOpportunity,
   mapApplicationResponseToApplication,
-  patchAdminOpportunityCollaboration,
   updateAdminDepartment,
   updateAdminPpa,
   updateAdminStudyField,
   type AdminOpportunityRow,
 } from '@/src/lib/auth/admin';
 import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
+import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
 import {
   fetchUniversityProfile,
   updateUniversityProfile,
   type UniversityProfileUpdatePayload,
 } from '@/src/lib/auth/universityProfile';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
-import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
 import { uploadUniversityProfilePhoto } from '@/src/lib/supabase/companyProfilePhotos';
 import {
   formatDbDuration,
@@ -83,21 +83,16 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
-function normalizeCollaborationStatus(raw: string | null | undefined): 'PENDING' | 'APPROVED' | 'REJECTED' {
-  const t = (raw ?? '').trim().toUpperCase();
-  if (t === 'PENDING' || t === 'REJECTED' || t === 'APPROVED') return t;
-  return 'APPROVED';
-}
-
 interface UniversityAdminDashboardProps {
   activeTab: string;
   currentUserName: string;
   currentUserRoleLabel: string;
   onToggleSidebar?: () => void;
+  /** Switch sidebar tab (e.g. open Opportunities from a notification). */
+  onNavigateTab?: (tab: string) => void;
   accessToken?: string | null;
   accessTokenRef?: MutableRefObject<string | null>;
   linkedEntityId?: string | number | null;
-  onNavigateTab?: (tab: string) => void;
 }
 
 const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
@@ -105,10 +100,10 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   currentUserName,
   currentUserRoleLabel,
   onToggleSidebar,
+  onNavigateTab,
   accessToken,
   accessTokenRef,
   linkedEntityId,
-  onNavigateTab,
 }) => {
   const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [searchTerm, setSearchTerm] = useState('');
@@ -413,15 +408,11 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     return m;
   }, [adminOpportunities]);
 
-  const universityCollaborationForLinkedUni = useMemo(() => {
-    if (linkedEntityId == null || !adminExploreDetail) return null;
-    const uid = String(linkedEntityId);
-    const row = adminExploreDetail.targetUniversities?.find((t) => String(t.universityId) === uid);
-    const inIds = adminExploreDetail.targetUniversityIds?.some((id) => String(id) === uid) === true;
-    if (!row && !inIds) return null;
-    const status = row ? normalizeCollaborationStatus(row.collaborationStatus) : 'APPROVED';
-    return { status };
-  }, [linkedEntityId, adminExploreDetail]);
+  const linkedUniversityIdForCollab = useMemo(() => {
+    if (linkedEntityId === null || linkedEntityId === undefined || linkedEntityId === '') return NaN;
+    const n = Number(linkedEntityId);
+    return Number.isFinite(n) ? n : NaN;
+  }, [linkedEntityId]);
 
   const openOpportunityDetail = useCallback(
     async (id: number) => {
@@ -448,10 +439,18 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     [resolveAccessToken]
   );
 
-  const handleCollaborationDecision = useCallback(
+  const openOpportunityFromNotification = useCallback(
+    (opportunityId: number) => {
+      onNavigateTab?.('opportunities');
+      void openOpportunityDetail(opportunityId);
+    },
+    [onNavigateTab, openOpportunityDetail]
+  );
+
+  const submitCollaborationDecision = useCallback(
     async (approved: boolean) => {
-      if (!adminExploreSelectedId) return;
-      const id = Number(adminExploreSelectedId);
+      const rawId = adminExploreDetail?.id ?? adminExploreSelectedId;
+      const id = rawId != null && String(rawId).trim() !== '' ? Number(rawId) : NaN;
       if (!Number.isFinite(id)) return;
       setCollaborationBusy(true);
       try {
@@ -463,32 +462,39 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         const res = await patchAdminOpportunityCollaboration(token, id, approved);
         if (res.errorMessage) {
           toast.error(res.errorMessage);
-        } else if (res.data) {
-          setAdminExploreDetail(res.data);
-          toast.success(approved ? 'Collaboration approved.' : 'Collaboration declined.');
+          return;
         }
+        if (res.data) {
+          setAdminExploreDetail(mapAdminOpportunityDetailToOpportunity(res.data));
+        }
+        toast.success(approved ? 'Collaboration approved.' : 'Collaboration declined.');
       } finally {
         setCollaborationBusy(false);
       }
     },
-    [adminExploreSelectedId, resolveAccessToken]
+    [adminExploreDetail?.id, adminExploreSelectedId, resolveAccessToken]
   );
 
-  const openOpportunityFromNotification = useCallback(
-    (opportunityId: number) => {
-      onNavigateTab?.('opportunities');
-      void openOpportunityDetail(opportunityId);
-    },
-    [onNavigateTab, openOpportunityDetail]
-  );
-
-  const filteredStudents = useMemo(
-    () =>
-      students.filter((student) =>
-        `${student.fullName} ${student.email}`.toLowerCase().includes(searchTerm.toLowerCase())
-      ),
-    [students, searchTerm]
-  );
+  const filteredStudents = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return students;
+    return students.filter((student) => {
+      const deptLabel =
+        student.departmentName?.trim() ||
+        (student.departmentId
+          ? departments.find((d) => d.id === student.departmentId)?.name?.trim()
+          : '') ||
+        '';
+      const fieldLabel =
+        student.studyFieldName?.trim() ||
+        (student.studyFieldId
+          ? studyFields.find((f) => f.id === student.studyFieldId)?.name?.trim()
+          : '') ||
+        '';
+      const hay = `${student.fullName} ${student.email} ${deptLabel} ${fieldLabel}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [students, searchTerm, departments, studyFields]);
 
   const filteredAdminOpportunities = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -790,6 +796,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
                 <th className="px-6 py-4">Student ID</th>
                 <th className="px-6 py-4">Full Name</th>
                 <th className="px-6 py-4">Department</th>
+                <th className="px-6 py-4">Study Field</th>
                 <th className="px-6 py-4">Study Year</th>
                 <th className="px-6 py-4">CGPA</th>
                 <th className="px-6 py-4 text-right">Actions</th>
@@ -803,7 +810,20 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
                     <div className="font-bold text-slate-900">{student.fullName}</div>
                     <div className="text-xs text-slate-500">{student.email}</div>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 font-medium">{student.departmentId}</td>
+                  <td className="px-6 py-4 text-sm text-slate-600 font-medium">
+                    {student.departmentName?.trim() ||
+                      (student.departmentId
+                        ? departments.find((d) => d.id === student.departmentId)?.name?.trim()
+                        : undefined) ||
+                      '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-600 font-medium">
+                    {student.studyFieldName?.trim() ||
+                      (student.studyFieldId
+                        ? studyFields.find((f) => f.id === student.studyFieldId)?.name?.trim()
+                        : undefined) ||
+                      '—'}
+                  </td>
                   <td className="px-6 py-4 text-sm text-slate-600">{student.studyYear}</td>
                   <td className="px-6 py-4">
                     <span className="px-2.5 py-1 bg-[#002B5B]/10 text-[#002B5B] rounded-lg text-xs font-bold">
@@ -1529,15 +1549,15 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
             setAdminExploreDetailError(null);
           }}
           showApplicationStats={false}
-          universityCollaborationActions={
-            universityCollaborationForLinkedUni
+          universityAdminCollaboration={
+            Number.isFinite(linkedUniversityIdForCollab)
               ? {
-                  status: universityCollaborationForLinkedUni.status,
+                  linkedUniversityId: linkedUniversityIdForCollab,
+                  onAccept: () => void submitCollaborationDecision(true),
+                  onReject: () => void submitCollaborationDecision(false),
                   busy: collaborationBusy,
-                  onApprove: () => void handleCollaborationDecision(true),
-                  onReject: () => void handleCollaborationDecision(false),
                 }
-              : null
+              : undefined
           }
         />
       );

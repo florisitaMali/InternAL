@@ -4,10 +4,8 @@ import com.internaal.dto.CompanyOpportunityDetailResponse;
 import com.internaal.dto.OpportunityApplicationStatsDto;
 import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.StudentOpportunitiesResponse;
-import com.internaal.dto.TargetUniversityOption;
 import com.internaal.entity.Role;
 import com.internaal.entity.Opportunity;
-import com.internaal.entity.TargetUniversity;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.OpportunityMapper;
@@ -73,7 +71,8 @@ public class StudentOpportunityService {
                         .comparingInt((Opportunity o) -> -skillMatchCount(o, studentSkills))
                         .thenComparing(o -> o.deadline() != null ? o.deadline() : LocalDate.MAX)
                         .thenComparing(Opportunity::title, String.CASE_INSENSITIVE_ORDER))
-                .map(o -> toDto(o, studentSkills, applicantCounts.getOrDefault(o.id(), 0)))
+                .map(o -> OpportunityMapper.toResponseItem(
+                        o, skillMatchCount(o, studentSkills), applicantCounts.getOrDefault(o.id(), 0)))
                 .collect(Collectors.toList());
 
         return new StudentOpportunitiesResponse(items);
@@ -144,74 +143,11 @@ public class StudentOpportunityService {
                         .comparingInt((Opportunity o) -> -skillMatchCount(o, studentSkills))
                         .thenComparing(o -> o.deadline() != null ? o.deadline() : LocalDate.MAX)
                         .thenComparing(Opportunity::title, String.CASE_INSENSITIVE_ORDER))
-                .map(o -> toDto(o, studentSkills, applicantCounts.getOrDefault(o.id(), 0)))
+                .map(o -> OpportunityMapper.toResponseItem(
+                        o, skillMatchCount(o, studentSkills), applicantCounts.getOrDefault(o.id(), 0)))
                 .collect(Collectors.toList());
 
         return new StudentOpportunitiesResponse(items);
-    }
-
-    private static List<Integer> targetUniversityIds(Opportunity o) {
-        if (o.targetUniversities() == null) {
-            return List.of();
-        }
-        return o.targetUniversities().stream().map(TargetUniversity::id).toList();
-    }
-
-    private static List<TargetUniversityOption> targetUniversityOptions(Opportunity o) {
-        if (o.targetUniversities() == null || o.targetUniversities().isEmpty()) {
-            return List.of();
-        }
-        return o.targetUniversities().stream()
-                .map(t -> new TargetUniversityOption(
-                        t.id(),
-                        t.name() != null && !t.name().isBlank() ? t.name() : ("University " + t.id()),
-                        OpportunityMapper.normalizeCollaborationStatusForApi(t.collaborationStatus())))
-                .toList();
-    }
-
-     
-    private static OpportunityResponseItem toDto(Opportunity o, List<String> studentSkills, int applicantCount) {
-        int matches = skillMatchCount(o, studentSkills);
-        String typeStr = resolveTypeDisplay(o);
-        String wm = o.workMode() == null ? null : o.workMode().toApiValue();
-        String wt = o.workType();
-        return new OpportunityResponseItem(
-                o.id(),
-                o.companyId(),
-                o.companyName(),
-                o.affiliatedUniversityName(),
-                o.title(),
-                o.description(),
-                o.requiredSkills(),
-                o.requiredExperience(),
-                o.deadline(),
-                o.startDate(),
-                targetUniversityIds(o),
-                targetUniversityOptions(o),
-                typeStr,
-                o.location(),
-                o.isPaid(),
-                wm,
-                o.positionCount(),
-                wt,
-                o.duration(),
-                o.salaryMonthly(),
-                o.niceToHave(),
-                o.draft(),
-                o.postedAt(),
-                matches,
-                o.code(),
-                o.createdAt(),
-                applicantCount,
-                OpportunityMapper.buildCollaborationSummary(o.targetUniversities())
-        );
-    }
-
-    private static String resolveTypeDisplay(Opportunity o) {
-        if (o.typeRaw() != null && !o.typeRaw().isBlank()) {
-            return o.typeRaw().trim();
-        }
-        return o.type();
     }
 
     /**

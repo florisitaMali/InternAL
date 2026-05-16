@@ -239,3 +239,61 @@ export function fetchSysAdminAnalytics(
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return request<SysAdminAnalyticsResponse>('GET', `/api/sysadmin/analytics${suffix}`, accessToken);
 }
+
+/* ---------- Student analytics (US-32) ---------- */
+
+export type SysAdminSubscriptionTier = 'BASE' | 'PREMIUM';
+export type SysAdminBillingCycle = 'MONTHLY' | 'YEARLY';
+
+export interface SysAdminRevenuePoint {
+  label: string;
+  amount: number;
+}
+
+export interface SysAdminSignupPoint {
+  label: string;
+  base: number;
+  premium: number;
+}
+
+export interface SysAdminRenewalPoint {
+  label: string;
+  monthly: number;
+  yearly: number;
+}
+
+export interface SysAdminStudentAnalyticsResponse {
+  summary: {
+    totalStudents: number;
+    baseStudents: number;
+    premiumStudents: number;
+    totalRevenue: number;
+  };
+  tierDistribution: SysAdminChartPoint[];
+  billingCycleDistribution: SysAdminChartPoint[];
+  baseApplicationStatus: SysAdminChartPoint[];
+  premiumApplicationStatus: SysAdminChartPoint[];
+  revenueOverTime: SysAdminRevenuePoint[];
+  signupsOverTime: SysAdminSignupPoint[];
+  renewalsOverTime: SysAdminRenewalPoint[];
+}
+
+export function fetchSysAdminStudentAnalytics(
+  accessToken: string,
+  params: {
+    universityId?: number | null;
+    subscriptionTier?: SysAdminSubscriptionTier | null;
+    billingCycle?: SysAdminBillingCycle | null;
+    granularity?: SysAdminAnalyticsGranularity;
+    range?: SysAdminAnalyticsRange;
+  } = {},
+) {
+  const query = new URLSearchParams();
+  if (params.universityId != null) query.set('universityId', String(params.universityId));
+  if (params.subscriptionTier) query.set('subscriptionTier', params.subscriptionTier);
+  if (params.billingCycle) query.set('billingCycle', params.billingCycle);
+  if (params.granularity) query.set('granularity', params.granularity);
+  if (params.range) query.set('range', params.range);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request<SysAdminStudentAnalyticsResponse>('GET', `/api/sysadmin/analytics/students${suffix}`, accessToken);
+}

@@ -1022,6 +1022,69 @@ public class StudentProfileRepository {
     }
 
     /**
+     * Upserts the student's {@code studentsubscription} row from a Stripe subscription event (US-32).
+     * One row per student: updates by {@code student_id}, inserting a fresh row if none exists.
+     * Premium while entitled; reverts to Base on cancellation. Best-effort — failures are logged only.
+     */
+    public void upsertStudentSubscription(
+            Integer studentId,
+            boolean entitled,
+            String billingCycle,
+            Double amount,
+            String subscriptionStatus,
+            Long startEpochSeconds,
+            Long currentPeriodEndEpochSeconds,
+            String stripeSubscriptionId) {
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("plan_tier", entitled ? "PREMIUM" : "BASE");
+            body.put("billing_cycle", entitled
+                    ? (billingCycle == null || billingCycle.isBlank() ? "MONTHLY" : billingCycle)
+                    : "NONE");
+            body.put("subscription_price", entitled && amount != null ? amount : 0);
+            body.put("subscription_status", subscriptionStatus != null
+                    ? subscriptionStatus
+                    : (entitled ? "ACTIVE" : "CANCELED"));
+            body.put("stripe_subscription_id", stripeSubscriptionId);
+            body.put("auto_renew", entitled);
+            if (startEpochSeconds != null) {
+                body.put("started_at", java.time.Instant.ofEpochSecond(startEpochSeconds).toString());
+            }
+            if (currentPeriodEndEpochSeconds != null) {
+                body.put("expires_at", java.time.Instant.ofEpochSecond(currentPeriodEndEpochSeconds).toString());
+            }
+
+            HttpHeaders patchHeaders = createServiceHeaders();
+            patchHeaders.setContentType(MediaType.APPLICATION_JSON);
+            patchHeaders.set("Prefer", "return=representation");
+            ResponseEntity<String> patchResp = restTemplate.exchange(
+                    supabaseUrl + "/rest/v1/studentsubscription?student_id=eq." + studentId,
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), patchHeaders),
+                    String.class);
+            boolean rowUpdated = patchResp.getStatusCode().is2xxSuccessful()
+                    && patchResp.getBody() != null
+                    && objectMapper.readTree(patchResp.getBody()).isArray()
+                    && !objectMapper.readTree(patchResp.getBody()).isEmpty();
+            if (rowUpdated) {
+                return;
+            }
+
+            body.put("student_id", studentId);
+            HttpHeaders insertHeaders = createServiceHeaders();
+            insertHeaders.setContentType(MediaType.APPLICATION_JSON);
+            insertHeaders.set("Prefer", "return=minimal");
+            restTemplate.exchange(
+                    supabaseUrl + "/rest/v1/studentsubscription",
+                    HttpMethod.POST,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), insertHeaders),
+                    String.class);
+        } catch (Exception e) {
+            log.warn("upsertStudentSubscription failed for student {}: {}", studentId, e.getMessage());
+        }
+    }
+
+    /**
      * Demo: sets {@code hasPremium} on the student row via PostgREST, then reloads the profile.
      * Real PSP integration should verify payment before calling this.
      */

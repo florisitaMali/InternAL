@@ -547,6 +547,7 @@ public class UniversityAdminRepository {
         if (sid == null) {
             return Optional.empty();
         }
+        insertBaseStudentSubscription(sid);
         BigDecimal cgpa = first.has("cgpa") && !first.get("cgpa").isNull() ? first.get("cgpa").decimalValue() : req.cgpa();
         return Optional.of(new AdminStudentResponse(
                 sid,
@@ -562,6 +563,30 @@ public class UniversityAdminRepository {
                 null,
                 null
         ));
+    }
+
+    /**
+     * Creates the Base {@code studentsubscription} row for a newly registered student (US-32).
+     * Every student carries exactly one subscription row — Base until they upgrade to Premium.
+     * Best-effort: a failure here is logged but must not block student creation.
+     */
+    private void insertBaseStudentSubscription(int studentId) {
+        try {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("student_id", studentId);
+            row.put("plan_tier", "BASE");
+            row.put("billing_cycle", "NONE");
+            row.put("subscription_price", 0);
+            row.put("subscription_status", "ACTIVE");
+            row.put("started_at", java.time.Instant.now().toString());
+            row.put("auto_renew", false);
+            HttpHeaders headers = createServiceHeaders();
+            headers.set("Prefer", "return=minimal");
+            HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(row), headers);
+            restTemplate.exchange(supabaseUrl + "/rest/v1/studentsubscription", HttpMethod.POST, entity, String.class);
+        } catch (Exception e) {
+            log.warn("Could not create Base studentsubscription row for student {}: {}", studentId, e.getMessage());
+        }
     }
 
     public int countUsersWithRole(String role) {

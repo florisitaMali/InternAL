@@ -1,6 +1,7 @@
 package com.internaal.controller;
 
 import com.internaal.dto.SystemAdminAnalyticsResponse;
+import com.internaal.dto.SystemAdminStudentAnalyticsResponse;
 import com.internaal.entity.UserAccount;
 import com.internaal.service.SystemAdminAnalyticsService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,5 +28,16 @@ public class SystemAdminAnalyticsController {
             @RequestParam(value = "granularity", required = false, defaultValue = "weekly") String granularity,
             @RequestParam(value = "range", required = false, defaultValue = "total") String range) {
         return service.analytics(user, universityId, companyId, granularity, range);
+    }
+
+    @GetMapping("/analytics/students")
+    public SystemAdminStudentAnalyticsResponse studentAnalytics(
+            @AuthenticationPrincipal UserAccount user,
+            @RequestParam(value = "universityId", required = false) Integer universityId,
+            @RequestParam(value = "subscriptionTier", required = false) String subscriptionTier,
+            @RequestParam(value = "billingCycle", required = false) String billingCycle,
+            @RequestParam(value = "granularity", required = false, defaultValue = "weekly") String granularity,
+            @RequestParam(value = "range", required = false, defaultValue = "total") String range) {
+        return service.studentAnalytics(user, universityId, subscriptionTier, billingCycle, granularity, range);
     }
 }

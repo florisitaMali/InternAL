@@ -96,6 +96,15 @@ public class StripeWebhookService {
                 null,
                 subscription.getStatus(),
                 subscription.getCurrentPeriodEnd());
+        studentProfileRepository.upsertStudentSubscription(
+                studentId,
+                false,
+                billingCycleOf(subscription),
+                amountOf(subscription),
+                subscription.getStatus(),
+                subscription.getStartDate(),
+                subscription.getCurrentPeriodEnd(),
+                subscription.getId());
     }
 
     private void handleInvoicePaymentFailed(Event event) throws Exception {
@@ -125,6 +134,53 @@ public class StripeWebhookService {
                 subscription.getId(),
                 subscription.getStatus(),
                 subscription.getCurrentPeriodEnd());
+        studentProfileRepository.upsertStudentSubscription(
+                studentId,
+                entitled,
+                billingCycleOf(subscription),
+                amountOf(subscription),
+                subscription.getStatus(),
+                subscription.getStartDate(),
+                subscription.getCurrentPeriodEnd(),
+                subscription.getId());
+    }
+
+    /** Billing cycle from the subscription's first recurring price ("MONTHLY" / "YEARLY"). */
+    private static String billingCycleOf(Subscription subscription) {
+        try {
+            var items = subscription.getItems();
+            if (items != null && items.getData() != null && !items.getData().isEmpty()) {
+                var price = items.getData().get(0).getPrice();
+                if (price != null && price.getRecurring() != null) {
+                    String interval = price.getRecurring().getInterval();
+                    if ("year".equalsIgnoreCase(interval)) {
+                        return "YEARLY";
+                    }
+                    if ("month".equalsIgnoreCase(interval)) {
+                        return "MONTHLY";
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            /* fall through to default */
+        }
+        return "MONTHLY";
+    }
+
+    /** Per-period price (major units) from the subscription's first item, or null when unknown. */
+    private static Double amountOf(Subscription subscription) {
+        try {
+            var items = subscription.getItems();
+            if (items != null && items.getData() != null && !items.getData().isEmpty()) {
+                var price = items.getData().get(0).getPrice();
+                if (price != null && price.getUnitAmount() != null) {
+                    return price.getUnitAmount() / 100.0;
+                }
+            }
+        } catch (Exception ignored) {
+            /* unknown amount */
+        }
+        return null;
     }
 
     private static Integer resolveStudentId(Subscription subscription) {

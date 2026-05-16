@@ -1,6 +1,7 @@
 package com.internaal.service;
 
 import com.internaal.dto.SystemAdminAnalyticsResponse;
+import com.internaal.dto.SystemAdminStudentAnalyticsResponse;
 import com.internaal.entity.UserAccount;
 import com.internaal.repository.SystemAdminAnalyticsRepository;
 import org.springframework.http.HttpStatus;
@@ -24,6 +25,17 @@ public class SystemAdminAnalyticsService {
             String range) {
         requireSystemAdmin(user);
         return repository.analytics(universityId, companyId, granularity, range);
+    }
+
+    public SystemAdminStudentAnalyticsResponse studentAnalytics(
+            UserAccount user,
+            Integer universityId,
+            String subscriptionTier,
+            String billingCycle,
+            String granularity,
+            String range) {
+        requireSystemAdmin(user);
+        return repository.studentAnalytics(universityId, subscriptionTier, billingCycle, granularity, range);
     }
 
     private static void requireSystemAdmin(UserAccount user) {

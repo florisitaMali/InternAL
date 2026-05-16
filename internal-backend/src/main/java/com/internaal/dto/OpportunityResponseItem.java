@@ -20,6 +20,12 @@ public record OpportunityResponseItem(
         LocalDate startDate,
         List<Integer> targetUniversityIds,
         List<TargetUniversityOption> targetUniversities,
+        /** Target universities that approved collaboration (company + admin detail). */
+        List<TargetUniversityOption> collaborationApproved,
+        /** Target universities that rejected collaboration. */
+        List<TargetUniversityOption> collaborationRejected,
+        /** Target universities with no decision yet. */
+        List<TargetUniversityOption> collaborationPending,
         String type,
         String location,
         Boolean isPaid,
@@ -34,6 +40,8 @@ public record OpportunityResponseItem(
         int skillMatchCount,
         String code,
         String createdAt,
-        Integer applicantCount
+        Integer applicantCount,
+        /** Human-readable collaboration line when targets exist, e.g. "Approved by A. Rejected by B. Pending: C". */
+        String collaborationSummary
 ) {
 }

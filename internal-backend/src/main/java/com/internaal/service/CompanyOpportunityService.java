@@ -13,6 +13,8 @@ import com.internaal.entity.UserAccount;
 import com.internaal.exception.ValidationException;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.CompanyOpportunityWriteRepository;
+import com.internaal.repository.CompanyRepository;
+import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.OpportunityRepository;
 import org.springframework.http.HttpStatus;
@@ -22,9 +24,12 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -33,14 +38,20 @@ public class CompanyOpportunityService {
     private final OpportunityRepository opportunityRepository;
     private final CompanyOpportunityWriteRepository writeRepository;
     private final ApplicationRepository applicationRepository;
+    private final NotificationRepository notificationRepository;
+    private final CompanyRepository companyRepository;
 
     public CompanyOpportunityService(
             OpportunityRepository opportunityRepository,
             CompanyOpportunityWriteRepository writeRepository,
-            ApplicationRepository applicationRepository) {
+            ApplicationRepository applicationRepository,
+            NotificationRepository notificationRepository,
+            CompanyRepository companyRepository) {
         this.opportunityRepository = opportunityRepository;
         this.writeRepository = writeRepository;
         this.applicationRepository = applicationRepository;
+        this.notificationRepository = notificationRepository;
+        this.companyRepository = companyRepository;
     }
 
     public CompanyOpportunitiesResponse list(UserAccount user) {
@@ -135,6 +146,9 @@ public class CompanyOpportunityService {
                         HttpStatus.BAD_GATEWAY,
                         "Opportunity was created but could not be reloaded."
                 ));
+        if (!Boolean.TRUE.equals(created.draft()) && !targets.isEmpty()) {
+            notifyUniversitiesOfNewCollaboration(companyId, newId, created.title(), targets);
+        }
         return new CompanyOpportunityDetailResponse(toItem(created, 0), emptyStats());
     }
 
@@ -221,7 +235,11 @@ public class CompanyOpportunityService {
             patch.put("is_draft", req.draft());
         }
 
+        List<Integer> previousTargets = List.of();
         try {
+            if (req.targetUniversityIds() != null) {
+                previousTargets = writeRepository.listTargetUniversityIds(opportunityId);
+            }
             if (!patch.isEmpty()) {
                 writeRepository.patchOpportunity(opportunityId, companyId, patch);
             }
@@ -237,6 +255,14 @@ public class CompanyOpportunityService {
                         HttpStatus.BAD_GATEWAY,
                         "Opportunity could not be reloaded after update."
                 ));
+        if (req.targetUniversityIds() != null && !Boolean.TRUE.equals(updated.draft())) {
+            Set<Integer> prev = new HashSet<>(previousTargets);
+            List<Integer> newlyAdded = req.targetUniversityIds().stream()
+                    .filter(Objects::nonNull)
+                    .filter(id -> !prev.contains(id))
+                    .toList();
+            notifyUniversitiesOfNewCollaboration(companyId, opportunityId, updated.title(), newlyAdded);
+        }
         OpportunityApplicationStatsDto stats =
                 applicationRepository.statsForCompanyOpportunity(companyId, opportunityId);
         return new CompanyOpportunityDetailResponse(toItem(updated, 0), stats);
@@ -257,6 +283,34 @@ public class CompanyOpportunityService {
 
     private static OpportunityApplicationStatsDto emptyStats() {
         return new OpportunityApplicationStatsDto(0, 0, 0, 0);
+    }
+
+    /**
+     * Notifies each targeted university (inbox keyed by {@code university_id}) that the company requested
+     * collaboration on a published opportunity.
+     */
+    private void notifyUniversitiesOfNewCollaboration(
+            int companyId, int opportunityId, String title, List<Integer> universityIds) {
+        if (universityIds == null || universityIds.isEmpty()) {
+            return;
+        }
+        String companyLabel = companyRepository.findCompanyNameById(companyId).orElse("A company");
+        String listing = title != null && !title.isBlank() ? title.trim() : "an internship opportunity";
+        String msg = companyLabel + " has added \"" + listing
+                + "\" and wants to collaborate with your university.";
+        for (Integer uid : universityIds) {
+            if (uid == null) {
+                continue;
+            }
+            notificationRepository.insertNotification(
+                    Role.UNIVERSITY_ADMIN,
+                    uid,
+                    msg,
+                    Role.COMPANY,
+                    companyId,
+                    null,
+                    opportunityId);
+        }
     }
 
     private static void requireCompany(UserAccount user) {

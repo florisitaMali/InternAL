@@ -68,6 +68,17 @@ public class PpaRepository {
         return (n != null && !n.isNull()) ? n.asInt() : null;
     }
 
+    /** PostgREST embeds may be an object or a single-element array. */
+    private static JsonNode firstRelation(JsonNode embed) {
+        if (embed == null || embed.isNull()) {
+            return null;
+        }
+        if (embed.isArray() && embed.size() > 0) {
+            return embed.get(0);
+        }
+        return embed;
+    }
+
     private String textVal(JsonNode node, String field) {
         JsonNode n = node.get(field);
         return (n != null && !n.isNull()) ? n.asText() : null;
@@ -102,14 +113,14 @@ public class PpaRepository {
                         continue;
                     }
                     String fieldName = null;
-                    JsonNode sf = n.get("studyfield");
-                    if (sf != null && !sf.isNull()) {
+                    JsonNode sf = firstRelation(n.get("studyfield"));
+                    if (sf != null && sf.isObject()) {
                         fieldName = textVal(sf, "name");
                     }
-                    String deptName = null;
-                    JsonNode dept = n.get("department");
-                    if (dept != null && !dept.isNull()) {
-                        deptName = textVal(dept, "name");
+                    String departmentName = null;
+                    JsonNode dep = firstRelation(n.get("department"));
+                    if (dep != null && dep.isObject()) {
+                        departmentName = textVal(dep, "name");
                     }
                     BigDecimal cgpa = null;
                     if (n.has("cgpa") && !n.get("cgpa").isNull()) {
@@ -121,11 +132,11 @@ public class PpaRepository {
                             textVal(n, "email"),
                             null,
                             intVal(n, "department_id"),
-                            deptName,
                             intVal(n, "field_id"),
                             intVal(n, "study_year"),
                             cgpa,
                             fieldName,
+                            departmentName,
                             null,
                             null
                     ));
@@ -138,7 +149,7 @@ public class PpaRepository {
     public List<AdminStudentResponse> listStudentsByFieldIds(List<Integer> fieldIds) {
         String inList = fieldIds.stream().map(String::valueOf).collect(Collectors.joining(","));
         String url = supabaseUrl + "/rest/v1/student?field_id=in.(" + inList + ")"
-                + "&select=student_id,full_name,email,study_year,cgpa,field_id,studyfield(name)"
+                + "&select=student_id,full_name,email,study_year,cgpa,field_id,department_id,department(name),studyfield(name)"
                 + "&order=full_name";
         return fetchStudentRows(url);
     }
@@ -151,8 +162,7 @@ public class PpaRepository {
         String inList = fieldIds.stream().map(String::valueOf).collect(Collectors.joining(","));
         String url = supabaseUrl + "/rest/v1/student?field_id=in.(" + inList + ")"
                 + "&department_id=eq." + departmentId
-                + "&select=student_id,full_name,email,study_year,cgpa,field_id,department_id,"
-                + "studyfield(name),department(name)"
+                + "&select=student_id,full_name,email,study_year,cgpa,field_id,department_id,department(name),studyfield(name)"
                 + "&order=full_name";
         return fetchStudentRows(url);
     }

@@ -17,6 +17,11 @@ public record AdminOpportunitySummaryResponse(
         String duration,
         String createdAt,
         List<String> requiredSkills,
-        int applicantCount
+        int applicantCount,
+        /**
+         * This admin’s university’s collaboration row for the listing: PENDING, APPROVED, REJECTED;
+         * null when the opportunity is open to all universities (no specific target row).
+         */
+        String viewerCollaborationStatus
 ) {
 }

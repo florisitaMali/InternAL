@@ -9,6 +9,8 @@ export type NotificationItem = {
   senderRole: string;
   /** When set (e.g. decision on your application), student UI can open that application. */
   applicationId?: number | null;
+  /** When set (e.g. collaboration invite), the relevant dashboard can open this opportunity after marking read. */
+  opportunityId?: number | null;
 };
 
 export type NotificationsListResponse = {

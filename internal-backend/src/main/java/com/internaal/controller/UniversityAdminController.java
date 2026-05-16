@@ -1,5 +1,6 @@
 package com.internaal.controller;
 
+import com.internaal.dto.AdminCollaborationDecisionRequest;
 import com.internaal.dto.AdminCompanySummaryResponse;
 import com.internaal.dto.AdminDashboardStatsResponse;
 import com.internaal.dto.AdminDepartmentCreateRequest;
@@ -31,6 +32,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -126,6 +128,17 @@ public class UniversityAdminController {
             @AuthenticationPrincipal UserAccount user,
             @PathVariable("fieldId") int fieldId) {
         universityAdminService.deleteStudyField(user, fieldId);
+    }
+
+    @PatchMapping("/opportunities/{opportunityId}/collaboration")
+    public OpportunityResponseItem updateCollaboration(
+            @AuthenticationPrincipal UserAccount user,
+            @PathVariable("opportunityId") int opportunityId,
+            @RequestBody AdminCollaborationDecisionRequest body) {
+        if (body == null || body.approved() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Body with 'approved' boolean is required");
+        }
+        return universityAdminService.decideCollaboration(user, opportunityId, body.approved());
     }
 
     @GetMapping("/students")

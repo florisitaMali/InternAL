@@ -25,6 +25,7 @@ import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
 import com.internaal.entity.Opportunity;
 import com.internaal.repository.ApplicationRepository;
+import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.PpaRepository;
 import com.internaal.repository.StudentProfileRepository;
@@ -35,6 +36,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -64,6 +67,7 @@ public class UniversityAdminService {
     private final SupabaseAuthAdminService supabaseAuthAdminService;
     private final StudentProfileRepository studentProfileRepository;
     private final UniversityProfileRepository universityProfileRepository;
+    private final NotificationRepository notificationRepository;
     private final PpaRepository ppaRepository;
 
     public UniversityAdminService(
@@ -72,12 +76,14 @@ public class UniversityAdminService {
             SupabaseAuthAdminService supabaseAuthAdminService,
             StudentProfileRepository studentProfileRepository,
             UniversityProfileRepository universityProfileRepository,
+            NotificationRepository notificationRepository,
             PpaRepository ppaRepository) {
         this.universityAdminRepository = universityAdminRepository;
         this.applicationRepository = applicationRepository;
         this.supabaseAuthAdminService = supabaseAuthAdminService;
         this.studentProfileRepository = studentProfileRepository;
         this.universityProfileRepository = universityProfileRepository;
+        this.notificationRepository = notificationRepository;
         this.ppaRepository = ppaRepository;
     }
 
@@ -282,11 +288,11 @@ public class UniversityAdminService {
                     s.email(),
                     s.universityName(),
                     s.departmentId(),
-                    s.departmentName(),
                     s.studyFieldId(),
                     s.studyYear(),
                     s.cgpa(),
                     s.studyFieldName(),
+                    s.departmentName(),
                     count,
                     status
             );
@@ -636,7 +642,8 @@ public class UniversityAdminService {
                         r.duration(),
                         r.createdAt(),
                         r.requiredSkills(),
-                        counts.getOrDefault(r.opportunityId(), 0)))
+                        counts.getOrDefault(r.opportunityId(), 0),
+                        r.viewerCollaborationStatus()))
                 .toList();
     }
 
@@ -648,6 +655,53 @@ public class UniversityAdminService {
         Map<Integer, Integer> counts = applicationRepository.countApplicationsByOpportunityIds(List.of(opportunityId));
         int applicantCount = counts.getOrDefault(opportunityId, 0);
         return OpportunityMapper.toResponseItem(o, 0, applicantCount);
+    }
+
+    /**
+     * University admin accepts or declines collaboration for their university on a targeted opportunity.
+     */
+    public OpportunityResponseItem decideCollaboration(UserAccount user, int opportunityId, boolean approved) {
+        requireAdmin(user);
+        int universityId = parseUniversityId(user);
+        Opportunity scope = universityAdminRepository.findPublishedOpportunityForUniversity(opportunityId, universityId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Opportunity not found"));
+        String current = universityAdminRepository.getCollaborationStatus(opportunityId, universityId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Your university is not listed as a collaboration target for this opportunity"));
+        String norm = OpportunityMapper.normalizeCollaborationStatus(current);
+        if (!"PENDING".equals(norm)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Collaboration has already been decided");
+        }
+        String newStatus = approved ? "APPROVED" : "REJECTED";
+        try {
+            universityAdminRepository.patchCollaborationStatus(opportunityId, universityId, newStatus);
+        } catch (HttpClientErrorException e) {
+            String hint = e.getResponseBodyAsString();
+            if (hint != null && hint.length() > 200) {
+                hint = hint.substring(0, 200);
+            }
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Could not save collaboration decision. If this persists, ensure the database allows "
+                            + "collaboration_status REJECTED for opportunitytarget. " + (hint != null ? hint : ""));
+        }
+        Integer companyId = scope.companyId();
+        if (companyId != null) {
+            String uniLabel = universityAdminRepository.findUniversityNameById(universityId).orElse("A university");
+            String title = scope.title() != null && !scope.title().isBlank() ? scope.title().trim() : "An opportunity";
+            String action = approved ? "approved" : "declined";
+            String msg = uniLabel + " has " + action + " collaboration on \"" + title + "\".";
+            notificationRepository.insertNotification(
+                    Role.COMPANY,
+                    companyId,
+                    msg,
+                    Role.UNIVERSITY_ADMIN,
+                    universityId,
+                    null,
+                    opportunityId);
+        }
+        return getOpportunityDetailForUniversity(user, opportunityId);
     }
 
     /**

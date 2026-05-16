@@ -54,8 +54,9 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken,
   const [skillInput, setSkillInput] = useState('');
   const [targetUniversities, setTargetUniversities] = useState<TargetUniversityOption[]>([]);
   const [targetUniversitiesLoading, setTargetUniversitiesLoading] = useState(true);
-  /** Empty string = all universities; otherwise one university id. */
-  const [targetUniversityId, setTargetUniversityId] = useState('');
+  /** `all` = open listing to every university (empty id list to API). */
+  const [targetScope, setTargetScope] = useState<'all' | 'selected'>('all');
+  const [selectedUniversityIds, setSelectedUniversityIds] = useState<number[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -99,6 +100,11 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken,
 
   const removeSkill = (s: string) => setSkills((prev) => prev.filter((x) => x !== s));
 
+  const toggleUniversityTarget = (id: number) => {
+    setSelectedUniversityIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
   const validate = (): string | null => {
     if (!title.trim()) return 'Job title is required.';
     const pc = Number(positionCount);
@@ -110,6 +116,9 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken,
     if (!description.trim()) return 'Job description is required.';
     if (!requirements.trim()) return 'Requirements are required.';
     if (skills.length === 0) return 'Add at least one required skill.';
+    if (targetScope === 'selected' && selectedUniversityIds.length === 0) {
+      return 'Select at least one target university, or choose “All universities”.';
+    }
     if (paid && salaryMonthly.trim()) {
       const sal = Number(salaryMonthly);
       if (!Number.isFinite(sal) || sal < 0) return 'Enter a valid salary amount.';
@@ -119,9 +128,8 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken,
 
   const buildPayload = (draft: boolean): CompanyOpportunityCreateBody => {
     const salTrim = salaryMonthly.trim();
-    const tid = targetUniversityId.trim();
     const targetUniversityIds =
-      tid === '' ? [] : [Number(tid)].filter((n) => Number.isFinite(n));
+      targetScope === 'all' ? [] : [...selectedUniversityIds].filter((n) => Number.isFinite(n));
     return {
       title: title.trim(),
       description: description.trim(),
@@ -204,45 +212,48 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken,
             <label className="block">
               <Req>Application Deadline</Req>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <Calendar
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={18}
+                />
                 <input
                   type="date"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
                 />
               </div>
               <p className="text-xs text-slate-400 mt-1">Stored as YYYY-MM-DD; shown in your locale elsewhere.</p>
             </label>
             <label className="block">
-              <Req>Expected start date</Req>
+              <Req>Expected Start Date</Req>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <Calendar
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={18}
+                />
                 <input
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
                 />
               </div>
               <p className="text-xs text-slate-400 mt-1">When the internship or role is expected to begin.</p>
             </label>
-          </div>
-        </section>
-
-        <section>
-          <SectionTitle>Job Details</SectionTitle>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <label className="block">
-              <Req>Location</Req>
+            <label className="block md:col-span-2">
+              <Req>Job Location</Req>
               <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                <MapPin
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                  size={18}
+                />
                 <input
                   type="text"
                   value={jobLocation}
                   onChange={(e) => setJobLocation(e.target.value)}
-                  placeholder="e.g. San Francisco, CA"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
+                  placeholder="City, country, or remote policy"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none"
                 />
               </div>
             </label>
@@ -407,26 +418,70 @@ const AddOpportunityForm: React.FC<AddOpportunityFormProps> = ({ getAccessToken,
         </section>
 
         <section>
-          <SectionTitle>Target university</SectionTitle>
-          <label className="block max-w-xl">
-            <span className="text-sm font-semibold text-slate-800 mb-2 block">University</span>
-            <select
-              value={targetUniversityId}
-              onChange={(e) => setTargetUniversityId(e.target.value)}
-              disabled={targetUniversitiesLoading}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none disabled:opacity-60"
-            >
-              <option value="">
-                {targetUniversitiesLoading ? 'Loading universities…' : 'All universities'}
-              </option>
-              {!targetUniversitiesLoading &&
-                targetUniversities.map((u) => (
-                  <option key={u.universityId} value={String(u.universityId)}>
-                    {u.name}
-                  </option>
-                ))}
-            </select>
-          </label>
+          <SectionTitle>Target universities</SectionTitle>
+          <div className="max-w-xl space-y-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 has-[:checked]:border-[#002B5B] has-[:checked]:bg-[#002B5B]/5">
+                <input
+                  type="radio"
+                  name="targetScope"
+                  checked={targetScope === 'all'}
+                  onChange={() => {
+                    setTargetScope('all');
+                    setSelectedUniversityIds([]);
+                  }}
+                  className="h-4 w-4 border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+                />
+                All universities
+              </label>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 has-[:checked]:border-[#002B5B] has-[:checked]:bg-[#002B5B]/5">
+                <input
+                  type="radio"
+                  name="targetScope"
+                  checked={targetScope === 'selected'}
+                  onChange={() => setTargetScope('selected')}
+                  className="h-4 w-4 border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+                />
+                Selected only (multi-select)
+              </label>
+            </div>
+            {targetScope === 'selected' ? (
+              <div>
+                <p className="text-xs font-medium text-slate-500 mb-2">
+                  Choose one or more institutions you want to collaborate with. Each will be notified.
+                </p>
+                <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+                  {targetUniversitiesLoading ? (
+                    <p className="p-4 text-sm text-slate-500">Loading universities…</p>
+                  ) : targetUniversities.length === 0 ? (
+                    <p className="p-4 text-sm text-slate-500">No universities available.</p>
+                  ) : (
+                    targetUniversities.map((u) => (
+                      <label
+                        key={u.universityId}
+                        className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-slate-50/80"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedUniversityIds.includes(u.universityId)}
+                          onChange={() => toggleUniversityTarget(u.universityId)}
+                          className="h-4 w-4 rounded border-slate-300 text-[#002B5B] focus:ring-[#002B5B]"
+                        />
+                        <span className="text-sm font-medium text-slate-800">{u.name}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  {selectedUniversityIds.length} selected
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600">
+                The listing will be visible to students at every university that uses the platform.
+              </p>
+            )}
+          </div>
         </section>
 
         <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">

@@ -16,6 +16,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +63,71 @@ public class CompanyOpportunityWriteRepository {
             }
         }
         return headers;
+    }
+
+    private HttpHeaders readHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        if (supabaseServiceRoleKey != null && !supabaseServiceRoleKey.isBlank()) {
+            headers.set("apikey", supabaseServiceRoleKey);
+            headers.set("Authorization", "Bearer " + supabaseServiceRoleKey);
+        } else {
+            headers.set("apikey", supabaseAnonKey);
+            var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getCredentials() instanceof String jwt) {
+                headers.set("Authorization", "Bearer " + jwt);
+            }
+        }
+        return headers;
+    }
+
+    /**
+     * Loads current {@code opportunitytarget} rows so collaboration decisions survive a full replace of the id list.
+     */
+    public Map<Integer, String> fetchCollaborationByUniversity(int opportunityId) {
+        if (opportunityId <= 0) {
+            return Collections.emptyMap();
+        }
+        try {
+            String url = supabaseUrl + "/rest/v1/opportunitytarget?opportunity_id=eq." + opportunityId
+                    + "&select=university_id,collaboration_status";
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    new HttpEntity<>(readHeaders()),
+                    String.class
+            );
+            if (response.getBody() == null || response.getBody().isBlank()) {
+                return Collections.emptyMap();
+            }
+            JsonNode arr = objectMapper.readTree(response.getBody());
+            if (arr == null || !arr.isArray() || arr.isEmpty()) {
+                return Collections.emptyMap();
+            }
+            Map<Integer, String> out = new HashMap<>();
+            for (JsonNode n : arr) {
+                if (!n.hasNonNull("university_id")) {
+                    continue;
+                }
+                int uid = n.get("university_id").asInt();
+                String st = null;
+                if (n.has("collaboration_status") && !n.get("collaboration_status").isNull()) {
+                    st = n.get("collaboration_status").asText();
+                }
+                if (st != null && !st.isBlank()) {
+                    out.put(uid, st.trim().toUpperCase());
+                } else {
+                    out.put(uid, "PENDING");
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            log.warn("fetchCollaborationByUniversity failed for opportunity {}: {}", opportunityId, e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    public List<Integer> listTargetUniversityIds(int opportunityId) {
+        return new ArrayList<>(fetchCollaborationByUniversity(opportunityId).keySet());
     }
 
     /**
@@ -122,6 +189,7 @@ public class CompanyOpportunityWriteRepository {
     }
 
     public void replaceTargetUniversities(int opportunityId, List<Integer> universityIds) {
+        Map<Integer, String> previous = fetchCollaborationByUniversity(opportunityId);
         deleteTargets(opportunityId);
         if (universityIds == null || universityIds.isEmpty()) {
             return;
@@ -135,6 +203,11 @@ public class CompanyOpportunityWriteRepository {
                 Map<String, Object> t = new LinkedHashMap<>();
                 t.put("opportunity_id", opportunityId);
                 t.put("university_id", uid);
+                String status = previous.get(uid);
+                if (status == null || status.isBlank()) {
+                    status = "PENDING";
+                }
+                t.put("collaboration_status", status);
                 rows.add(t);
             }
             if (rows.isEmpty()) {
@@ -147,6 +220,24 @@ public class CompanyOpportunityWriteRepository {
             throw new IllegalStateException(parseError(e.getResponseBodyAsString(), e.getMessage()));
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage() != null ? e.getMessage() : "Could not save target universities");
+        }
+    }
+
+    public void patchTargetCollaborationStatus(int opportunityId, int universityId, String status) {
+        try {
+            String url = supabaseUrl + "/rest/v1/opportunitytarget?opportunity_id=eq." + opportunityId
+                    + "&university_id=eq." + universityId;
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("collaboration_status", status);
+            restTemplate.exchange(
+                    url,
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), writeHeaders()),
+                    String.class);
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            throw new IllegalStateException(parseError(e.getResponseBodyAsString(), e.getMessage()));
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage() != null ? e.getMessage() : "Could not update collaboration");
         }
     }
 

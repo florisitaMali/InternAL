@@ -10,7 +10,7 @@ import {
   responsibilitiesFromNiceToHave,
 } from '@/src/lib/opportunityFormat';
 
-type ApiOpportunityItem = {
+export type ApiOpportunityItem = {
   id: number;
   companyId: number;
   companyName: string | null;
@@ -22,7 +22,13 @@ type ApiOpportunityItem = {
   deadline: string | null;
   startDate?: string | null;
   targetUniversityIds: number[] | null;
-  targetUniversities?: { universityId: number; name: string }[] | null;
+  targetUniversities?:
+    | { universityId: number; name: string; collaborationStatus?: string | null }[]
+    | null;
+  collaborationSummary?: string | null;
+  collaborationApproved?: { universityId: number; name: string }[] | null;
+  collaborationRejected?: { universityId: number; name: string }[] | null;
+  collaborationPending?: { universityId: number; name: string }[] | null;
   type: string | null;
   location: string | null;
   isPaid: boolean | null;
@@ -96,6 +102,10 @@ export function mapOpportunity(item: ApiOpportunityItem): Opportunity {
       item.targetUniversities?.length
         ? item.targetUniversities.map((t) => String(t.universityId))
         : (item.targetUniversityIds || []).map(String),
+    collaborationSummary: item.collaborationSummary?.trim() || undefined,
+    collaborationApproved: item.collaborationApproved ?? undefined,
+    collaborationRejected: item.collaborationRejected ?? undefined,
+    collaborationPending: item.collaborationPending ?? undefined,
     type: item.type || undefined,
     location: item.location || undefined,
     isPaid: item.isPaid,

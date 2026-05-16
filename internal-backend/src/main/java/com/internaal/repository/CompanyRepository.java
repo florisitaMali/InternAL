@@ -66,6 +66,48 @@ public class CompanyRepository {
         return authHeaders(userJwt);
     }
 
+    private HttpHeaders serviceOnlyHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        String key = (supabaseServiceRoleKey != null && !supabaseServiceRoleKey.isBlank())
+                ? supabaseServiceRoleKey
+                : supabaseAnonKey;
+        headers.set("apikey", key);
+        headers.set("Authorization", "Bearer " + key);
+        return headers;
+    }
+
+    /** Readable with service key when set; used for notification copy. */
+    public Optional<String> findCompanyNameById(int companyId) {
+        if (companyId <= 0) {
+            return Optional.empty();
+        }
+        try {
+            String url = supabaseUrl + "/rest/v1/company?company_id=eq." + companyId + "&select=name&limit=1";
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    new HttpEntity<>(serviceOnlyHeaders()),
+                    String.class
+            );
+            JsonNode arr = objectMapper.readTree(response.getBody());
+            if (arr == null || !arr.isArray() || arr.isEmpty()) {
+                return Optional.empty();
+            }
+            JsonNode row = arr.get(0);
+            if (row == null || !row.has("name") || row.get("name").isNull()) {
+                return Optional.empty();
+            }
+            String name = row.get("name").asText();
+            if (name == null || name.isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(name.trim());
+        } catch (Exception e) {
+            log.debug("findCompanyNameById failed for company_id={}: {}", companyId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
     public Optional<JsonNode> findByCompanyId(int companyId, String userJwt) {
         Optional<JsonNode> byCompanyId = getCompanyRow(companyId, userJwt, "company_id");
         return byCompanyId.isPresent() ? byCompanyId : getCompanyRow(companyId, userJwt, "id");

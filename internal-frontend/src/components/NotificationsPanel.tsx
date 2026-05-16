@@ -70,8 +70,10 @@ interface NotificationsPanelProps {
   className?: string;
   /** Called after mark read / mark all so the header bell badge can refresh without waiting for poll. */
   onUnreadMayHaveChanged?: () => void;
-  /** When set, row click (if notification has applicationId) marks read then opens the linked application. */
+  /** When set, row click with applicationId marks read then opens that application. */
   onActivateApplication?: (applicationId: number) => void;
+  /** When set, row click with opportunityId marks read then opens that opportunity (applications take precedence when both are present). */
+  onActivateOpportunity?: (opportunityId: number) => void;
 }
 
 const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
@@ -79,6 +81,7 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
   className,
   onUnreadMayHaveChanged,
   onActivateApplication,
+  onActivateOpportunity,
 }) => {
   const [tab, setTab] = useState<TabKey>('unread');
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -151,13 +154,23 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
   };
 
   const handleRowClick = (n: NotificationItem) => {
-    const aid = n.applicationId;
-    if (aid == null || !onActivateApplication) return;
     void (async () => {
+      const aid = n.applicationId;
+      const oid = n.opportunityId;
+      const canActivateApp = aid != null && onActivateApplication != null;
+      const canActivateOpp =
+        oid != null &&
+        onActivateOpportunity != null &&
+        !(aid != null && onActivateApplication != null);
+      if (!canActivateApp && !canActivateOpp) return;
       if (!n.isRead) {
         await handleMarkOne(n);
       }
-      onActivateApplication(aid);
+      if (canActivateApp) {
+        onActivateApplication!(aid as number);
+      } else if (canActivateOpp) {
+        onActivateOpportunity!(oid as number);
+      }
     })();
   };
 
@@ -265,16 +278,22 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
         ) : (
           <ul className="divide-y divide-slate-100">
             {filtered.map((n) => {
-              const canOpenApp =
-                onActivateApplication != null && n.applicationId != null && n.applicationId !== undefined;
+              const aid = n.applicationId;
+              const oid = n.opportunityId;
+              const canActivateApp = aid != null && onActivateApplication != null;
+              const canActivateOpp =
+                oid != null &&
+                onActivateOpportunity != null &&
+                !(aid != null && onActivateApplication != null);
+              const canActivateRow = canActivateApp || canActivateOpp;
               return (
               <li
                 key={n.notificationId}
                 className={cn(
                   'px-5 py-4 transition-colors',
-                  canOpenApp ? 'cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50/80'
+                  canActivateRow ? 'cursor-pointer hover:bg-slate-50/80' : 'hover:bg-slate-50/80'
                 )}
-                {...(canOpenApp
+                {...(canActivateRow
                   ? {
                       role: 'button' as const,
                       tabIndex: 0,

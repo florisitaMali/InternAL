@@ -87,7 +87,7 @@ public class OpportunityRepository {
                 + "position_count,job_location,work_mode,work_type,duration,salary_monthly,nice_to_have,"
                 + "is_draft,is_paid,created_at,"
                 + "company(name,location),"
-                + "opportunitytarget(university_id)";
+                + "opportunitytarget(university_id,collaboration_status)";
     }
 
     /**
@@ -523,20 +523,39 @@ public class OpportunityRepository {
 
     /**
      * Returns true when the opportunity is open to all universities (no rows in opportunitytarget)
-     * OR explicitly targets the student's university.
+     * OR explicitly targets the student's university with an approved collaboration row.
      */
     private boolean matchesUniversity(JsonNode node, Integer studentUniversityId) {
         JsonNode targets = node.get("opportunitytarget");
-        if (targets == null || targets.isNull() || !targets.isArray() || targets.isEmpty()) {
+        if (targets == null || targets.isNull()) {
+            return true;
+        }
+        if (targets.isObject()) {
+            return targetRowVisibleToStudent(targets, studentUniversityId);
+        }
+        if (!targets.isArray() || targets.isEmpty()) {
             return true;
         }
         for (JsonNode t : targets) {
-            if (t.has("university_id") && !t.get("university_id").isNull()
-                    && t.get("university_id").asInt() == studentUniversityId) {
+            if (targetRowVisibleToStudent(t, studentUniversityId)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean targetRowVisibleToStudent(JsonNode t, int studentUniversityId) {
+        if (t == null || !t.has("university_id") || t.get("university_id").isNull()) {
+            return false;
+        }
+        if (t.get("university_id").asInt() != studentUniversityId) {
+            return false;
+        }
+        String st = OpportunityMapper.str(t, "collaboration_status");
+        if (st == null || st.isBlank()) {
+            return true;
+        }
+        return "APPROVED".equalsIgnoreCase(st.trim());
     }
 
     private boolean matchesQuery(Opportunity opp, JsonNode node, OpportunityQuery query) {

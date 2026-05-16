@@ -81,6 +81,7 @@ public class NotificationRepository {
                 Integer senderId = intValue(row, "sender_id");
                 SenderInfo sender = resolveSender(senderRoleStr, senderId, userJwt, senderCache);
                 Integer applicationId = intValue(row, "application_id");
+                Integer opportunityId = intValue(row, "opportunity_id");
 
                 items.add(new NotificationItemResponse(
                         id,
@@ -91,7 +92,8 @@ public class NotificationRepository {
                         sender.photoUrl(),
                         sender.initials(),
                         sender.roleLabel(),
-                        applicationId
+                        applicationId,
+                        opportunityId
                 ));
             }
 
@@ -163,8 +165,8 @@ public class NotificationRepository {
     }
 
     /**
-     * Inserts a notification (service role). PPA recipients use {@code university_id} as {@code recipient_id}
-     * to match {@code useraccount.linked_entity_id} for PPA accounts.
+     * Inserts a notification (service role). Recipients use ids that match {@code useraccount.linked_entity_id}
+     * (e.g. {@code university_id} for PPA and university admins, {@code company_id} for companies).
      */
     public boolean insertNotification(
             Role recipientRole,
@@ -172,11 +174,12 @@ public class NotificationRepository {
             String message,
             Role senderRole,
             int senderId) {
-        return insertNotification(recipientRole, recipientId, message, senderRole, senderId, null);
+        return insertNotification(recipientRole, recipientId, message, senderRole, senderId, null, null);
     }
 
     /**
-     * @param applicationId optional FK for student deep-link (omit column when null).
+     * @param applicationId optional FK for application-related notifications.
+     * @param opportunityId optional FK for opportunity / collaboration notifications.
      */
     public boolean insertNotification(
             Role recipientRole,
@@ -185,6 +188,21 @@ public class NotificationRepository {
             Role senderRole,
             int senderId,
             Integer applicationId) {
+        return insertNotification(recipientRole, recipientId, message, senderRole, senderId, applicationId, null);
+    }
+
+    /**
+     * @param applicationId optional FK for application-related notifications.
+     * @param opportunityId optional FK for opportunity / collaboration notifications.
+     */
+    public boolean insertNotification(
+            Role recipientRole,
+            int recipientId,
+            String message,
+            Role senderRole,
+            int senderId,
+            Integer applicationId,
+            Integer opportunityId) {
         if (!serviceRoleConfigured()) {
             log.warn("insertNotification skipped: SUPABASE_SERVICE_ROLE_KEY is not set");
             return false;
@@ -205,6 +223,9 @@ public class NotificationRepository {
             row.put("sender_id", senderId);
             if (applicationId != null) {
                 row.put("application_id", applicationId);
+            }
+            if (opportunityId != null) {
+                row.put("opportunity_id", opportunityId);
             }
 
             String url = supabaseUrl + "/rest/v1/notification";

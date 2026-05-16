@@ -166,11 +166,11 @@ public class PpaService {
                     s.email(),
                     s.universityName(),
                     s.departmentId(),
-                    s.departmentName(),
                     s.studyFieldId(),
                     s.studyYear(),
                     s.cgpa(),
                     s.studyFieldName(),
+                    s.departmentName(),
                     count,
                     status
             );

@@ -861,7 +861,9 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
     const q = myStudentsSearch.trim().toLowerCase();
     return myStudents.filter((s) => {
       if (q) {
-        const hay = [(s.fullName || ''), (s.studyFieldName || '')].join(' ').toLowerCase();
+        const hay = [(s.fullName || ''), (s.email || ''), (s.studyFieldName || ''), (s.departmentName || '')]
+          .join(' ')
+          .toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (studentYearFilter.length > 0) {
@@ -1060,15 +1062,19 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
           <table className="w-full min-w-[880px] border-collapse text-left">
             <thead>
               <tr className="bg-[#002B5B] text-white">
-                <th className="rounded-tl-2xl px-6 py-4 text-xs font-bold uppercase tracking-wider">Name</th>
-                <th className="whitespace-nowrap px-6 py-4 text-xs font-bold uppercase tracking-wider">
-                  Study year
+                <th className="rounded-tl-2xl px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                  Student name
                 </th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Email</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Study field</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Department</th>
+                <th className="whitespace-nowrap px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                  Academic year
+                </th>
                 <th className="whitespace-nowrap px-6 py-4 text-xs font-bold uppercase tracking-wider">
                   Applications
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Status</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Student status</th>
                 <th className="w-[72px] rounded-tr-2xl px-6 py-4 text-right text-xs font-bold uppercase tracking-wider">
                   Action
                 </th>
@@ -1077,19 +1083,19 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
             <tbody className="divide-y divide-slate-100 bg-white">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">
                     Loading…
                   </td>
                 </tr>
               ) : myStudentsError ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-red-500">
+                  <td colSpan={8} className="px-6 py-10 text-center text-sm text-red-500">
                     {myStudentsError}
                   </td>
                 </tr>
               ) : filteredMyStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">
                     No students found for your assigned study fields.
                   </td>
                 </tr>
@@ -1110,11 +1116,17 @@ const PPADashboard: React.FC<PPADashboardProps> = ({
                           {student.fullName || '—'}
                         </button>
                       </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-600 align-middle">
-                        {studyYearLabel(student.studyYear)}
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {student.email?.trim() || '—'}
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
-                        {student.studyFieldName || '—'}
+                        {student.studyFieldName?.trim() || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {student.departmentName?.trim() || '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {studyYearLabel(student.studyYear)}
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
                         {student.applicationCount ?? 0}

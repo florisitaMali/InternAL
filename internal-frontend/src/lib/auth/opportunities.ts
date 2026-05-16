@@ -1,5 +1,5 @@
 import type { Opportunity } from '@/src/types';
-import { normalizePostedAtFromApi } from '@/src/lib/opportunityFormat';
+import { formatPostedDisplay, normalizePostedAtFromApi } from '@/src/lib/opportunityFormat';
 
 type StudentOpportunityResponseItem = {
   id: number;
@@ -13,7 +13,8 @@ type StudentOpportunityResponseItem = {
   deadline: string | null;
   startDate?: string | null;
   targetUniversityIds: number[] | null;
-  targetUniversities?: { universityId: number; name: string }[] | null;
+  targetUniversities?: { universityId: number; name: string; collaborationStatus?: string | null }[] | null;
+  collaborationSummary?: string | null;
   type: string | null;
   location: string | null;
   isPaid: boolean | null;
@@ -61,6 +62,7 @@ function mapApiDateField(value: unknown): string | undefined {
 }
 
 function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
+  const postedAt = normalizePostedAtFromApi(item.postedAt);
   return {
     id: String(item.id),
     companyId: String(item.companyId),
@@ -76,6 +78,7 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
       item.targetUniversities?.length
         ? item.targetUniversities.map((t) => String(t.universityId))
         : (item.targetUniversityIds || []).map(String),
+    collaborationSummary: item.collaborationSummary?.trim() || undefined,
     type: item.type || undefined,
     location: item.location || undefined,
     isPaid: item.isPaid,
@@ -91,7 +94,8 @@ function mapOpportunity(item: StudentOpportunityResponseItem): Opportunity {
     createdAt: item.createdAt ?? undefined,
     applicantCount: item.applicantCount ?? 0,
     draft: item.draft === true,
-    postedAt: normalizePostedAtFromApi(item.postedAt),
+    postedAt,
+    postedLabel: postedAt ? formatPostedDisplay(postedAt) : undefined,
   };
 }
 

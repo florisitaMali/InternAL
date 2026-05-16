@@ -11,5 +11,6 @@ public record NotificationItemResponse(
         String senderPhotoUrl,
         String senderInitials,
         String senderRole,
-        Integer applicationId
+        Integer applicationId,
+        Integer opportunityId
 ) {}

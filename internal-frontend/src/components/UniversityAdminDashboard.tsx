@@ -7,6 +7,8 @@ import Dashboard from './Dashboard';
 import NotificationsPanel from '@/src/components/NotificationsPanel';
 import UniversityProfileReadOnlyView from '@/src/components/UniversityProfileReadOnlyView';
 import ViewerStudentProfileOverlay from '@/src/components/ViewerStudentProfileOverlay';
+import CompanyProfileTabbedView from '@/src/components/CompanyProfileTabbedView';
+import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
 import UnderDevelopment from './UnderDevelopment';
 import OpportunityDetailView from '@/src/components/OpportunityDetailView';
 import * as XLSX from 'xlsx';
@@ -36,7 +38,16 @@ import {
   updateAdminStudyField,
   type AdminOpportunityRow,
 } from '@/src/lib/auth/admin';
-import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
+import {
+  deleteAdminPartnership,
+  fetchUniversityAdminPartnershipCompanies,
+  fetchUniversityAdminPartnershipCompanyProfile,
+  fetchUniversityAdminPartnershipCompanyOpportunities,
+  postAdminPartnershipRequest,
+  postAdminPartnershipRespond,
+  type InstitutionalPartnershipCompanyRow,
+} from '@/src/lib/auth/partnerships';
+import { getAccessTokenForMutatingApi, getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
 import { useNotificationUnreadCount } from '@/src/lib/auth/useNotificationUnreadCount';
 import {
   fetchUniversityProfile,
@@ -54,6 +65,7 @@ import {
 } from '@/src/lib/opportunityFormat';
 import type {
   Application,
+  CompanyProfileFromApi,
   DashboardStats,
   Department,
   Opportunity,
@@ -81,6 +93,7 @@ import {
   ArrowUpNarrowWide,
   Library,
   Filter,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
@@ -134,6 +147,29 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   const [collaborationBusy, setCollaborationBusy] = useState(false);
   const [adminApplications, setAdminApplications] = useState<Application[]>([]);
   const [adminCompanies, setAdminCompanies] = useState<{ companyId: number; name: string; industry: string | null }[]>([]);
+  const [partnershipCompanies, setPartnershipCompanies] = useState<InstitutionalPartnershipCompanyRow[]>([]);
+  const [partnershipCompaniesLoading, setPartnershipCompaniesLoading] = useState(false);
+  const [partnershipFilter, setPartnershipFilter] = useState<'all' | 'collaborators' | 'non'>('all');
+  const [partnershipSearch, setPartnershipSearch] = useState('');
+  const [partnershipRowBusyId, setPartnershipRowBusyId] = useState<number | null>(null);
+  const [partnershipCompanyBrowseId, setPartnershipCompanyBrowseId] = useState<number | null>(null);
+  const [partnershipCompanyBrowseProfile, setPartnershipCompanyBrowseProfile] =
+    useState<CompanyProfileFromApi | null>(null);
+  const [partnershipCompanyBrowseLoading, setPartnershipCompanyBrowseLoading] = useState(false);
+  const [partnershipCompanyBrowseSection, setPartnershipCompanyBrowseSection] = useState<
+    'about' | 'opportunities'
+  >('about');
+  const [partnershipCompanyBrowseOpportunities, setPartnershipCompanyBrowseOpportunities] = useState<
+    Opportunity[]
+  >([]);
+  const [partnershipCompanyBrowseOppSelectedId, setPartnershipCompanyBrowseOppSelectedId] = useState<string | null>(
+    null
+  );
+  const [partnershipCompanyBrowseOppDetail, setPartnershipCompanyBrowseOppDetail] = useState<Opportunity | null>(
+    null
+  );
+  const [partnershipCompanyBrowseOppLoading, setPartnershipCompanyBrowseOppLoading] = useState(false);
+  const [partnershipCompanyBrowseOppError, setPartnershipCompanyBrowseOppError] = useState<string | null>(null);
   const [ppas, setPpas] = useState<PPAApprover[]>([]);
   const [editingPpa, setEditingPpa] = useState<PPAApprover | null>(null);
   const [isSavingPpa, setIsSavingPpa] = useState(false);
@@ -195,12 +231,199 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   const resolveAccessToken = useCallback(async (): Promise<string | null> => {
     const fresh = await getSessionAccessToken();
     if (fresh) return fresh;
+    const refreshed = await getAccessTokenForMutatingApi();
+    if (refreshed) return refreshed;
     const fromRef = accessTokenRef?.current?.trim();
     if (fromRef) return fromRef;
     const fromProp = accessToken?.trim();
     if (fromProp) return fromProp;
     return null;
   }, [accessToken, accessTokenRef]);
+
+  const loadPartnershipCompanies = useCallback(async () => {
+    setPartnershipCompaniesLoading(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error('Not signed in.');
+        return;
+      }
+      const { data, errorMessage } = await fetchUniversityAdminPartnershipCompanies(token);
+      if (errorMessage) {
+        toast.error(errorMessage);
+        return;
+      }
+      setPartnershipCompanies(data ?? []);
+    } finally {
+      setPartnershipCompaniesLoading(false);
+    }
+  }, [resolveAccessToken]);
+
+  useEffect(() => {
+    if (activeTab === 'companies') {
+      void loadPartnershipCompanies();
+    } else {
+      setPartnershipCompanyBrowseId(null);
+      setPartnershipCompanyBrowseProfile(null);
+      setPartnershipCompanyBrowseLoading(false);
+      setPartnershipCompanyBrowseSection('about');
+      setPartnershipCompanyBrowseOpportunities([]);
+      setPartnershipCompanyBrowseOppSelectedId(null);
+      setPartnershipCompanyBrowseOppDetail(null);
+      setPartnershipCompanyBrowseOppLoading(false);
+      setPartnershipCompanyBrowseOppError(null);
+    }
+  }, [activeTab, loadPartnershipCompanies]);
+
+  const openPartnershipCompanyProfile = useCallback(
+    async (companyId: number) => {
+      setPartnershipCompanyBrowseSection('opportunities');
+      setPartnershipCompanyBrowseOppSelectedId(null);
+      setPartnershipCompanyBrowseOppDetail(null);
+      setPartnershipCompanyBrowseOppError(null);
+      setPartnershipCompanyBrowseOppLoading(false);
+      setPartnershipCompanyBrowseId(companyId);
+      setPartnershipCompanyBrowseProfile(null);
+      setPartnershipCompanyBrowseOpportunities([]);
+      setPartnershipCompanyBrowseLoading(true);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const [profRes, oppRes] = await Promise.all([
+          fetchUniversityAdminPartnershipCompanyProfile(token, companyId),
+          fetchUniversityAdminPartnershipCompanyOpportunities(token, companyId),
+        ]);
+        if (profRes.errorMessage) {
+          toast.error(profRes.errorMessage);
+        } else {
+          setPartnershipCompanyBrowseProfile(profRes.data);
+        }
+        if (oppRes.data && !oppRes.errorMessage) {
+          setPartnershipCompanyBrowseOpportunities(oppRes.data);
+        } else if (oppRes.errorMessage && profRes.data) {
+          toast.error(oppRes.errorMessage);
+        }
+      } finally {
+        setPartnershipCompanyBrowseLoading(false);
+      }
+    },
+    [resolveAccessToken]
+  );
+
+  const closePartnershipCompanyBrowseOpportunity = useCallback(() => {
+    setPartnershipCompanyBrowseOppSelectedId(null);
+    setPartnershipCompanyBrowseOppDetail(null);
+    setPartnershipCompanyBrowseOppError(null);
+    setPartnershipCompanyBrowseOppLoading(false);
+  }, []);
+
+  const openPartnershipCompanyBrowseOpportunity = useCallback(
+    async (opportunityId: number) => {
+      setPartnershipCompanyBrowseOppSelectedId(String(opportunityId));
+      setPartnershipCompanyBrowseOppDetail(null);
+      setPartnershipCompanyBrowseOppLoading(true);
+      setPartnershipCompanyBrowseOppError(null);
+      const token = await resolveAccessToken();
+      if (!token) {
+        setPartnershipCompanyBrowseOppLoading(false);
+        toast.error('Not signed in.');
+        setPartnershipCompanyBrowseOppSelectedId(null);
+        return;
+      }
+      const res = await fetchAdminOpportunityDetail(token, opportunityId);
+      setPartnershipCompanyBrowseOppLoading(false);
+      if (res.errorMessage) {
+        setPartnershipCompanyBrowseOppError(res.errorMessage);
+        toast.error(res.errorMessage);
+      } else if (res.data) {
+        setPartnershipCompanyBrowseOppDetail(mapAdminOpportunityDetailToOpportunity(res.data));
+      }
+    },
+    [resolveAccessToken]
+  );
+
+  const closePartnershipCompanyProfile = useCallback(() => {
+    setPartnershipCompanyBrowseId(null);
+    setPartnershipCompanyBrowseProfile(null);
+    setPartnershipCompanyBrowseSection('about');
+    setPartnershipCompanyBrowseOpportunities([]);
+    closePartnershipCompanyBrowseOpportunity();
+  }, [closePartnershipCompanyBrowseOpportunity]);
+
+  const handleAdminPartnershipRequest = useCallback(
+    async (companyId: number) => {
+      setPartnershipRowBusyId(companyId);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { errorMessage } = await postAdminPartnershipRequest(token, companyId);
+        if (errorMessage) {
+          toast.error(errorMessage);
+        } else {
+          toast.success('Collaboration request sent.');
+          await loadPartnershipCompanies();
+          void refreshUnreadNotifications();
+        }
+      } finally {
+        setPartnershipRowBusyId(null);
+      }
+    },
+    [resolveAccessToken, loadPartnershipCompanies, refreshUnreadNotifications]
+  );
+
+  const handleAdminPartnershipRespond = useCallback(
+    async (companyId: number, approve: boolean) => {
+      setPartnershipRowBusyId(companyId);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { errorMessage } = await postAdminPartnershipRespond(token, companyId, approve);
+        if (errorMessage) {
+          toast.error(errorMessage);
+        } else {
+          toast.success(approve ? 'Collaboration accepted.' : 'Collaboration declined.');
+          await loadPartnershipCompanies();
+          void refreshUnreadNotifications();
+        }
+      } finally {
+        setPartnershipRowBusyId(null);
+      }
+    },
+    [resolveAccessToken, loadPartnershipCompanies, refreshUnreadNotifications]
+  );
+
+  const handleAdminPartnershipEnd = useCallback(
+    async (companyId: number) => {
+      setPartnershipRowBusyId(companyId);
+      try {
+        const token = await resolveAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { errorMessage } = await deleteAdminPartnership(token, companyId);
+        if (errorMessage) {
+          toast.error(errorMessage);
+        } else {
+          toast.success('Institutional collaboration ended.');
+          await loadPartnershipCompanies();
+          void refreshUnreadNotifications();
+        }
+      } finally {
+        setPartnershipRowBusyId(null);
+      }
+    },
+    [resolveAccessToken, loadPartnershipCompanies, refreshUnreadNotifications]
+  );
 
   useEffect(() => {
     if (!uniProfileLogoFile) {
@@ -251,6 +474,23 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     if (!uniProfile || linkedEntityId == null) return false;
     return String(uniProfile.universityId) === String(linkedEntityId);
   }, [uniProfile, linkedEntityId]);
+
+  const filteredPartnershipCompanies = useMemo(() => {
+    const q = partnershipSearch.trim().toLowerCase();
+    let list = partnershipCompanies;
+    if (partnershipFilter === 'collaborators') {
+      list = list.filter((r) => r.status === 'APPROVED');
+    } else if (partnershipFilter === 'non') {
+      list = list.filter((r) => r.status !== 'APPROVED');
+    }
+    if (q) {
+      list = list.filter(
+        (r) =>
+          r.companyName.toLowerCase().includes(q) || (r.industry ?? '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [partnershipCompanies, partnershipFilter, partnershipSearch]);
 
   const closeUniProfileModal = useCallback(() => {
     setIsEditingUniProfile(false);
@@ -453,7 +693,10 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
 
   const submitCollaborationDecision = useCallback(
     async (approved: boolean) => {
-      const rawId = adminExploreDetail?.id ?? adminExploreSelectedId;
+      const rawId =
+        partnershipCompanyBrowseOppSelectedId != null
+          ? partnershipCompanyBrowseOppSelectedId
+          : (adminExploreDetail?.id ?? adminExploreSelectedId);
       const id = rawId != null && String(rawId).trim() !== '' ? Number(rawId) : NaN;
       if (!Number.isFinite(id)) return;
       setCollaborationBusy(true);
@@ -469,14 +712,23 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           return;
         }
         if (res.data) {
-          setAdminExploreDetail(mapAdminOpportunityDetailToOpportunity(res.data));
+          const mapped = mapAdminOpportunityDetailToOpportunity(res.data);
+          setAdminExploreDetail(mapped);
+          if (partnershipCompanyBrowseOppSelectedId != null) {
+            setPartnershipCompanyBrowseOppDetail(mapped);
+          }
         }
         toast.success(approved ? 'Collaboration approved.' : 'Collaboration declined.');
       } finally {
         setCollaborationBusy(false);
       }
     },
-    [adminExploreDetail?.id, adminExploreSelectedId, resolveAccessToken]
+    [
+      adminExploreDetail?.id,
+      adminExploreSelectedId,
+      partnershipCompanyBrowseOppSelectedId,
+      resolveAccessToken,
+    ]
   );
 
   const studyYearLabel = useCallback((year: number | null | undefined) => {
@@ -2495,6 +2747,392 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     );
   };
 
+  const renderCompaniesPartnerships = () => {
+    const browseId = partnershipCompanyBrowseId;
+    if (browseId != null) {
+      const row = partnershipCompanies.find((r) => r.companyId === browseId);
+      const partnershipRow: InstitutionalPartnershipCompanyRow =
+        row ??
+        ({
+          companyId: browseId,
+          companyName: '',
+          industry: null,
+          status: 'NONE',
+          requestedByRole: null,
+          requestedById: null,
+          canRequest: true,
+          canAccept: false,
+          canReject: false,
+          canEnd: false,
+        } satisfies InstitutionalPartnershipCompanyRow);
+
+      const statusDisplay = (r: InstitutionalPartnershipCompanyRow) => {
+        const st = r.status;
+        if (st === 'APPROVED') {
+          return (
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-emerald-600">
+              Approved
+            </span>
+          );
+        }
+        if (st === 'REJECTED') {
+          return (
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-red-500">
+              Rejected
+            </span>
+          );
+        }
+        if (st === 'PENDING') {
+          const waiting = !r.canAccept && !r.canRequest;
+          return (
+            <div className="flex flex-col gap-0.5">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-amber-500 w-fit">
+                Pending
+              </span>
+              {waiting ? (
+                <span className="text-xs text-slate-600">Waiting for the company to respond.</span>
+              ) : (
+                <span className="text-xs text-slate-600">Your response is needed.</span>
+              )}
+            </div>
+          );
+        }
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-200 w-fit">
+            Not connected
+          </span>
+        );
+      };
+
+      const rowBusy = partnershipRowBusyId === browseId;
+
+      if (partnershipCompanyBrowseOppSelectedId) {
+        const listOpp =
+          partnershipCompanyBrowseOpportunities.find(
+            (o) => String(o.id) === partnershipCompanyBrowseOppSelectedId
+          ) ?? null;
+        const displayOpp = partnershipCompanyBrowseOppDetail ?? listOpp;
+        if (partnershipCompanyBrowseOppLoading && !displayOpp) {
+          return (
+            <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">
+              Loading opportunity details…
+            </div>
+          );
+        }
+        if (partnershipCompanyBrowseOppError && !displayOpp) {
+          return (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-red-200 bg-red-50/50 p-8 text-sm text-red-800">
+                {partnershipCompanyBrowseOppError}
+              </div>
+              <button
+                type="button"
+                onClick={closePartnershipCompanyBrowseOpportunity}
+                className="text-sm font-semibold text-[#002B5B] hover:underline"
+              >
+                ← Back
+              </button>
+            </div>
+          );
+        }
+        if (!displayOpp) {
+          return null;
+        }
+        return (
+          <OpportunityDetailView
+            variant="student"
+            opportunity={displayOpp}
+            onBack={closePartnershipCompanyBrowseOpportunity}
+            showApplicationStats={false}
+            universityAdminCollaboration={
+              Number.isFinite(linkedUniversityIdForCollab)
+                ? {
+                    linkedUniversityId: linkedUniversityIdForCollab,
+                    onAccept: () => void submitCollaborationDecision(true),
+                    onReject: () => void submitCollaborationDecision(false),
+                    busy: collaborationBusy,
+                  }
+                : undefined
+            }
+          />
+        );
+      }
+
+      return (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={closePartnershipCompanyProfile}
+            className="text-sm font-bold text-[#002B5B] hover:text-[#001F42] text-left"
+          >
+            ← Back to companies
+          </button>
+
+          <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
+            <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between bg-gradient-to-b from-slate-50/95 to-white border-b border-slate-100/90">
+              <div className="min-w-0 flex flex-wrap items-center gap-3">{statusDisplay(partnershipRow)}</div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0 justify-end">
+                {partnershipRow.canRequest ? (
+                  <button
+                    type="button"
+                    disabled={rowBusy}
+                    onClick={() => void handleAdminPartnershipRequest(browseId)}
+                    className="inline-flex items-center justify-center min-h-9 rounded-lg bg-[#002B5B] px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-[#001F42] disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    {rowBusy ? '…' : 'Request collaboration'}
+                  </button>
+                ) : null}
+                {partnershipRow.canAccept ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={rowBusy}
+                      onClick={() => void handleAdminPartnershipRespond(browseId, true)}
+                      className="inline-flex items-center justify-center min-h-9 rounded-lg bg-emerald-600 px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      type="button"
+                      disabled={rowBusy}
+                      onClick={() => void handleAdminPartnershipRespond(browseId, false)}
+                      className="inline-flex items-center justify-center min-h-9 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      Reject
+                    </button>
+                  </>
+                ) : null}
+                {partnershipRow.canEnd ? (
+                  <button
+                    type="button"
+                    disabled={rowBusy}
+                    onClick={() => void handleAdminPartnershipEnd(browseId)}
+                    className="inline-flex items-center justify-center min-h-9 rounded-lg border border-red-200 bg-red-50/90 px-3.5 text-sm font-semibold text-red-800 shadow-sm hover:bg-red-100 disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    End collaboration
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          {partnershipCompanyBrowseLoading ? (
+            <div className="flex items-center justify-center gap-2 py-20 text-slate-500 text-sm font-medium">
+              <Loader2 className="animate-spin" size={20} />
+              Loading profile…
+            </div>
+          ) : partnershipCompanyBrowseProfile ? (
+            <CompanyProfileTabbedView
+              profile={partnershipCompanyBrowseProfile}
+              section={partnershipCompanyBrowseSection}
+              onSectionChange={setPartnershipCompanyBrowseSection}
+              canEditProfile={false}
+              aboutLoading={false}
+              opportunitiesPanel={
+                <>
+                  <h3 className="text-3xl font-bold text-slate-900 mb-4">
+                    {partnershipCompanyBrowseOpportunities.length} Opportunities available
+                  </h3>
+                  <div className="space-y-3">
+                    {!partnershipCompanyBrowseOpportunities.length ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-10 text-center text-sm text-slate-500">
+                        No published opportunities from this company include your university as a target yet (the same
+                        scope as Explore).
+                      </div>
+                    ) : (
+                      partnershipCompanyBrowseOpportunities.map((opp) => (
+                        <OpportunityRecordCard
+                          key={opp.id}
+                          opportunity={opp}
+                          onViewDetails={() => void openPartnershipCompanyBrowseOpportunity(Number(opp.id))}
+                        />
+                      ))
+                    )}
+                  </div>
+                </>
+              }
+            />
+          ) : (
+            <p className="text-sm text-slate-500">Could not load company profile.</p>
+          )}
+        </div>
+      );
+    }
+
+    const filterBtn = (key: 'all' | 'collaborators' | 'non', label: string) => (
+      <button
+        key={key}
+        type="button"
+        onClick={() => setPartnershipFilter(key)}
+        className={cn(
+          'rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-150',
+          partnershipFilter === key
+            ? 'bg-white text-[#002B5B] shadow-sm ring-1 ring-slate-200/90'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+        )}
+      >
+        {label}
+      </button>
+    );
+
+    const listStatusDisplay = (r: InstitutionalPartnershipCompanyRow) => {
+      const st = r.status;
+      if (st === 'APPROVED') {
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-emerald-600">
+            Approved
+          </span>
+        );
+      }
+      if (st === 'REJECTED') {
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-red-500">
+            Rejected
+          </span>
+        );
+      }
+      if (st === 'PENDING') {
+        const waiting = !r.canAccept && !r.canRequest;
+        return (
+          <div className="flex flex-col gap-0.5 items-center">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-amber-500">
+              Pending
+            </span>
+            {waiting ? (
+              <span className="text-[10px] text-slate-500 font-medium text-center max-w-[160px]">
+                Waiting for the company
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-500 font-medium">Your response needed</span>
+            )}
+          </div>
+        );
+      }
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-200">
+          Not connected
+        </span>
+      );
+    };
+
+    const rowBusy = (id: number) => partnershipRowBusyId === id;
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-extrabold text-[#002B5B]">Companies</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Institutional partners are global pairings with a company, separate from collaboration on individual opportunities. Click a company name to open its full profile; you can also act from this table.
+          </p>
+        </div>
+
+        <div className="inline-flex flex-wrap items-center gap-0.5 rounded-xl border border-slate-200/90 bg-slate-100/90 p-1 shadow-sm">
+          {filterBtn('all', 'All')}
+          {filterBtn('collaborators', 'Collaborators')}
+          {filterBtn('non', 'Non-collaborators')}
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Search company or industry…"
+            className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-[#002B5B]/20 focus:border-[#002B5B] outline-none shadow-sm"
+            value={partnershipSearch}
+            onChange={(e) => setPartnershipSearch(e.target.value)}
+          />
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {partnershipCompaniesLoading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-slate-500 text-sm font-medium">
+              <Loader2 className="animate-spin" size={20} />
+              Loading companies…
+            </div>
+          ) : partnershipCompanies.length === 0 ? (
+            <p className="px-6 py-12 text-center text-sm text-slate-500">No companies are available yet.</p>
+          ) : filteredPartnershipCompanies.length === 0 ? (
+            <p className="px-6 py-12 text-center text-sm text-slate-500">No companies match this filter.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-[#002B5B] text-white text-xs font-bold uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left">Company</th>
+                    <th className="px-6 py-4 text-left">Industry</th>
+                    <th className="px-6 py-4 text-center">Status</th>
+                    <th className="px-6 py-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredPartnershipCompanies.map((row) => (
+                    <tr key={row.companyId} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-6 py-4">
+                        <button
+                          type="button"
+                          onClick={() => void openPartnershipCompanyProfile(row.companyId)}
+                          className="text-left text-sm font-semibold text-[#002B5B] hover:underline focus:outline-none focus:ring-2 focus:ring-[#002B5B]/30 rounded"
+                        >
+                          {row.companyName}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{row.industry?.trim() || '—'}</td>
+                      <td className="px-6 py-4 text-center">{listStatusDisplay(row)}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          {row.canRequest ? (
+                            <button
+                              type="button"
+                              disabled={rowBusy(row.companyId)}
+                              onClick={() => void handleAdminPartnershipRequest(row.companyId)}
+                              className="inline-flex items-center justify-center min-h-9 rounded-lg bg-[#002B5B] px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-[#001F42] disabled:opacity-50 disabled:pointer-events-none"
+                            >
+                              {rowBusy(row.companyId) ? '…' : 'Request collaboration'}
+                            </button>
+                          ) : null}
+                          {row.canAccept ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={rowBusy(row.companyId)}
+                                onClick={() => void handleAdminPartnershipRespond(row.companyId, true)}
+                                className="inline-flex items-center justify-center min-h-9 rounded-lg bg-emerald-600 px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                disabled={rowBusy(row.companyId)}
+                                onClick={() => void handleAdminPartnershipRespond(row.companyId, false)}
+                                className="inline-flex items-center justify-center min-h-9 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : null}
+                          {row.canEnd ? (
+                            <button
+                              type="button"
+                              disabled={rowBusy(row.companyId)}
+                              onClick={() => void handleAdminPartnershipEnd(row.companyId)}
+                              className="inline-flex items-center justify-center min-h-9 rounded-lg border border-red-200 bg-red-50/90 px-3.5 text-sm font-semibold text-red-800 shadow-sm hover:bg-red-100 disabled:opacity-50 disabled:pointer-events-none"
+                            >
+                              End collaboration
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderUniversityProfile = () => (
     <div className="space-y-6">
       {uniProfileLoading && !uniProfile ? (
@@ -2569,6 +3207,8 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         return renderAcademic();
       case 'opportunities':
         return renderOpportunities();
+      case 'companies':
+        return renderCompaniesPartnerships();
       default:
         return <UnderDevelopment moduleName={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} />;
     }
@@ -2590,6 +3230,13 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           onUnreadMayHaveChanged={refreshUnreadNotifications}
           onActivateOpportunity={(opportunityId) => {
             openOpportunityFromNotification(opportunityId);
+            close();
+          }}
+          onActivatePartnership={(ctx) => {
+            onNavigateTab?.('companies');
+            void loadPartnershipCompanies();
+            const cid = ctx.partnershipCompanyId;
+            if (cid != null) void openPartnershipCompanyProfile(cid);
             close();
           }}
           className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"

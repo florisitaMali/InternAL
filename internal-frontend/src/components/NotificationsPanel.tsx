@@ -74,6 +74,11 @@ interface NotificationsPanelProps {
   onActivateApplication?: (applicationId: number) => void;
   /** When set, row click with opportunityId marks read then opens that opportunity (applications take precedence when both are present). */
   onActivateOpportunity?: (opportunityId: number) => void;
+  /** When set, row with partnership ids opens the institutional partners tab (after app/opportunity). */
+  onActivatePartnership?: (ctx: {
+    partnershipCompanyId: number | null;
+    partnershipUniversityId: number | null;
+  }) => void;
 }
 
 const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
@@ -82,6 +87,7 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
   onUnreadMayHaveChanged,
   onActivateApplication,
   onActivateOpportunity,
+  onActivatePartnership,
 }) => {
   const [tab, setTab] = useState<TabKey>('unread');
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -157,12 +163,19 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
     void (async () => {
       const aid = n.applicationId;
       const oid = n.opportunityId;
+      const pcid = n.partnershipCompanyId;
+      const puid = n.partnershipUniversityId;
       const canActivateApp = aid != null && onActivateApplication != null;
       const canActivateOpp =
         oid != null &&
         onActivateOpportunity != null &&
-        !(aid != null && onActivateApplication != null);
-      if (!canActivateApp && !canActivateOpp) return;
+        !canActivateApp;
+      const canActivatePartnership =
+        onActivatePartnership != null &&
+        (pcid != null || puid != null) &&
+        !canActivateApp &&
+        !canActivateOpp;
+      if (!canActivateApp && !canActivateOpp && !canActivatePartnership) return;
       if (!n.isRead) {
         await handleMarkOne(n);
       }
@@ -170,6 +183,11 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
         onActivateApplication!(aid as number);
       } else if (canActivateOpp) {
         onActivateOpportunity!(oid as number);
+      } else if (canActivatePartnership) {
+        onActivatePartnership!({
+          partnershipCompanyId: pcid ?? null,
+          partnershipUniversityId: puid ?? null,
+        });
       }
     })();
   };
@@ -280,12 +298,19 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
             {filtered.map((n) => {
               const aid = n.applicationId;
               const oid = n.opportunityId;
+              const pcid = n.partnershipCompanyId;
+              const puid = n.partnershipUniversityId;
               const canActivateApp = aid != null && onActivateApplication != null;
               const canActivateOpp =
                 oid != null &&
                 onActivateOpportunity != null &&
-                !(aid != null && onActivateApplication != null);
-              const canActivateRow = canActivateApp || canActivateOpp;
+                !canActivateApp;
+              const canActivatePartnership =
+                onActivatePartnership != null &&
+                (pcid != null || puid != null) &&
+                !canActivateApp &&
+                !canActivateOpp;
+              const canActivateRow = canActivateApp || canActivateOpp || canActivatePartnership;
               return (
               <li
                 key={n.notificationId}

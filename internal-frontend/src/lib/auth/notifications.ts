@@ -11,6 +11,9 @@ export type NotificationItem = {
   applicationId?: number | null;
   /** When set (e.g. collaboration invite), the relevant dashboard can open this opportunity after marking read. */
   opportunityId?: number | null;
+  /** Institutional partnership (company ↔ university); dashboards can open the Partners tab. */
+  partnershipCompanyId?: number | null;
+  partnershipUniversityId?: number | null;
 };
 
 export type NotificationsListResponse = {

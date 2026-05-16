@@ -82,6 +82,8 @@ public class NotificationRepository {
                 SenderInfo sender = resolveSender(senderRoleStr, senderId, userJwt, senderCache);
                 Integer applicationId = intValue(row, "application_id");
                 Integer opportunityId = intValue(row, "opportunity_id");
+                Integer partnershipCompanyId = intValue(row, "partnership_company_id");
+                Integer partnershipUniversityId = intValue(row, "partnership_university_id");
 
                 items.add(new NotificationItemResponse(
                         id,
@@ -93,7 +95,9 @@ public class NotificationRepository {
                         sender.initials(),
                         sender.roleLabel(),
                         applicationId,
-                        opportunityId
+                        opportunityId,
+                        partnershipCompanyId,
+                        partnershipUniversityId
                 ));
             }
 
@@ -203,6 +207,37 @@ public class NotificationRepository {
             int senderId,
             Integer applicationId,
             Integer opportunityId) {
+        return insertNotificationInternal(
+                recipientRole, recipientId, message, senderRole, senderId,
+                applicationId, opportunityId, null, null);
+    }
+
+    /**
+     * Institutional partnership inbox (optional DB columns {@code partnership_company_id}, {@code partnership_university_id}).
+     */
+    public boolean insertInstitutionalPartnershipNotification(
+            Role recipientRole,
+            int recipientId,
+            String message,
+            Role senderRole,
+            int senderId,
+            int partnershipCompanyId,
+            int partnershipUniversityId) {
+        return insertNotificationInternal(
+                recipientRole, recipientId, message, senderRole, senderId,
+                null, null, partnershipCompanyId, partnershipUniversityId);
+    }
+
+    private boolean insertNotificationInternal(
+            Role recipientRole,
+            int recipientId,
+            String message,
+            Role senderRole,
+            int senderId,
+            Integer applicationId,
+            Integer opportunityId,
+            Integer partnershipCompanyId,
+            Integer partnershipUniversityId) {
         if (!serviceRoleConfigured()) {
             log.warn("insertNotification skipped: SUPABASE_SERVICE_ROLE_KEY is not set");
             return false;
@@ -226,6 +261,12 @@ public class NotificationRepository {
             }
             if (opportunityId != null) {
                 row.put("opportunity_id", opportunityId);
+            }
+            if (partnershipCompanyId != null) {
+                row.put("partnership_company_id", partnershipCompanyId);
+            }
+            if (partnershipUniversityId != null) {
+                row.put("partnership_university_id", partnershipUniversityId);
             }
 
             String url = supabaseUrl + "/rest/v1/notification";

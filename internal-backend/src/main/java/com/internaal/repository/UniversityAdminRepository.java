@@ -701,6 +701,45 @@ public class UniversityAdminRepository {
     }
 
     /**
+     * Published, non-draft opportunities for {@code companyId} that the university admin's institution can see —
+     * same visibility rules as {@link #listOpportunitySummariesForUniversityAdmin} (includes pending per-university
+     * collaboration), read with the service role so RLS does not hide rows for admin JWTs.
+     */
+    public List<Opportunity> listPublishedOpportunitiesForCompanyVisibleToUniversity(int companyId, int universityId) {
+        if (companyId <= 0 || universityId <= 0) {
+            return List.of();
+        }
+        String urlBasic = supabaseUrl + "/rest/v1/opportunity?company_id=eq." + companyId
+                + "&select=" + OPPORTUNITY_LIST_SELECT_BASIC
+                + "&order=created_at.desc&limit=500";
+        String urlFull = supabaseUrl + "/rest/v1/opportunity?company_id=eq." + companyId
+                + "&select=" + OPPORTUNITY_LIST_SELECT_WITH_COMPANY_UNIVERSITY
+                + "&order=created_at.desc&limit=500";
+        Optional<JsonNode> payload = fetchJsonBodyLogged(urlBasic).filter(JsonNode::isArray);
+        if (payload.isEmpty()) {
+            log.info("Retry company opportunity list with company.university embed (companyId={})", companyId);
+            payload = fetchJsonBodyLogged(urlFull).filter(JsonNode::isArray);
+        }
+        List<Opportunity> out = new ArrayList<>();
+        payload.ifPresent(arr -> {
+            for (JsonNode n : arr) {
+                if (isDraftRow(n)) {
+                    continue;
+                }
+                if (!visibleToUniversity(n, universityId)) {
+                    continue;
+                }
+                try {
+                    out.add(OpportunityMapper.fromJsonNode(n));
+                } catch (Exception e) {
+                    log.warn("fromJsonNode failed for company {}: {}", companyId, e.getMessage());
+                }
+            }
+        });
+        return out;
+    }
+
+    /**
      * Published, non-draft opportunity by id only if it is visible to {@code universityId} (same rules as
      * {@link #listOpportunitySummariesForUniversityAdmin}).
      */

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Dashboard from './Dashboard';
 import AddOpportunityForm from './AddOpportunityForm';
 import CompanyProfileTabbedView from '@/src/components/CompanyProfileTabbedView';
+import UniversityProfileReadOnlyView from '@/src/components/UniversityProfileReadOnlyView';
 import UnderDevelopment from './UnderDevelopment';
 import NotificationsPanel from './NotificationsPanel';
 import OpportunityRecordCard from '@/src/components/OpportunityRecordCard';
@@ -33,7 +34,15 @@ import {
   mapStudentProfileToStudent,
 } from '@/src/lib/auth/userAccount';
 import StudentProfileView from '@/src/components/StudentProfileView';
-import { getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
+import { getAccessTokenForMutatingApi, getSessionAccessToken } from '@/src/lib/auth/getSessionAccessToken';
+import {
+  deleteCompanyPartnership,
+  fetchCompanyPartnershipUniversities,
+  fetchCompanyPartnershipUniversityProfile,
+  postCompanyPartnershipRequest,
+  postCompanyPartnershipRespond,
+  type InstitutionalPartnershipUniversityRow,
+} from '@/src/lib/auth/partnerships';
 import {
   createCompanyOpportunity,
   updateCompanyOpportunity,
@@ -63,6 +72,7 @@ import {
   User as UserIcon,
   FileText,
   ArrowLeft,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import {
@@ -73,7 +83,7 @@ import {
   formatPostedDisplay,
 } from '@/src/lib/opportunityFormat';
 import { toast } from 'sonner';
-import type { Application, CompanyProfileFromApi, Opportunity, Student } from '@/src/types';
+import type { Application, CompanyProfileFromApi, Opportunity, Student, UniversityProfileFromApi } from '@/src/types';
 
 interface CompanyDashboardProps {
   activeTab: string;
@@ -134,6 +144,17 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   const [profileMediaDisplayRev, setProfileMediaDisplayRev] = useState(0);
   const [companyApplications, setCompanyApplications] = useState<ApplicationResponse[]>([]);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
+  const [partnershipUniversities, setPartnershipUniversities] = useState<InstitutionalPartnershipUniversityRow[]>(
+    []
+  );
+  const [partnershipUniversitiesLoading, setPartnershipUniversitiesLoading] = useState(false);
+  const [partnershipFilter, setPartnershipFilter] = useState<'all' | 'collaborators' | 'non'>('all');
+  const [partnershipSearch, setPartnershipSearch] = useState('');
+  const [partnershipRowBusyId, setPartnershipRowBusyId] = useState<number | null>(null);
+  const [partnershipUniversityBrowseId, setPartnershipUniversityBrowseId] = useState<number | null>(null);
+  const [partnershipUniversityBrowseProfile, setPartnershipUniversityBrowseProfile] =
+    useState<UniversityProfileFromApi | null>(null);
+  const [partnershipUniversityBrowseLoading, setPartnershipUniversityBrowseLoading] = useState(false);
   const logoFileInputRef = useRef<HTMLInputElement>(null);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
   const isEditingProfileRef = useRef(isEditingProfile);
@@ -201,6 +222,20 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     if (!companyProfile || linkedEntityId == null) return false;
     return String(companyProfile.companyId) === String(linkedEntityId);
   }, [companyProfile, linkedEntityId]);
+
+  const filteredPartnershipUniversities = useMemo(() => {
+    const q = partnershipSearch.trim().toLowerCase();
+    let list = partnershipUniversities;
+    if (partnershipFilter === 'collaborators') {
+      list = list.filter((r) => r.status === 'APPROVED');
+    } else if (partnershipFilter === 'non') {
+      list = list.filter((r) => r.status !== 'APPROVED');
+    }
+    if (q) {
+      list = list.filter((r) => r.universityName.toLowerCase().includes(q));
+    }
+    return list;
+  }, [partnershipUniversities, partnershipFilter, partnershipSearch]);
 
   const postedDisplayLabel = (opp: Opportunity) => {
     if (opp.draft === true) {
@@ -306,6 +341,147 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     }
   }, []);
 
+  const getPartnershipAccessToken = useCallback(async () => {
+    const fromRef = accessTokenRef?.current?.trim();
+    if (fromRef && fromRef.length > 20) return fromRef;
+    let t = await getSessionAccessToken();
+    if (t) return t;
+    t = await getAccessTokenForMutatingApi();
+    if (t) return t;
+    const refAgain = accessTokenRef?.current?.trim();
+    return refAgain && refAgain.length > 0 ? refAgain : null;
+  }, [accessTokenRef]);
+
+  const loadPartnershipUniversities = useCallback(async () => {
+    setPartnershipUniversitiesLoading(true);
+    try {
+      const token = await getPartnershipAccessToken();
+      if (!token) {
+        toast.error('Not signed in.');
+        return;
+      }
+      const { data, errorMessage } = await fetchCompanyPartnershipUniversities(token);
+      if (errorMessage) {
+        toast.error(errorMessage);
+        return;
+      }
+      setPartnershipUniversities(data ?? []);
+    } finally {
+      setPartnershipUniversitiesLoading(false);
+    }
+  }, [getPartnershipAccessToken]);
+
+  useEffect(() => {
+    if (activeTab === 'universities') {
+      void loadPartnershipUniversities();
+    } else {
+      setPartnershipUniversityBrowseId(null);
+      setPartnershipUniversityBrowseProfile(null);
+      setPartnershipUniversityBrowseLoading(false);
+    }
+  }, [activeTab, loadPartnershipUniversities]);
+
+  const openPartnershipUniversityProfile = useCallback(
+    async (universityId: number) => {
+      setPartnershipUniversityBrowseId(universityId);
+      setPartnershipUniversityBrowseProfile(null);
+      setPartnershipUniversityBrowseLoading(true);
+      try {
+        const token = await getPartnershipAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { data, errorMessage } = await fetchCompanyPartnershipUniversityProfile(token, universityId);
+        if (errorMessage) {
+          toast.error(errorMessage);
+        } else {
+          setPartnershipUniversityBrowseProfile(data);
+        }
+      } finally {
+        setPartnershipUniversityBrowseLoading(false);
+      }
+    },
+    [getPartnershipAccessToken]
+  );
+
+  const closePartnershipUniversityProfile = useCallback(() => {
+    setPartnershipUniversityBrowseId(null);
+    setPartnershipUniversityBrowseProfile(null);
+  }, []);
+
+  const handlePartnershipRequest = useCallback(
+    async (universityId: number) => {
+      setPartnershipRowBusyId(universityId);
+      try {
+        const token = await getPartnershipAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { errorMessage } = await postCompanyPartnershipRequest(token, universityId);
+        if (errorMessage) {
+          toast.error(errorMessage);
+        } else {
+          toast.success('Collaboration request sent.');
+          await loadPartnershipUniversities();
+          void refreshUnreadNotifications();
+        }
+      } finally {
+        setPartnershipRowBusyId(null);
+      }
+    },
+    [getPartnershipAccessToken, loadPartnershipUniversities, refreshUnreadNotifications]
+  );
+
+  const handlePartnershipRespond = useCallback(
+    async (universityId: number, approve: boolean) => {
+      setPartnershipRowBusyId(universityId);
+      try {
+        const token = await getPartnershipAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { errorMessage } = await postCompanyPartnershipRespond(token, universityId, approve);
+        if (errorMessage) {
+          toast.error(errorMessage);
+        } else {
+          toast.success(approve ? 'Collaboration accepted.' : 'Collaboration declined.');
+          await loadPartnershipUniversities();
+          void refreshUnreadNotifications();
+        }
+      } finally {
+        setPartnershipRowBusyId(null);
+      }
+    },
+    [getPartnershipAccessToken, loadPartnershipUniversities, refreshUnreadNotifications]
+  );
+
+  const handlePartnershipEnd = useCallback(
+    async (universityId: number) => {
+      setPartnershipRowBusyId(universityId);
+      try {
+        const token = await getPartnershipAccessToken();
+        if (!token) {
+          toast.error('Not signed in.');
+          return;
+        }
+        const { errorMessage } = await deleteCompanyPartnership(token, universityId);
+        if (errorMessage) {
+          toast.error(errorMessage);
+        } else {
+          toast.success('Institutional collaboration ended.');
+          await loadPartnershipUniversities();
+          void refreshUnreadNotifications();
+        }
+      } finally {
+        setPartnershipRowBusyId(null);
+      }
+    },
+    [getPartnershipAccessToken, loadPartnershipUniversities, refreshUnreadNotifications]
+  );
+
   useEffect(() => {
     if (activeTab === 'profile' && !isEditingProfileRef.current) {
       void loadCompanyProfile();
@@ -355,12 +531,6 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
       void loadCompanyOpportunities();
     }
   }, [activeTab, profileSection, loadCompanyOpportunities]);
-
-  useEffect(() => {
-    if (activeTab === 'dashboard' || activeTab === 'opportunities' || activeTab === 'applications') {
-      void loadCompanyApplications();
-    }
-  }, [activeTab, loadCompanyApplications]);
 
   useEffect(() => {
     if (activeTab === 'dashboard' || activeTab === 'opportunities' || activeTab === 'applications') {
@@ -1519,6 +1689,308 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
     );
   };
 
+  const renderUniversitiesPartnerships = () => {
+    const browseId = partnershipUniversityBrowseId;
+    if (browseId != null) {
+      const row = partnershipUniversities.find((r) => r.universityId === browseId);
+      const partnershipRow: InstitutionalPartnershipUniversityRow =
+        row ??
+        ({
+          universityId: browseId,
+          universityName: '',
+          status: 'NONE',
+          requestedByRole: null,
+          requestedById: null,
+          canRequest: true,
+          canAccept: false,
+          canReject: false,
+          canEnd: false,
+        } satisfies InstitutionalPartnershipUniversityRow);
+
+      const statusDisplay = (r: InstitutionalPartnershipUniversityRow) => {
+        const st = r.status;
+        if (st === 'APPROVED') {
+          return (
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-emerald-600">
+              Approved
+            </span>
+          );
+        }
+        if (st === 'REJECTED') {
+          return (
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-red-500">
+              Rejected
+            </span>
+          );
+        }
+        if (st === 'PENDING') {
+          const waiting = !r.canAccept && !r.canRequest;
+          return (
+            <div className="flex flex-col gap-0.5">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-amber-500 w-fit">
+                Pending
+              </span>
+              {waiting ? (
+                <span className="text-xs text-slate-600">Waiting for the university to respond.</span>
+              ) : (
+                <span className="text-xs text-slate-600">Your response is needed.</span>
+              )}
+            </div>
+          );
+        }
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-200 w-fit">
+            Not connected
+          </span>
+        );
+      };
+
+      const rowBusy = partnershipRowBusyId === browseId;
+
+      return (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={closePartnershipUniversityProfile}
+            className="text-sm font-bold text-[#002B5B] hover:text-[#001F42] text-left"
+          >
+            ← Back to universities
+          </button>
+
+          <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
+            <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between bg-gradient-to-b from-slate-50/95 to-white border-b border-slate-100/90">
+              <div className="min-w-0 flex flex-wrap items-center gap-3">{statusDisplay(partnershipRow)}</div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0 justify-end">
+                {partnershipRow.canRequest ? (
+                  <button
+                    type="button"
+                    disabled={rowBusy}
+                    onClick={() => void handlePartnershipRequest(browseId)}
+                    className="inline-flex items-center justify-center min-h-9 rounded-lg bg-[#002B5B] px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-[#001F42] disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    {rowBusy ? '…' : 'Request collaboration'}
+                  </button>
+                ) : null}
+                {partnershipRow.canAccept ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={rowBusy}
+                      onClick={() => void handlePartnershipRespond(browseId, true)}
+                      className="inline-flex items-center justify-center min-h-9 rounded-lg bg-emerald-600 px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      type="button"
+                      disabled={rowBusy}
+                      onClick={() => void handlePartnershipRespond(browseId, false)}
+                      className="inline-flex items-center justify-center min-h-9 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      Reject
+                    </button>
+                  </>
+                ) : null}
+                {partnershipRow.canEnd ? (
+                  <button
+                    type="button"
+                    disabled={rowBusy}
+                    onClick={() => void handlePartnershipEnd(browseId)}
+                    className="inline-flex items-center justify-center min-h-9 rounded-lg border border-red-200 bg-red-50/90 px-3.5 text-sm font-semibold text-red-800 shadow-sm hover:bg-red-100 disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    End collaboration
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          {partnershipUniversityBrowseLoading ? (
+            <div className="flex items-center justify-center gap-2 py-20 text-slate-500 text-sm font-medium">
+              <Loader2 className="animate-spin" size={20} />
+              Loading profile…
+            </div>
+          ) : partnershipUniversityBrowseProfile ? (
+            <UniversityProfileReadOnlyView profile={partnershipUniversityBrowseProfile} mediaRev={0} />
+          ) : (
+            <p className="text-sm text-slate-500">Could not load university profile.</p>
+          )}
+        </div>
+      );
+    }
+
+    const filterBtn = (key: 'all' | 'collaborators' | 'non', label: string) => (
+      <button
+        key={key}
+        type="button"
+        onClick={() => setPartnershipFilter(key)}
+        className={cn(
+          'rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-150',
+          partnershipFilter === key
+            ? 'bg-white text-[#002B5B] shadow-sm ring-1 ring-slate-200/90'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+        )}
+      >
+        {label}
+      </button>
+    );
+
+    const listStatusDisplay = (r: InstitutionalPartnershipUniversityRow) => {
+      const st = r.status;
+      if (st === 'APPROVED') {
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-emerald-600">
+            Approved
+          </span>
+        );
+      }
+      if (st === 'REJECTED') {
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-red-500">
+            Rejected
+          </span>
+        );
+      }
+      if (st === 'PENDING') {
+        const waiting = !r.canAccept && !r.canRequest;
+        return (
+          <div className="flex flex-col gap-0.5 items-center">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-amber-500">
+              Pending
+            </span>
+            {waiting ? (
+              <span className="text-[10px] text-slate-500 font-medium text-center max-w-[160px]">
+                Waiting for the university
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-500 font-medium">Your response needed</span>
+            )}
+          </div>
+        );
+      }
+      return (
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-200">
+          Not connected
+        </span>
+      );
+    };
+
+    const rowBusy = (id: number) => partnershipRowBusyId === id;
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-extrabold text-[#002B5B]">Universities</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Institutional partners are global pairings with a university, separate from collaboration on individual opportunities. Click a university name to open its full profile; you can also act from this table.
+          </p>
+        </div>
+
+        <div className="inline-flex flex-wrap items-center gap-0.5 rounded-xl border border-slate-200/90 bg-slate-100/90 p-1 shadow-sm">
+          {filterBtn('all', 'All')}
+          {filterBtn('collaborators', 'Collaborators')}
+          {filterBtn('non', 'Non-collaborators')}
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            placeholder="Search university name…"
+            className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-[#002B5B]/20 focus:border-[#002B5B] outline-none shadow-sm"
+            value={partnershipSearch}
+            onChange={(e) => setPartnershipSearch(e.target.value)}
+          />
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {partnershipUniversitiesLoading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-slate-500 text-sm font-medium">
+              <Loader2 className="animate-spin" size={20} />
+              Loading universities…
+            </div>
+          ) : partnershipUniversities.length === 0 ? (
+            <p className="px-6 py-12 text-center text-sm text-slate-500">No universities are available yet.</p>
+          ) : filteredPartnershipUniversities.length === 0 ? (
+            <p className="px-6 py-12 text-center text-sm text-slate-500">No universities match this filter.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-[#002B5B] text-white text-xs font-bold uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left">University</th>
+                    <th className="px-6 py-4 text-center">Status</th>
+                    <th className="px-6 py-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredPartnershipUniversities.map((row) => (
+                    <tr key={row.universityId} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-6 py-4">
+                        <button
+                          type="button"
+                          onClick={() => void openPartnershipUniversityProfile(row.universityId)}
+                          className="text-left text-sm font-semibold text-[#002B5B] hover:underline focus:outline-none focus:ring-2 focus:ring-[#002B5B]/30 rounded"
+                        >
+                          {row.universityName}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4 text-center">{listStatusDisplay(row)}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          {row.canRequest ? (
+                            <button
+                              type="button"
+                              disabled={rowBusy(row.universityId)}
+                              onClick={() => void handlePartnershipRequest(row.universityId)}
+                              className="inline-flex items-center justify-center min-h-9 rounded-lg bg-[#002B5B] px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-[#001F42] disabled:opacity-50 disabled:pointer-events-none"
+                            >
+                              {rowBusy(row.universityId) ? '…' : 'Request collaboration'}
+                            </button>
+                          ) : null}
+                          {row.canAccept ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={rowBusy(row.universityId)}
+                                onClick={() => void handlePartnershipRespond(row.universityId, true)}
+                                className="inline-flex items-center justify-center min-h-9 rounded-lg bg-emerald-600 px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                disabled={rowBusy(row.universityId)}
+                                onClick={() => void handlePartnershipRespond(row.universityId, false)}
+                                className="inline-flex items-center justify-center min-h-9 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : null}
+                          {row.canEnd ? (
+                            <button
+                              type="button"
+                              disabled={rowBusy(row.universityId)}
+                              onClick={() => void handlePartnershipEnd(row.universityId)}
+                              className="inline-flex items-center justify-center min-h-9 rounded-lg border border-red-200 bg-red-50/90 px-3.5 text-sm font-semibold text-red-800 shadow-sm hover:bg-red-100 disabled:opacity-50 disabled:pointer-events-none"
+                            >
+                              End collaboration
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderProfileOpportunitiesPanel = () => (
     <>
       <h3 className="text-3xl font-bold text-slate-900 mb-4">
@@ -1574,6 +2046,8 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
           return renderOpportunityDetail(selectedOpportunityDetail);
         }
         return renderCompanyProfile();
+      case 'universities':
+        return renderUniversitiesPartnerships();
       default:
         return <UnderDevelopment moduleName={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} />;
     }
@@ -1595,6 +2069,13 @@ const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
           }}
           onUnreadMayHaveChanged={refreshUnreadNotifications}
           onActivateOpportunity={(id) => void openOpportunityFromNotification(id)}
+          onActivatePartnership={(ctx) => {
+            onNavigateTab?.('universities');
+            void loadPartnershipUniversities();
+            const uid = ctx.partnershipUniversityId;
+            if (uid != null) void openPartnershipUniversityProfile(uid);
+            close();
+          }}
           className="max-w-none mx-0 h-full min-h-0 flex flex-col shadow-2xl ring-1 ring-slate-200/80"
         />
       )}

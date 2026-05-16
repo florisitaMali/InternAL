@@ -96,6 +96,20 @@ public class UniversityAdminService {
         return mapUniversity(node, universityId);
     }
 
+    /** Read-only university profile for company users (e.g. institutional partners list). */
+    public UniversityProfileResponse getUniversityProfileForCompany(UserAccount user, int universityId) {
+        if (user == null || user.getRole() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        if (user.getRole() != Role.COMPANY) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Company access required");
+        }
+        String jwt = requireJwt();
+        JsonNode node = universityProfileRepository.findByUniversityIdForPartnershipProfile(universityId, jwt)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "University not found"));
+        return mapUniversity(node, universityId);
+    }
+
     public UniversityProfileResponse updateUniversityProfile(UserAccount user, UniversityProfileUpdateRequest req) {
         requireAdmin(user);
         int universityId = parseUniversityId(user);

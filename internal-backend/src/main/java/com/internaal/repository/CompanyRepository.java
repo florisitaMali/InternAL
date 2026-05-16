@@ -117,7 +117,17 @@ public class CompanyRepository {
      * Resolve company row using the caller JWT first; if RLS blocks the read, fall back to service role (when configured).
      */
     public Optional<JsonNode> findByCompanyIdReadable(int companyId, String userJwt) {
-        Optional<JsonNode> first = findByCompanyId(companyId, userJwt);
+        Optional<JsonNode> first;
+        try {
+            first = findByCompanyId(companyId, userJwt);
+        } catch (PostgrestException e) {
+            int c = e.getStatusCode();
+            if (c != 401 && c != 403) {
+                throw e;
+            }
+            log.debug("company read with user JWT denied ({}), will try service role if configured", c);
+            first = Optional.empty();
+        }
         if (first.isPresent()) {
             return first;
         }
@@ -127,6 +137,22 @@ public class CompanyRepository {
         HttpHeaders h = serviceRoleReadHeaders();
         Optional<JsonNode> a = getCompanyRowWithHeaders(companyId, "company_id", h);
         return a.isPresent() ? a : getCompanyRowWithHeaders(companyId, "id", h);
+    }
+
+    /** Prefer service role when set so RLS does not block university admins reading peer companies (partners list). */
+    public Optional<JsonNode> findByCompanyIdForPartnershipProfile(int companyId, String userJwt) {
+        if (supabaseServiceRoleKey != null && !supabaseServiceRoleKey.isBlank()) {
+            HttpHeaders h = serviceRoleReadHeaders();
+            Optional<JsonNode> a = getCompanyRowWithHeaders(companyId, "company_id", h);
+            if (a.isPresent()) {
+                return a;
+            }
+            Optional<JsonNode> b = getCompanyRowWithHeaders(companyId, "id", h);
+            if (b.isPresent()) {
+                return b;
+            }
+        }
+        return findByCompanyIdReadable(companyId, userJwt);
     }
 
     private HttpHeaders serviceRoleReadHeaders() {

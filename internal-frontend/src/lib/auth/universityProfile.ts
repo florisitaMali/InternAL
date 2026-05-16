@@ -74,6 +74,10 @@ async function resolveBearer(accessToken: string): Promise<string | null> {
   return getSessionAccessToken();
 }
 
+export function universityProfileFromJson(raw: unknown): UniversityProfileFromApi | null {
+  return mapProfile(raw);
+}
+
 export async function fetchUniversityProfile(
   accessToken: string
 ): Promise<{ data: UniversityProfileFromApi | null; errorMessage: string | null }> {

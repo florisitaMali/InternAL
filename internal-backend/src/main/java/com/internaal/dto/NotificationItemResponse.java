@@ -12,5 +12,8 @@ public record NotificationItemResponse(
         String senderInitials,
         String senderRole,
         Integer applicationId,
-        Integer opportunityId
-) {}
+        Integer opportunityId,
+        Integer partnershipCompanyId,
+        Integer partnershipUniversityId
+) {
+}

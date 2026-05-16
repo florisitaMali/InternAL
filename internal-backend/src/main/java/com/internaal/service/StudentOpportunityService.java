@@ -11,6 +11,7 @@ import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.OpportunityMapper;
 import com.internaal.repository.OpportunityRepository;
 import com.internaal.repository.StudentProfileRepository;
+import com.internaal.repository.UniversityAdminRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,16 +32,19 @@ public class StudentOpportunityService {
     private final OpportunityRepository opportunityRepository;
     private final ApplicationRepository applicationRepository;
     private final CompanyOpportunityService companyOpportunityService;
+    private final UniversityAdminRepository universityAdminRepository;
 
     public StudentOpportunityService(
             StudentProfileRepository studentProfileRepository,
             OpportunityRepository opportunityRepository,
             ApplicationRepository applicationRepository,
-            CompanyOpportunityService companyOpportunityService) {
+            CompanyOpportunityService companyOpportunityService,
+            UniversityAdminRepository universityAdminRepository) {
         this.studentProfileRepository = studentProfileRepository;
         this.opportunityRepository = opportunityRepository;
         this.applicationRepository = applicationRepository;
         this.companyOpportunityService = companyOpportunityService;
+        this.universityAdminRepository = universityAdminRepository;
     }
 
     public StudentOpportunitiesResponse listForStudent(UserAccount user, OpportunityQuery query) {
@@ -113,7 +117,7 @@ public class StudentOpportunityService {
         if (user == null || user.getRole() == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
         }
-        if (user.getRole() != Role.STUDENT && user.getRole() != Role.UNIVERSITY_ADMIN) {
+        if (user.getRole() != Role.STUDENT) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Student access required");
         }
         int studentId;
@@ -147,6 +151,47 @@ public class StudentOpportunityService {
                         o, skillMatchCount(o, studentSkills), applicantCounts.getOrDefault(o.id(), 0)))
                 .collect(Collectors.toList());
 
+        return new StudentOpportunitiesResponse(items);
+    }
+
+    /**
+     * Opportunities from {@code companyId} visible to the admin's institution (same rules as Explore), loaded with
+     * the service role so PostgREST RLS does not block reads for university-admin JWTs.
+     */
+    public StudentOpportunitiesResponse listForUniversityAdminForCompany(UserAccount user, int companyId) {
+        if (user == null || user.getRole() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        if (user.getRole() != Role.UNIVERSITY_ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "University admin access required");
+        }
+        if (companyId <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid company");
+        }
+        int universityId;
+        try {
+            universityId = Integer.parseInt(user.getLinkedEntityId().trim());
+        } catch (Exception e) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "University admin is not linked to a university id");
+        }
+
+        List<Opportunity> rows =
+                universityAdminRepository.listPublishedOpportunitiesForCompanyVisibleToUniversity(companyId, universityId);
+        List<Integer> opportunityIds = rows.stream()
+                .map(Opportunity::id)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Integer, Integer> applicantCounts = applicationRepository.countApplicationsByOpportunityIds(opportunityIds);
+
+        List<OpportunityResponseItem> items = rows.stream()
+                .sorted(Comparator
+                        .comparing((Opportunity o) -> o.deadline() != null ? o.deadline() : LocalDate.MAX)
+                        .thenComparing(Opportunity::title, String.CASE_INSENSITIVE_ORDER))
+                .map(o -> OpportunityMapper.toResponseItem(
+                        o, 0, applicantCounts.getOrDefault(o.id(), 0)))
+                .collect(Collectors.toList());
         return new StudentOpportunitiesResponse(items);
     }
 

@@ -79,7 +79,17 @@ public class UniversityProfileRepository {
     }
 
     public Optional<JsonNode> findByUniversityIdReadable(int universityId, String userJwt) {
-        Optional<JsonNode> first = findByUniversityId(universityId, userJwt);
+        Optional<JsonNode> first;
+        try {
+            first = findByUniversityId(universityId, userJwt);
+        } catch (PostgrestException e) {
+            int c = e.getStatusCode();
+            if (c != 401 && c != 403) {
+                throw e;
+            }
+            log.debug("university read with user JWT denied ({}), will try service role if configured", c);
+            first = Optional.empty();
+        }
         if (first.isPresent()) {
             return first;
         }
@@ -89,6 +99,26 @@ public class UniversityProfileRepository {
         HttpHeaders h = serviceRoleReadHeaders();
         Optional<JsonNode> a = getRow(universityId, "university_id", h);
         return a.isPresent() ? a : getRow(universityId, "id", h);
+    }
+
+    /**
+     * For cross-role read-only views (e.g. company opening a university from the partners list): prefer service role
+     * when configured so RLS on {@code university} does not block before fallback (same idea as
+     * {@code OpportunityRepository#universityLookupHeaders}).
+     */
+    public Optional<JsonNode> findByUniversityIdForPartnershipProfile(int universityId, String userJwt) {
+        if (supabaseServiceRoleKey != null && !supabaseServiceRoleKey.isBlank()) {
+            HttpHeaders h = serviceRoleReadHeaders();
+            Optional<JsonNode> a = getRow(universityId, "university_id", h);
+            if (a.isPresent()) {
+                return a;
+            }
+            Optional<JsonNode> b = getRow(universityId, "id", h);
+            if (b.isPresent()) {
+                return b;
+            }
+        }
+        return findByUniversityIdReadable(universityId, userJwt);
     }
 
     private Optional<JsonNode> getRow(int universityId, String eqColumn, HttpHeaders headers) {

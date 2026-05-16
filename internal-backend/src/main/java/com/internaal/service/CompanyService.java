@@ -77,6 +77,20 @@ public class CompanyService {
         return mapCompany(node, companyId);
     }
 
+    /** Read-only company profile for university admins (e.g. institutional partners list). */
+    public CompanyProfileResponse getProfileForUniversityAdmin(UserAccount user, int companyId) {
+        if (user == null || user.getRole() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        if (user.getRole() != Role.UNIVERSITY_ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "University admin access required");
+        }
+        String jwt = requireJwt();
+        JsonNode node = companyRepository.findByCompanyIdForPartnershipProfile(companyId, jwt)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found"));
+        return mapCompany(node, companyId);
+    }
+
     public CompanyProfileResponse updateProfile(UserAccount user, CompanyProfileUpdateRequest req) {
         int companyId = requireCompanyId(user);
         String jwt = requireJwt();

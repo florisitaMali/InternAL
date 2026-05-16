@@ -209,7 +209,8 @@ export interface SysAdminAnalyticsResponse {
     totalOpportunities: number;
     totalApplications: number;
   };
-  applicationStatusDistribution: SysAdminChartPoint[];
+  ppApplicationStatus: SysAdminChartPoint[];
+  igApplicationStatus: SysAdminChartPoint[];
   applicationsOverTime: SysAdminChartPoint[];
   opportunitiesVsApplications: SysAdminOpportunityApplicationPoint[];
   applicationTypeDistribution: SysAdminChartPoint[];

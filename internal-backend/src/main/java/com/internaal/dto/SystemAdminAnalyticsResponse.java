@@ -4,7 +4,8 @@ import java.util.List;
 
 public record SystemAdminAnalyticsResponse(
         Summary summary,
-        List<ChartPoint> applicationStatusDistribution,
+        List<ChartPoint> ppApplicationStatus,
+        List<ChartPoint> igApplicationStatus,
         List<ChartPoint> applicationsOverTime,
         List<OpportunityApplicationPoint> opportunitiesVsApplications,
         List<ChartPoint> applicationTypeDistribution,

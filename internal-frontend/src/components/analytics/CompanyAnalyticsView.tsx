@@ -62,7 +62,8 @@ const emptyAnalytics: SysAdminAnalyticsResponse = {
     totalOpportunities: 0,
     totalApplications: 0,
   },
-  applicationStatusDistribution: [],
+  ppApplicationStatus: [],
+  igApplicationStatus: [],
   applicationsOverTime: [],
   opportunitiesVsApplications: [],
   applicationTypeDistribution: [],
@@ -79,6 +80,7 @@ const CompanyAnalyticsView: React.FC<Props> = ({ accessToken, accessTokenRef, ti
   const [analytics, setAnalytics] = useState<SysAdminAnalyticsResponse>(emptyAnalytics);
   const [companies, setCompanies] = useState<AdminCompanyResponse[]>([]);
   const [companyId, setCompanyId] = useState<number | null>(null);
+  const [appStatusTab, setAppStatusTab] = useState<'pp' | 'ig'>('pp');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const hasActiveCompanyFilter = companyId !== null;
@@ -117,7 +119,10 @@ const CompanyAnalyticsView: React.FC<Props> = ({ accessToken, accessTokenRef, ti
     setCompanyId(null);
   };
 
-  const statusData = withStatusColors(analytics.applicationStatusDistribution);
+  const appStatusData = withStatusColors(
+    appStatusTab === 'pp' ? analytics.ppApplicationStatus : analytics.igApplicationStatus,
+  );
+  const appStatusTotal = appStatusData.reduce((sum, entry) => sum + entry.value, 0);
   const applicationsOverTime = sortTimeSeries(analytics.applicationsOverTime, timeFilter);
   const opportunitiesVsApplications = sortTimeSeries(analytics.opportunitiesVsApplications, timeFilter);
   const typeData = analytics.applicationTypeDistribution.map((item, index) => ({
@@ -191,8 +196,27 @@ const CompanyAnalyticsView: React.FC<Props> = ({ accessToken, accessTokenRef, ti
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <ChartCard title="Application Status Distribution">
-          <ResponsiveContainer width="100%" height={360}>
-            <BarChart data={statusData} margin={{ top: 18, right: 18, bottom: 72, left: 0 }}>
+          <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+            {(
+              [
+                ['pp', 'Professional Practice'],
+                ['ig', 'Individual Growth'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setAppStatusTab(id)}
+                className={`rounded-md px-4 py-2 text-xs font-bold transition-colors ${
+                  appStatusTab === id ? 'bg-[#08275c] text-white' : 'text-slate-500 hover:bg-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={appStatusData} margin={{ top: 18, right: 18, bottom: 72, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#dfe7f1" />
               <XAxis
                 dataKey="label"
@@ -205,12 +229,16 @@ const CompanyAnalyticsView: React.FC<Props> = ({ accessToken, accessTokenRef, ti
               <YAxis allowDecimals={false} tick={{ fill: '#6b7280' }} />
               <Tooltip />
               <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                {statusData.map((entry) => (
+                {appStatusData.map((entry) => (
                   <Cell key={entry.label} fill={entry.fill} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+          <p className="mt-2 text-center text-sm font-bold text-slate-500">
+            Total {appStatusTab === 'pp' ? 'Professional Practice' : 'Individual Growth'} applications:{' '}
+            <span className="text-[#08275c]">{appStatusTotal}</span>
+          </p>
         </ChartCard>
 
         <ChartCard title="Application Type Distribution">
@@ -323,15 +351,19 @@ const CompanyAnalyticsView: React.FC<Props> = ({ accessToken, accessTokenRef, ti
   );
 };
 
-function withStatusColors(data: { label: string; value: number }[]) {
+function withStatusColors(data: { label: string; value: number }[] | undefined) {
   const colors: Record<string, string> = {
-    Waiting: ORANGE,
-    'Approved by PPA': '#45a6e8',
-    'Approved by Company': GREEN,
+    // Professional Practice
+    'Pending PPA': ORANGE,
+    'Approved by PPA': BLUE,
     'Fully Approved': TEAL,
+    // Individual Growth
+    Pending: ORANGE,
+    Approved: GREEN,
+    // shared
     Rejected: RED,
   };
-  return data.map((item) => ({ ...item, fill: colors[item.label] ?? BLUE }));
+  return (data ?? []).map((item) => ({ ...item, fill: colors[item.label] ?? BLUE }));
 }
 
 export default CompanyAnalyticsView;

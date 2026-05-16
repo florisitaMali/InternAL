@@ -60,12 +60,16 @@ public class SystemAdminAnalyticsRepository {
         List<ApplicationRow> applications = loadApplications(universityId, companyId, startDate);
         List<OpportunityRow> opportunities = loadOpportunities(universityId, companyId, startDate);
 
-        Map<String, Integer> statusCounts = new LinkedHashMap<>();
-        statusCounts.put("Waiting", 0);
-        statusCounts.put("Approved by PPA", 0);
-        statusCounts.put("Approved by Company", 0);
-        statusCounts.put("Fully Approved", 0);
-        statusCounts.put("Rejected", 0);
+        Map<String, Integer> ppStatusCounts = new LinkedHashMap<>();
+        ppStatusCounts.put("Pending PPA", 0);
+        ppStatusCounts.put("Approved by PPA", 0);
+        ppStatusCounts.put("Fully Approved", 0);
+        ppStatusCounts.put("Rejected", 0);
+
+        Map<String, Integer> igStatusCounts = new LinkedHashMap<>();
+        igStatusCounts.put("Pending", 0);
+        igStatusCounts.put("Approved", 0);
+        igStatusCounts.put("Rejected", 0);
 
         Map<String, Integer> typeCounts = new LinkedHashMap<>();
         typeCounts.put("Professional Practice", 0);
@@ -76,7 +80,6 @@ public class SystemAdminAnalyticsRepository {
         Map<String, Integer> applicationTrend = seedBuckets(bucket);
         for (ApplicationRow row : applications) {
             String status = statusLabel(row);
-            statusCounts.computeIfPresent(status, (k, v) -> v + 1);
             if ("Rejected".equals(status)) {
                 rejected++;
             } else if (!"Waiting".equals(status)) {
@@ -84,6 +87,11 @@ public class SystemAdminAnalyticsRepository {
             }
             String typeLabel = applicationTypeLabel(row.applicationType());
             typeCounts.computeIfPresent(typeLabel, (k, v) -> v + 1);
+            if ("Individual Growth".equals(typeLabel)) {
+                igStatusCounts.merge(igStatus(row), 1, Integer::sum);
+            } else {
+                ppStatusCounts.merge(ppStatus(row), 1, Integer::sum);
+            }
             incrementBucket(applicationTrend, bucket, row.createdAt());
         }
 
@@ -109,7 +117,8 @@ public class SystemAdminAnalyticsRepository {
                         totalCompanies,
                         opportunities.size(),
                         totalApplications),
-                toChartPoints(statusCounts),
+                toChartPoints(ppStatusCounts),
+                toChartPoints(igStatusCounts),
                 toChartPoints(orderedValues(applicationTrend, orderedLabels)),
                 orderedLabels.stream()
                         .map(label -> new SystemAdminAnalyticsResponse.OpportunityApplicationPoint(
@@ -515,6 +524,34 @@ public class SystemAdminAnalyticsRepository {
             return "Approved by Company";
         }
         return "Waiting";
+    }
+
+    /**
+     * Professional Practice status — two-stage flow: PPA review, then company review.
+     * Rejected by either party; pending PPA; approved by PPA (awaiting company); fully approved.
+     */
+    private static String ppStatus(ApplicationRow row) {
+        if (Boolean.FALSE.equals(row.approvedByPpa()) || Boolean.FALSE.equals(row.approvedByCompany())) {
+            return "Rejected";
+        }
+        if (row.approvedByPpa() == null) {
+            return "Pending PPA";
+        }
+        if (Boolean.TRUE.equals(row.approvedByCompany())) {
+            return "Fully Approved";
+        }
+        return "Approved by PPA";
+    }
+
+    /** Individual Growth status — company review only, no PPA stage. */
+    private static String igStatus(ApplicationRow row) {
+        if (Boolean.TRUE.equals(row.approvedByCompany())) {
+            return "Approved";
+        }
+        if (Boolean.FALSE.equals(row.approvedByCompany())) {
+            return "Rejected";
+        }
+        return "Pending";
     }
 
     private static String applicationTypeLabel(String type) {

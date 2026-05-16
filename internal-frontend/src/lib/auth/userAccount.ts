@@ -29,6 +29,9 @@ export type StudentProfileResponse = {
   cgpa: number | null;
   hasCompletedPp: boolean | null;
   canApplyForPP: boolean | null;
+  hasPremium?: boolean | null;
+  premiumSubscriptionStatus?: string | null;
+  premiumCurrentPeriodEnd?: string | null;
   accessStartDate: string | null;
   accessEndDate: string | null;
   description: string | null;
@@ -156,10 +159,12 @@ async function sendBackendJson<T>(
   body: unknown
 ): Promise<{ data: T | null; errorMessage: string | null }> {
   try {
-    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    const url = `${getApiBaseUrl()}${path}`;
+    const trimmed = typeof accessToken === 'string' ? accessToken.trim() : '';
+    const response = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${trimmed}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -295,6 +300,86 @@ export async function saveCurrentStudentProfile(
   return { data: mapStudentProfileToStudent(data), errorMessage: null };
 }
 
+/** Demo: activates Premium via backend mock payment endpoint (disabled unless PREMIUM_MOCK_PAYMENT_ENABLED=true). */
+export async function completeMockPremiumPayment(
+  accessToken: string,
+  paymentMethod: string
+): Promise<{ data: Student | null; errorMessage: string | null }> {
+  const { data, errorMessage } = await sendBackendJson<StudentProfileResponse>(
+    '/api/student/premium/mock-payment',
+    accessToken,
+    'POST',
+    { paymentMethod }
+  );
+
+  if (!data || errorMessage) {
+    return { data: null, errorMessage: errorMessage || 'Could not activate Premium.' };
+  }
+
+  return { data: mapStudentProfileToStudent(data), errorMessage: null };
+}
+
+type PremiumCheckoutSessionBody = {
+  successUrl?: string;
+  cancelUrl?: string;
+  priceId?: string;
+};
+
+type PremiumCheckoutSessionResponse = {
+  url: string;
+};
+
+/** Creates a Stripe Checkout Session and returns the hosted checkout URL. */
+export async function createPremiumCheckoutSession(
+  accessToken: string,
+  options?: PremiumCheckoutSessionBody
+): Promise<{ url: string | null; errorMessage: string | null }> {
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+  const body: PremiumCheckoutSessionBody = {
+    successUrl: options?.successUrl ?? (origin ? `${origin}/premium/success` : undefined),
+    cancelUrl: options?.cancelUrl ?? (origin ? `${origin}/premium` : undefined),
+  };
+  if (options?.priceId) {
+    body.priceId = options.priceId;
+  }
+
+  const { data, errorMessage } = await sendBackendJson<PremiumCheckoutSessionResponse>(
+    '/api/student/premium/checkout-session',
+    accessToken,
+    'POST',
+    body
+  );
+
+  if (!data?.url || errorMessage) {
+    return { url: null, errorMessage: errorMessage || 'Could not start checkout.' };
+  }
+  return { url: data.url, errorMessage: null };
+}
+
+export async function createPremiumBillingPortalSession(
+  accessToken: string,
+  options?: { returnUrl?: string }
+): Promise<{ url: string | null; errorMessage: string | null }> {
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+  const body = {
+    returnUrl: options?.returnUrl ?? (origin ? `${origin}/premium/` : undefined),
+  };
+
+  const { data, errorMessage } = await sendBackendJson<{ url: string }>(
+    '/api/student/premium/billing-portal',
+    accessToken,
+    'POST',
+    body
+  );
+
+  if (!data?.url || errorMessage) {
+    return { url: null, errorMessage: errorMessage || 'Could not open billing portal.' };
+  }
+  return { url: data.url, errorMessage: null };
+}
+
 function mapStudentProject(row: StudentProjectResponse): StudentProject {
   return {
     projectId: row.projectId,
@@ -341,6 +426,15 @@ function pickCanApplyForPPFromProfile(profile: StudentProfileResponse): boolean 
   return null;
 }
 
+function pickHasPremiumFromProfile(profile: StudentProfileResponse): boolean | null {
+  const raw = profile as Record<string, unknown>;
+  for (const key of ['hasPremium', 'haspremium'] as const) {
+    const v = raw[key];
+    if (typeof v === 'boolean') return v;
+  }
+  return null;
+}
+
 export function mapStudentProfileToStudent(profile: StudentProfileResponse): Student {
   return {
     id: String(profile.studentId),
@@ -358,6 +452,9 @@ export function mapStudentProfileToStudent(profile: StudentProfileResponse): Stu
     cgpa: profile.cgpa ?? 0,
     hasCompletedPP: Boolean(profile.hasCompletedPp),
     canApplyForPP: pickCanApplyForPPFromProfile(profile) ?? true,
+    hasPremium: pickHasPremiumFromProfile(profile) ?? false,
+    premiumSubscriptionStatus: profile.premiumSubscriptionStatus?.trim() || undefined,
+    premiumCurrentPeriodEnd: profile.premiumCurrentPeriodEnd?.trim() || undefined,
     accessStartDate: profile.accessStartDate || undefined,
     accessEndDate: profile.accessEndDate || undefined,
     profilePhotoUrl: profile.photo?.trim() || undefined,

@@ -13,6 +13,8 @@ config({ path: rootEnvLocal, override: true });
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
+  /** Folder-style export (`route/index.html`) — friendlier for static hosts than `route.html`. */
+  trailingSlash: true,
   images: {
     unoptimized: true,
     remotePatterns: [

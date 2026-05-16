@@ -4,17 +4,17 @@ import React, { MutableRefObject, useCallback, useEffect, useMemo, useRef, useSt
 import { Plus, Search, Edit2, Power, Trash2, Building2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  AdminUniversityCreateRequest,
-  AdminUniversityResponse,
-  AdminUniversityUpdateRequest,
-  createSysAdminUniversity,
-  deleteSysAdminUniversity,
-  fetchSysAdminUniversities,
-  setSysAdminUniversityActive,
-  updateSysAdminUniversity,
+  AdminCompanyCreateRequest,
+  AdminCompanyResponse,
+  AdminCompanyUpdateRequest,
+  createSysAdminCompany,
+  deleteSysAdminCompany,
+  fetchSysAdminCompanies,
+  setSysAdminCompanyActive,
+  updateSysAdminCompany,
 } from '@/src/lib/auth/sysadmin';
 import { getSupabaseBrowserClient } from '@/src/lib/supabase/client';
-import { uploadUniversityProfilePhoto } from '@/src/lib/supabase/companyProfilePhotos';
+import { uploadCompanyProfilePhoto } from '@/src/lib/supabase/companyProfilePhotos';
 
 interface Props {
   accessToken: string;
@@ -27,23 +27,23 @@ interface Stats {
   inactive: number;
 }
 
-const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenRef }) => {
-  const [items, setItems] = useState<AdminUniversityResponse[]>([]);
+const SystemAdminCompaniesTab: React.FC<Props> = ({ accessToken, accessTokenRef }) => {
+  const [items, setItems] = useState<AdminCompanyResponse[]>([]);
   const [stats, setStats] = useState<Stats>({ total: 0, active: 0, inactive: 0 });
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formOpen, setFormOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<AdminUniversityResponse | null>(null);
-  const [pendingToggle, setPendingToggle] = useState<AdminUniversityResponse | null>(null);
+  const [editTarget, setEditTarget] = useState<AdminCompanyResponse | null>(null);
+  const [pendingToggle, setPendingToggle] = useState<AdminCompanyResponse | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<AdminUniversityResponse | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<AdminCompanyResponse | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     const token = (accessTokenRef?.current ?? '') || accessToken;
     setLoading(true);
-    const { data, errorMessage } = await fetchSysAdminUniversities(token);
+    const { data, errorMessage } = await fetchSysAdminCompanies(token);
     if (errorMessage) {
       setErrorMessage(errorMessage);
       setItems([]);
@@ -63,8 +63,8 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
   const filteredItems = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((u) => {
-      const fields = [u.name, u.email, u.location, u.website].filter(Boolean) as string[];
+    return items.filter((c) => {
+      const fields = [c.name, c.email, c.industry, c.location, c.website].filter(Boolean) as string[];
       return fields.some((f) => f.toLowerCase().includes(q));
     });
   }, [items, searchTerm]);
@@ -74,13 +74,13 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
     setFormOpen(true);
   };
 
-  const openEdit = (u: AdminUniversityResponse) => {
-    setEditTarget(u);
+  const openEdit = (c: AdminCompanyResponse) => {
+    setEditTarget(c);
     setFormOpen(true);
   };
 
   const handleSubmit = async (
-    payload: AdminUniversityCreateRequest | AdminUniversityUpdateRequest,
+    payload: AdminCompanyCreateRequest | AdminCompanyUpdateRequest,
     logoFile: File | null,
     coverFile: File | null,
     logoRemoved: boolean,
@@ -89,9 +89,9 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
     const token = (accessTokenRef?.current ?? '') || accessToken;
 
     if (editTarget) {
-      // Edit flow: upload images first (we have the universityId), then PUT once with the new URLs.
-      const update = { ...(payload as AdminUniversityUpdateRequest) };
-      const uploaded = await uploadImagesIfAny(editTarget.universityId, logoFile, coverFile);
+      // Edit flow: upload images first (we have the companyId), then PUT once with the new URLs.
+      const update = { ...(payload as AdminCompanyUpdateRequest) };
+      const uploaded = await uploadImagesIfAny(editTarget.companyId, logoFile, coverFile);
       if (uploaded.errorMessage) {
         toast.error(uploaded.errorMessage);
         return false;
@@ -102,41 +102,43 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
       else if (logoRemoved) update.logoUrl = '';
       if (uploaded.coverUrl) update.coverUrl = uploaded.coverUrl;
       else if (coverRemoved) update.coverUrl = '';
-      const { errorMessage } = await updateSysAdminUniversity(token, editTarget.universityId, update);
+      const { errorMessage } = await updateSysAdminCompany(token, editTarget.companyId, update);
       if (errorMessage) {
         toast.error(errorMessage);
         return false;
       }
-      toast.success('University updated');
+      toast.success('Company updated');
     } else {
-      // Create flow: create the row first to get universityId, then upload images, then patch the URLs in.
-      const create = payload as AdminUniversityCreateRequest;
-      const { data, errorMessage } = await createSysAdminUniversity(token, create);
+      // Create flow: create the row first to get companyId, then upload images, then patch the URLs in.
+      const create = payload as AdminCompanyCreateRequest;
+      const { data, errorMessage } = await createSysAdminCompany(token, create);
       if (errorMessage || !data) {
-        toast.error(errorMessage ?? 'Could not create university.');
+        toast.error(errorMessage ?? 'Could not create company.');
         return false;
       }
       if (logoFile || coverFile) {
-        const uploaded = await uploadImagesIfAny(data.universityId, logoFile, coverFile);
+        const uploaded = await uploadImagesIfAny(data.companyId, logoFile, coverFile);
         if (uploaded.errorMessage) {
-          toast.warning(`University created, but image upload failed: ${uploaded.errorMessage}`);
+          // Company is created; surface the warning but still treat as success so the row appears.
+          toast.warning(`Company created, but image upload failed: ${uploaded.errorMessage}`);
         } else if (uploaded.logoUrl || uploaded.coverUrl) {
           // The backend's PUT replaces all updatable fields, so the patch must
-          // re-send everything the create supplied — otherwise location/website/etc. get wiped.
-          const patch: AdminUniversityUpdateRequest = {
+          // re-send everything the create supplied — otherwise industry/location/etc. get wiped.
+          const patch: AdminCompanyUpdateRequest = {
             name: create.name,
+            industry: create.industry ?? null,
             location: create.location ?? null,
             description: create.description ?? null,
             website: create.website ?? null,
-            founded: create.founded ?? null,
+            foundedYear: create.foundedYear ?? null,
+            employeeCount: create.employeeCount ?? null,
             specialties: create.specialties ?? null,
-            numberOfEmployees: create.numberOfEmployees ?? null,
           };
           if (uploaded.logoUrl) patch.logoUrl = uploaded.logoUrl;
           if (uploaded.coverUrl) patch.coverUrl = uploaded.coverUrl;
-          const { errorMessage: patchErr } = await updateSysAdminUniversity(token, data.universityId, patch);
+          const { errorMessage: patchErr } = await updateSysAdminCompany(token, data.companyId, patch);
           if (patchErr) {
-            toast.warning(`University created, but saving image URLs failed: ${patchErr}`);
+            toast.warning(`Company created, but saving image URLs failed: ${patchErr}`);
           }
         }
       }
@@ -148,37 +150,37 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
     return true;
   };
 
-  const requestToggle = (u: AdminUniversityResponse) => {
-    setPendingToggle(u);
+  const requestToggle = (c: AdminCompanyResponse) => {
+    setPendingToggle(c);
   };
 
   const confirmToggle = async () => {
     if (!pendingToggle) return;
     const target = pendingToggle;
     const newActive = !target.isActive;
-    setTogglingId(target.universityId);
+    setTogglingId(target.companyId);
     const token = (accessTokenRef?.current ?? '') || accessToken;
-    const { errorMessage } = await setSysAdminUniversityActive(token, target.universityId, newActive);
+    const { errorMessage } = await setSysAdminCompanyActive(token, target.companyId, newActive);
     setTogglingId(null);
     setPendingToggle(null);
     if (errorMessage) {
       toast.error(errorMessage);
       return;
     }
-    toast.success(newActive ? 'University activated' : 'University deactivated');
+    toast.success(newActive ? 'Company activated' : 'Company deactivated');
     await refresh();
   };
 
-  const requestDelete = (u: AdminUniversityResponse) => {
-    setPendingDelete(u);
+  const requestDelete = (c: AdminCompanyResponse) => {
+    setPendingDelete(c);
   };
 
   const confirmDelete = async () => {
     if (!pendingDelete) return;
     const target = pendingDelete;
-    setDeletingId(target.universityId);
+    setDeletingId(target.companyId);
     const token = (accessTokenRef?.current ?? '') || accessToken;
-    const { errorMessage } = await deleteSysAdminUniversity(token, target.universityId);
+    const { errorMessage } = await deleteSysAdminCompany(token, target.companyId);
     setDeletingId(null);
     setPendingDelete(null);
     if (errorMessage) {
@@ -186,7 +188,7 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
       await refresh();
       return;
     }
-    toast.success('University deleted');
+    toast.success('Company deleted');
     await refresh();
   };
 
@@ -194,20 +196,20 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-extrabold text-[#002B5B]">University Management</h1>
-          <p className="text-slate-500 mt-1">Manage university onboarding and information</p>
+          <h1 className="text-3xl font-extrabold text-[#002B5B]">Company Management</h1>
+          <p className="text-slate-500 mt-1">Manage company participation and access</p>
         </div>
         <button
           onClick={openCreate}
           className="inline-flex items-center gap-2 bg-[#002B5B] hover:bg-[#001F42] text-white font-bold px-5 py-3 rounded-xl transition-colors"
         >
           <Plus size={18} strokeWidth={2.5} />
-          Add University
+          Add Company
         </button>
       </header>
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Total Universities" value={stats.total} valueClass="text-[#002B5B]" />
+        <StatCard label="Total Companies" value={stats.total} valueClass="text-[#002B5B]" />
         <StatCard label="Active" value={stats.active} valueClass="text-emerald-600" />
         <StatCard label="Inactive" value={stats.inactive} valueClass="text-rose-500" />
       </section>
@@ -219,7 +221,7 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search universities..."
+            placeholder="Search companies..."
             className="w-full pl-12 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-[#002B5B] focus:ring-2 focus:ring-[#002B5B]/10 outline-none text-slate-700"
           />
         </div>
@@ -227,19 +229,20 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
 
       <section className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-slate-400">Loading universities...</div>
+          <div className="p-10 text-center text-slate-400">Loading companies...</div>
         ) : errorMessage ? (
           <div className="p-10 text-center text-rose-500">{errorMessage}</div>
         ) : filteredItems.length === 0 ? (
           <div className="p-10 text-center text-slate-400">
-            {items.length === 0 ? 'No universities yet. Click + Add University to onboard one.' : 'No matches.'}
+            {items.length === 0 ? 'No companies yet. Click + Add Company to onboard one.' : 'No matches.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 text-slate-500 text-[11px] tracking-widest uppercase">
-                  <th className="text-left px-6 py-4 font-bold">University</th>
+                  <th className="text-left px-6 py-4 font-bold">Company</th>
+                  <th className="text-left px-6 py-4 font-bold">Industry</th>
                   <th className="text-left px-6 py-4 font-bold">Location</th>
                   <th className="text-left px-6 py-4 font-bold">Founded</th>
                   <th className="text-left px-6 py-4 font-bold">Employees</th>
@@ -248,21 +251,22 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
                 </tr>
               </thead>
               <tbody>
-                {filteredItems.map((u) => {
-                  const deleteTitle = u.canDelete
-                    ? `Delete ${u.name} permanently`
-                    : `Has dependent records (${u.departmentCount} departments, ${u.studentCount} students) — deactivate instead`;
+                {filteredItems.map((c) => {
+                  const deleteTitle = c.canDelete
+                    ? `Delete ${c.name} permanently`
+                    : `Has dependent records (${c.opportunityCount} opportunities, ${c.applicationCount} applications, ${c.feedbackCount} feedback) — deactivate instead`;
                   return (
-                    <tr key={u.universityId} className="border-t border-slate-100 hover:bg-slate-50/40">
+                    <tr key={c.companyId} className="border-t border-slate-100 hover:bg-slate-50/40">
                       <td className="px-6 py-4">
-                        <div className="font-bold text-[#002B5B]">{u.name}</div>
-                        <div className="text-xs text-slate-400">{u.website || '—'}</div>
+                        <div className="font-bold text-[#002B5B]">{c.name}</div>
+                        <div className="text-xs text-slate-400">{c.website || '—'}</div>
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{u.location || '—'}</td>
-                      <td className="px-6 py-4 text-slate-600">{u.founded ?? '—'}</td>
-                      <td className="px-6 py-4 text-slate-600">{u.numberOfEmployees ?? '—'}</td>
+                      <td className="px-6 py-4 text-slate-600">{c.industry || '—'}</td>
+                      <td className="px-6 py-4 text-slate-600">{c.location || '—'}</td>
+                      <td className="px-6 py-4 text-slate-600">{c.foundedYear ?? '—'}</td>
+                      <td className="px-6 py-4 text-slate-600">{c.employeeCount ?? '—'}</td>
                       <td className="px-6 py-4">
-                        {u.isActive ? (
+                        {c.isActive ? (
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">Active</span>
                         ) : (
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-600">Inactive</span>
@@ -271,29 +275,29 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <button
-                            onClick={() => openEdit(u)}
-                            aria-label={`Edit ${u.name}`}
+                            onClick={() => openEdit(c)}
+                            aria-label={`Edit ${c.name}`}
                             className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[#002B5B] transition-colors"
                           >
                             <Edit2 size={16} />
                           </button>
                           <button
-                            onClick={() => requestToggle(u)}
-                            disabled={togglingId === u.universityId}
-                            aria-label={u.isActive ? `Deactivate ${u.name}` : `Activate ${u.name}`}
+                            onClick={() => requestToggle(c)}
+                            disabled={togglingId === c.companyId}
+                            aria-label={c.isActive ? `Deactivate ${c.name}` : `Activate ${c.name}`}
                             className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
-                              u.isActive ? 'text-rose-500 hover:bg-rose-50' : 'text-emerald-600 hover:bg-emerald-50'
+                              c.isActive ? 'text-rose-500 hover:bg-rose-50' : 'text-emerald-600 hover:bg-emerald-50'
                             }`}
                           >
                             <Power size={16} />
                           </button>
                           <button
-                            onClick={() => requestDelete(u)}
-                            disabled={!u.canDelete || deletingId === u.universityId}
-                            aria-label={`Delete ${u.name}`}
+                            onClick={() => requestDelete(c)}
+                            disabled={!c.canDelete || deletingId === c.companyId}
+                            aria-label={`Delete ${c.name}`}
                             title={deleteTitle}
                             className={`p-2 rounded-lg transition-colors ${
-                              u.canDelete
+                              c.canDelete
                                 ? 'text-rose-500 hover:bg-rose-50 disabled:opacity-50'
                                 : 'text-slate-300 cursor-not-allowed'
                             }`}
@@ -312,7 +316,7 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
       </section>
 
       {formOpen && (
-        <UniversityFormModal
+        <CompanyFormModal
           mode={editTarget ? 'edit' : 'create'}
           initial={editTarget}
           onClose={() => {
@@ -325,29 +329,29 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
 
       {pendingToggle && (
         <ConfirmDialog
-          title={pendingToggle.isActive ? 'Deactivate university?' : 'Activate university?'}
+          title={pendingToggle.isActive ? 'Deactivate company?' : 'Activate company?'}
           message={
             pendingToggle.isActive
-              ? `Deactivate ${pendingToggle.name}? Its admin and PPAs will be unable to log in until reactivated. Students stay logged in but cannot create new Professional Practice applications.`
-              : `Reactivate ${pendingToggle.name}? Its admin and PPAs will regain access.`
+              ? `Deactivate ${pendingToggle.name}? It will be unable to log in or manage opportunities until reactivated. Existing opportunities, applications, and feedback are preserved.`
+              : `Reactivate ${pendingToggle.name}? It will regain access to the platform.`
           }
           confirmLabel={pendingToggle.isActive ? 'Deactivate' : 'Activate'}
           confirmTone={pendingToggle.isActive ? 'danger' : 'primary'}
           onCancel={() => setPendingToggle(null)}
           onConfirm={confirmToggle}
-          loading={togglingId === pendingToggle.universityId}
+          loading={togglingId === pendingToggle.companyId}
         />
       )}
 
       {pendingDelete && (
         <ConfirmDialog
-          title="Permanently delete university?"
-          message={`Permanently delete ${pendingDelete.name}? This action cannot be undone. The university's admin account will be removed.`}
+          title="Permanently delete company?"
+          message={`Permanently delete ${pendingDelete.name}? This action cannot be undone. The company's account will be removed.`}
           confirmLabel="Delete"
           confirmTone="danger"
           onCancel={() => setPendingDelete(null)}
           onConfirm={confirmDelete}
-          loading={deletingId === pendingDelete.universityId}
+          loading={deletingId === pendingDelete.companyId}
         />
       )}
     </div>
@@ -355,7 +359,7 @@ const SystemAdminUniversitiesTab: React.FC<Props> = ({ accessToken, accessTokenR
 };
 
 async function uploadImagesIfAny(
-  universityId: number,
+  companyId: number,
   logoFile: File | null,
   coverFile: File | null,
 ): Promise<{ logoUrl: string | null; coverUrl: string | null; errorMessage: string | null }> {
@@ -366,12 +370,12 @@ async function uploadImagesIfAny(
   let logoUrl: string | null = null;
   let coverUrl: string | null = null;
   if (logoFile) {
-    const r = await uploadUniversityProfilePhoto(supabase, 'logo', universityId, logoFile);
+    const r = await uploadCompanyProfilePhoto(supabase, 'logo', companyId, logoFile);
     if (r.errorMessage) return { logoUrl: null, coverUrl: null, errorMessage: r.errorMessage };
     logoUrl = r.publicUrl;
   }
   if (coverFile) {
-    const r = await uploadUniversityProfilePhoto(supabase, 'cover', universityId, coverFile);
+    const r = await uploadCompanyProfilePhoto(supabase, 'cover', companyId, coverFile);
     if (r.errorMessage) return { logoUrl, coverUrl: null, errorMessage: r.errorMessage };
     coverUrl = r.publicUrl;
   }
@@ -438,25 +442,26 @@ function ConfirmDialog({
 interface FormState {
   name: string;
   email: string;
+  industry: string;
   location: string;
   description: string;
   website: string;
-  founded: string;
+  foundedYear: string;
+  employeeCount: string;
   specialties: string;
-  numberOfEmployees: string;
 }
 
-function UniversityFormModal({
+function CompanyFormModal({
   mode,
   initial,
   onClose,
   onSubmit,
 }: {
   mode: 'create' | 'edit';
-  initial: AdminUniversityResponse | null;
+  initial: AdminCompanyResponse | null;
   onClose: () => void;
   onSubmit: (
-    payload: AdminUniversityCreateRequest | AdminUniversityUpdateRequest,
+    payload: AdminCompanyCreateRequest | AdminCompanyUpdateRequest,
     logoFile: File | null,
     coverFile: File | null,
     logoRemoved: boolean,
@@ -466,12 +471,13 @@ function UniversityFormModal({
   const [state, setState] = useState<FormState>({
     name: initial?.name ?? '',
     email: initial?.email ?? '',
+    industry: initial?.industry ?? '',
     location: initial?.location ?? '',
     description: initial?.description ?? '',
     website: initial?.website ?? '',
-    founded: initial?.founded != null ? String(initial.founded) : '',
+    foundedYear: initial?.foundedYear != null ? String(initial.foundedYear) : '',
+    employeeCount: initial?.employeeCount != null ? String(initial.employeeCount) : '',
     specialties: initial?.specialties ?? '',
-    numberOfEmployees: initial?.numberOfEmployees != null ? String(initial.numberOfEmployees) : '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
@@ -525,16 +531,16 @@ function UniversityFormModal({
       if (!email) next.email = 'Email is required';
       else if (!/.+@.+\..+/.test(email)) next.email = 'Email format is invalid';
     }
-    if (state.founded.trim()) {
-      const n = Number(state.founded);
+    if (state.foundedYear.trim()) {
+      const n = Number(state.foundedYear);
       const currentYear = new Date().getFullYear();
       if (!Number.isInteger(n) || n < 1800 || n > currentYear + 1) {
-        next.founded = `Founded must be between 1800 and ${currentYear + 1}`;
+        next.foundedYear = `Founded must be between 1800 and ${currentYear + 1}`;
       }
     }
-    if (state.numberOfEmployees.trim()) {
-      const n = Number(state.numberOfEmployees);
-      if (!Number.isInteger(n) || n < 0) next.numberOfEmployees = 'Must be a non-negative integer';
+    if (state.employeeCount.trim()) {
+      const n = Number(state.employeeCount);
+      if (!Number.isInteger(n) || n < 0) next.employeeCount = 'Must be a non-negative integer';
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -545,12 +551,13 @@ function UniversityFormModal({
     if (!validate()) return;
     setSubmitting(true);
     const profileFields = {
+      industry: state.industry.trim() || null,
       location: state.location.trim() || null,
       description: state.description.trim() || null,
       website: state.website.trim() || null,
-      founded: state.founded.trim() ? Number(state.founded) : null,
+      foundedYear: state.foundedYear.trim() ? Number(state.foundedYear) : null,
+      employeeCount: state.employeeCount.trim() ? Number(state.employeeCount) : null,
       specialties: state.specialties.trim() || null,
-      numberOfEmployees: state.numberOfEmployees.trim() ? Number(state.numberOfEmployees) : null,
     };
     const payload =
       mode === 'create'
@@ -558,8 +565,8 @@ function UniversityFormModal({
             name: state.name.trim(),
             email: state.email.trim().toLowerCase(),
             ...profileFields,
-          } as AdminUniversityCreateRequest)
-        : ({ name: state.name.trim(), ...profileFields } as AdminUniversityUpdateRequest);
+          } as AdminCompanyCreateRequest)
+        : ({ name: state.name.trim(), ...profileFields } as AdminCompanyUpdateRequest);
     const ok = await onSubmit(payload, logoFile, coverFile, logoRemoved, coverRemoved);
     setSubmitting(false);
     if (!ok) return;
@@ -584,28 +591,26 @@ function UniversityFormModal({
           </div>
           <div>
             <h2 className="text-xl font-extrabold text-[#002B5B]">
-              {mode === 'create' ? 'Add University' : 'Edit University'}
+              {mode === 'create' ? 'Add Company' : 'Edit Company'}
             </h2>
           </div>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <Field label="University name" required error={errors.name}>
-                <input
-                  type="text"
-                  value={state.name}
-                  onChange={update('name')}
-                  className={inputClass}
-                />
-              </Field>
-            </div>
+            <Field label="Company Name" required error={errors.name}>
+              <input
+                type="text"
+                value={state.name}
+                onChange={update('name')}
+                className={inputClass}
+              />
+            </Field>
 
             <Field
-              label="Admin email"
+              label="Email"
               required={mode === 'create'}
-              hint={mode === 'create' ? "We'll email the new admin a link to set their password." : 'Email is immutable after creation.'}
+              hint={mode === 'create' ? "We'll email an invitation link to set the password." : 'Email is immutable after creation.'}
               error={errors.email}
             >
               <input
@@ -614,6 +619,15 @@ function UniversityFormModal({
                 onChange={update('email')}
                 disabled={mode === 'edit'}
                 className={mode === 'edit' ? disabledInputClass : inputClass}
+              />
+            </Field>
+
+            <Field label="Industry">
+              <input
+                type="text"
+                value={state.industry}
+                onChange={update('industry')}
+                className={inputClass}
               />
             </Field>
 
@@ -632,52 +646,55 @@ function UniversityFormModal({
                   value={state.description}
                   onChange={update('description')}
                   rows={3}
-                  placeholder="Brief description of the university"
+                  placeholder="Brief description of the company"
                   className={`${inputClass} resize-none`}
                 />
               </Field>
             </div>
-
-            <Field label="Website">
-              <input
-                type="text"
-                value={state.website}
-                onChange={update('website')}
-                placeholder="https://..."
-                className={inputClass}
-              />
-            </Field>
-
-            <Field label="Founded year" error={errors.founded}>
-              <input
-                type="number"
-                inputMode="numeric"
-                value={state.founded}
-                onChange={update('founded')}
-                className={inputClass}
-              />
-            </Field>
-
-            <Field label="Number of employees" error={errors.numberOfEmployees}>
-              <input
-                type="number"
-                inputMode="numeric"
-                value={state.numberOfEmployees}
-                onChange={update('numberOfEmployees')}
-                className={inputClass}
-              />
-            </Field>
 
             <div className="sm:col-span-2">
               <Field label="Specialties">
-                <textarea
+                <input
+                  type="text"
                   value={state.specialties}
                   onChange={update('specialties')}
-                  rows={3}
-                  className={`${inputClass} resize-none`}
+                  placeholder="e.g., Software Development, Cloud Computing, AI/ML"
+                  className={inputClass}
                 />
               </Field>
             </div>
+
+            <div className="sm:col-span-2">
+              <Field label="Website">
+                <input
+                  type="text"
+                  value={state.website}
+                  onChange={update('website')}
+                  placeholder="https://..."
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+
+            <Field label="Founded Year" error={errors.foundedYear}>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={state.foundedYear}
+                onChange={update('foundedYear')}
+                className={inputClass}
+              />
+            </Field>
+
+            <Field label="Employees" error={errors.employeeCount}>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={state.employeeCount}
+                onChange={update('employeeCount')}
+                className={inputClass}
+              />
+            </Field>
 
             <div className="sm:col-span-2">
               <Field label="Logo">
@@ -774,7 +791,7 @@ function UniversityFormModal({
               disabled={submitting}
               className="px-5 py-2 rounded-xl bg-[#002B5B] hover:bg-[#001F42] text-white font-bold disabled:opacity-50"
             >
-              {submitting ? 'Saving…' : mode === 'create' ? 'Create university' : 'Save changes'}
+              {submitting ? 'Saving…' : mode === 'create' ? 'Create Company' : 'Save changes'}
             </button>
           </div>
         </form>
@@ -809,4 +826,4 @@ function Field({
   );
 }
 
-export default SystemAdminUniversitiesTab;
+export default SystemAdminCompaniesTab;

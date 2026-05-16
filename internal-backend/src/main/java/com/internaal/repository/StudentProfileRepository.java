@@ -592,6 +592,10 @@ public class StudentProfileRepository {
         response.setHasCompletedPp(boolValue(studentNode, "has_completed_pp"));
         Boolean canApplyForPp = readCanApplyForPpFlag(studentNode);
         response.setCanApplyForPp(canApplyForPp != null ? canApplyForPp : Boolean.TRUE);
+        Boolean hasPremium = readHasPremiumFlag(studentNode);
+        response.setHasPremium(hasPremium != null ? hasPremium : Boolean.FALSE);
+        response.setPremiumSubscriptionStatus(textValue(studentNode, "premium_subscription_status"));
+        response.setPremiumCurrentPeriodEnd(textValue(studentNode, "premium_current_period_end"));
         response.setAccessStartDate(textValue(studentNode, "access_start_date"));
         response.setAccessEndDate(textValue(studentNode, "access_end_date"));
 
@@ -901,6 +905,144 @@ public class StudentProfileRepository {
             }
         }
         return null;
+    }
+
+    /**
+     * Same tolerant matching as {@link #readCanApplyForPpFlag} for {@code hasPremium} / {@code haspremium}.
+     */
+    private Boolean readHasPremiumFlag(JsonNode row) {
+        if (row == null || row.isNull()) {
+            return null;
+        }
+        final String target = "haspremium";
+        var fields = row.fields();
+        while (fields.hasNext()) {
+            var e = fields.next();
+            String norm = e.getKey().replace("_", "").toLowerCase();
+            if (target.equals(norm) && !e.getValue().isNull()) {
+                return e.getValue().asBoolean();
+            }
+        }
+        return null;
+    }
+
+    public Optional<String> findStripeCustomerIdByStudentId(Integer studentId) {
+        try {
+            HttpHeaders headers = createServiceHeaders();
+            JsonNode row = fetchSingleRow("student", "student_id", studentId, headers);
+            if (row == null || row.isNull()) {
+                return Optional.empty();
+            }
+            String v = textValue(row, "stripe_customer_id");
+            if (v != null && !v.isBlank()) {
+                return Optional.of(v.trim());
+            }
+            return Optional.empty();
+        } catch (Exception e) {
+            log.warn("findStripeCustomerIdByStudentId failed: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Returns true if this Stripe event id was already recorded after successful processing.
+     */
+    public boolean hasStripeWebhookEvent(String eventId) throws Exception {
+        if (eventId == null || eventId.isBlank()) {
+            return false;
+        }
+        String url = UriComponentsBuilder
+                .fromHttpUrl(supabaseUrl + "/rest/v1/stripe_webhook_event")
+                .queryParam("event_id", "eq." + eventId)
+                .queryParam("select", "event_id")
+                .queryParam("limit", "1")
+                .toUriString();
+        JsonNode array = fetchArray(url, createServiceHeaders());
+        return array != null && array.isArray() && !array.isEmpty();
+    }
+
+    /** Persists a processed Stripe event id (call only after handling succeeds). */
+    public void recordStripeWebhookEvent(String eventId) throws Exception {
+        if (eventId == null || eventId.isBlank()) {
+            return;
+        }
+        HttpHeaders headers = createServiceHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Prefer", "return=minimal");
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("event_id", eventId);
+        String json = objectMapper.writeValueAsString(List.of(row));
+        try {
+            restTemplate.exchange(
+                    supabaseUrl + "/rest/v1/stripe_webhook_event",
+                    HttpMethod.POST,
+                    new HttpEntity<>(json, headers),
+                    String.class);
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.CONFLICT) {
+                return;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Persists Premium entitlement and Stripe subscription fields (service role). Used only from verified webhooks.
+     */
+    public boolean patchStudentPremiumStripeState(
+            Integer studentId,
+            boolean hasPremium,
+            String stripeCustomerId,
+            String stripeSubscriptionId,
+            String subscriptionStatus,
+            Long currentPeriodEndEpochSeconds)
+            throws Exception {
+        HttpHeaders headers = createServiceHeaders();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("hasPremium", hasPremium);
+        body.put("stripe_customer_id", stripeCustomerId);
+        body.put("stripe_subscription_id", stripeSubscriptionId);
+        body.put("premium_subscription_status", subscriptionStatus);
+        if (currentPeriodEndEpochSeconds != null) {
+            body.put(
+                    "premium_current_period_end",
+                    java.time.Instant.ofEpochSecond(currentPeriodEndEpochSeconds).toString());
+        } else {
+            body.put("premium_current_period_end", null);
+        }
+        JsonNode updated = patchSingleRow(
+                "student",
+                body,
+                headers,
+                "student_id",
+                studentId,
+                "student_id",
+                studentId);
+        return updated != null;
+    }
+
+    /**
+     * Demo: sets {@code hasPremium} on the student row via PostgREST, then reloads the profile.
+     * Real PSP integration should verify payment before calling this.
+     */
+    public Optional<StudentProfileResponse> completeMockPremiumPayment(Integer studentId, String userJwt) throws Exception {
+        HttpHeaders headers = createUserHeaders(userJwt);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("hasPremium", Boolean.TRUE);
+        JsonNode updated = patchSingleRowWithServiceFallbackOnForbidden(
+                "student",
+                body,
+                headers,
+                "student_id",
+                studentId,
+                "student_id",
+                studentId,
+                studentId);
+        if (updated == null) {
+            return Optional.empty();
+        }
+        return findByStudentId(studentId, userJwt);
     }
 
     private String textValue(JsonNode node, String field) {

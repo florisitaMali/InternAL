@@ -6,15 +6,16 @@ import Image from 'next/image';
 import Dashboard from './Dashboard';
 import NotificationsPanel from '@/src/components/NotificationsPanel';
 import UniversityProfileReadOnlyView from '@/src/components/UniversityProfileReadOnlyView';
-import AddStudentForm from './AddStudentForm';
-import ImportCSVForm from './ImportCSVForm';
+import ViewerStudentProfileOverlay from '@/src/components/ViewerStudentProfileOverlay';
 import UnderDevelopment from './UnderDevelopment';
 import OpportunityDetailView from '@/src/components/OpportunityDetailView';
+import * as XLSX from 'xlsx';
 import {
   createAdminPpa,
   deleteAdminPpa,
-  createAdminStudent,
-  fetchAdminApplications,
+  importAdminPpaCsv,
+  type PpaCsvImportResult,
+  type PpaImportMapping,
   fetchAdminCompanies,
   fetchAdminDashboardStats,
   patchAdminOpportunityCollaboration,
@@ -30,7 +31,6 @@ import {
   fetchAdminStudyFields,
   mapAdminOpportunityDetailToOpportunity,
   mapAdminOpportunitySummaryToOpportunity,
-  mapApplicationResponseToApplication,
   updateAdminDepartment,
   updateAdminPpa,
   updateAdminStudyField,
@@ -80,6 +80,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   Library,
+  Filter,
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
@@ -107,8 +108,12 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
 }) => {
   const { unreadCount, refresh: refreshUnreadNotifications } = useNotificationUnreadCount();
   const [searchTerm, setSearchTerm] = useState('');
-  const [isAddingStudent, setIsAddingStudent] = useState(false);
-  const [isImportingCSV, setIsImportingCSV] = useState(false);
+  const [adminStudentsSearch, setAdminStudentsSearch] = useState('');
+  const [showAdminStudentFilters, setShowAdminStudentFilters] = useState(false);
+  const [adminStudentYearFilter, setAdminStudentYearFilter] = useState<string[]>([]);
+  const [adminStudentFieldFilter, setAdminStudentFieldFilter] = useState<string[]>([]);
+  const [adminStudentDepartmentFilter, setAdminStudentDepartmentFilter] = useState<string[]>([]);
+  const [adminStudentStatusFilter, setAdminStudentStatusFilter] = useState<string[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [studyFields, setStudyFields] = useState<StudyField[]>([]);
@@ -119,6 +124,7 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     ppaApprovers: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [viewStudentProfileId, setViewStudentProfileId] = useState<number | null>(null);
   const [adminOpportunities, setAdminOpportunities] = useState<AdminOpportunityRow[]>([]);
   const [oppDeadlineFilter, setOppDeadlineFilter] = useState<'all' | 'active' | 'expired'>('all');
   const [adminExploreSelectedId, setAdminExploreSelectedId] = useState<string | null>(null);
@@ -139,6 +145,15 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     departmentId: '',
     studyFieldIds: [] as string[],
   });
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState<PpaCsvImportResult | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [importMapping, setImportMapping] = useState<PpaImportMapping>({
+    nameColumn: '', emailColumn: '', departmentColumn: '', studyFieldColumn: '',
+  });
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const [academicDeptName, setAcademicDeptName] = useState('');
   const [academicDeptError, setAcademicDeptError] = useState<string | null>(null);
@@ -343,20 +358,11 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           toast.error('Not signed in.');
           return;
         }
-        const [
-          studentsRes,
-          departmentsRes,
-          fieldsRes,
-          statsRes,
-          appsRes,
-          companiesRes,
-          ppasRes,
-        ] = await Promise.all([
+        const [studentsRes, departmentsRes, fieldsRes, statsRes, companiesRes, ppasRes] = await Promise.all([
           fetchAdminStudents(token),
           fetchAdminDepartments(token),
           fetchAdminStudyFields(token),
           fetchAdminDashboardStats(token),
-          fetchAdminApplications(token),
           fetchAdminCompanies(token, 10),
           fetchAdminPpas(token),
         ]);
@@ -368,8 +374,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         else if (fieldsRes.data) setStudyFields(fieldsRes.data);
         if (statsRes.errorMessage) toast.error(statsRes.errorMessage);
         else if (statsRes.data) setStats(statsRes.data);
-        if (appsRes.errorMessage) toast.error(appsRes.errorMessage);
-        else if (appsRes.data) setAdminApplications(appsRes.data.map(mapApplicationResponseToApplication));
         if (companiesRes.errorMessage) toast.error(companiesRes.errorMessage);
         else if (companiesRes.data) setAdminCompanies(companiesRes.data);
         if (ppasRes.errorMessage) toast.error(ppasRes.errorMessage);
@@ -475,26 +479,94 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     [adminExploreDetail?.id, adminExploreSelectedId, resolveAccessToken]
   );
 
+  const studyYearLabel = useCallback((year: number | null | undefined) => {
+    if (year == null) return '—';
+    const suffixes: Record<number, string> = { 1: 'st', 2: 'nd', 3: 'rd' };
+    return `${year}${suffixes[year] ?? 'th'} Year`;
+  }, []);
+
+  /** All departments / study fields for the university (from API), not only those with students. */
+  const adminStudentFilterDepartments = useMemo(
+    () =>
+      [...departments].sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+      ),
+    [departments]
+  );
+
+  const departmentNameByIdForFilters = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of departments) {
+      m.set(d.id, d.name || '');
+    }
+    return m;
+  }, [departments]);
+
+  const adminStudentFilterStudyFields = useMemo(
+    () =>
+      [...studyFields].sort((a, b) => {
+        const deptA = departmentNameByIdForFilters.get(a.departmentId) || '';
+        const deptB = departmentNameByIdForFilters.get(b.departmentId) || '';
+        const byDept = deptA.localeCompare(deptB, undefined, { sensitivity: 'base' });
+        if (byDept !== 0) return byDept;
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      }),
+    [studyFields, departmentNameByIdForFilters]
+  );
+
   const filteredStudents = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return students;
+    const q = adminStudentsSearch.trim().toLowerCase();
     return students.filter((student) => {
-      const deptLabel =
-        student.departmentName?.trim() ||
-        (student.departmentId
-          ? departments.find((d) => d.id === student.departmentId)?.name?.trim()
-          : '') ||
-        '';
-      const fieldLabel =
-        student.studyFieldName?.trim() ||
-        (student.studyFieldId
-          ? studyFields.find((f) => f.id === student.studyFieldId)?.name?.trim()
-          : '') ||
-        '';
-      const hay = `${student.fullName} ${student.email} ${deptLabel} ${fieldLabel}`.toLowerCase();
-      return hay.includes(q);
+      if (q) {
+        const deptLabel =
+          student.departmentName?.trim() ||
+          (student.departmentId
+            ? departments.find((d) => d.id === student.departmentId)?.name?.trim()
+            : '') ||
+          '';
+        const fieldLabel =
+          student.studyFieldName?.trim() ||
+          (student.studyFieldId
+            ? studyFields.find((f) => f.id === student.studyFieldId)?.name?.trim()
+            : '') ||
+          '';
+        const hay = [student.fullName, student.email, student.departmentName, student.studyFieldName, deptLabel, fieldLabel]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (adminStudentYearFilter.length > 0) {
+        const label = studyYearLabel(student.studyYear);
+        if (label === '—' || !adminStudentYearFilter.includes(label)) return false;
+      }
+      if (adminStudentFieldFilter.length > 0) {
+        const fid = student.studyFieldId;
+        if (!fid || !adminStudentFieldFilter.includes(fid)) return false;
+      }
+      if (adminStudentDepartmentFilter.length > 0) {
+        const did = student.departmentId;
+        if (!did || !adminStudentDepartmentFilter.includes(did)) return false;
+      }
+      if (adminStudentStatusFilter.length > 0) {
+        const status = student.applicationStatus;
+        const label =
+          status === 'APPROVED' ? 'Accepted' : status === 'REJECTED' ? 'Rejected' : 'Waiting Review';
+        if (!adminStudentStatusFilter.includes(label)) return false;
+      }
+      return true;
     });
-  }, [students, searchTerm, departments, studyFields]);
+  }, [
+    students,
+    adminStudentsSearch,
+    departments,
+    studyFields,
+    adminStudentYearFilter,
+    adminStudentFieldFilter,
+    adminStudentDepartmentFilter,
+    adminStudentStatusFilter,
+    studyYearLabel,
+  ]);
 
   const filteredAdminOpportunities = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -527,15 +599,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     if (oppDeadlineFilter === 'expired') return 'Expired opportunities';
     return 'All opportunities';
   }, [oppDeadlineFilter]);
-
-  const filteredAdminApplications = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return adminApplications;
-    return adminApplications.filter(
-      (a) =>
-        `${a.studentName} ${a.opportunityTitle} ${a.companyName}`.toLowerCase().includes(q)
-    );
-  }, [adminApplications, searchTerm]);
 
   const filteredPpas = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -661,6 +724,76 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     toast.success('PP approver deleted.');
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (csvFileInputRef.current) csvFileInputRef.current.value = '';
+    if (!file) return;
+
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.csv') && !name.endsWith('.xlsx') && !name.endsWith('.xls')) {
+      toast.error('Invalid file format. Please upload a CSV or Excel file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) { toast.error('File has no sheets.'); return; }
+        const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1 });
+        if (!rows.length || !rows[0].length) { toast.error('File has no headers.'); return; }
+        const headerRow = rows[0] as unknown[];
+        const headers = headerRow
+          .map((h: unknown) => (h == null ? '' : String(h)))
+          .filter((h: string) => h.trim() !== '' && h !== 'undefined');
+        setImportFile(file);
+        setImportHeaders(headers);
+        setImportMapping({ nameColumn: '', emailColumn: '', departmentColumn: '', studyFieldColumn: '' });
+        setCsvImportResult(null);
+        setShowImportModal(true);
+      } catch {
+        toast.error('Could not read file.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleImportSubmit = async () => {
+    if (!importFile) return;
+    if (!importMapping.nameColumn || !importMapping.emailColumn ||
+        !importMapping.departmentColumn || !importMapping.studyFieldColumn) {
+      toast.error('Please map all fields before importing.');
+      return;
+    }
+    const token = await resolveAccessToken();
+    if (!token) { toast.error('Not signed in.'); return; }
+
+    setCsvImporting(true);
+    setCsvImportResult(null);
+    try {
+      const { data, errorMessage } = await importAdminPpaCsv(token, importFile, importMapping);
+      if (errorMessage) { toast.error(errorMessage); return; }
+      if (data) {
+        setCsvImportResult(data);
+        if (data.created > 0) {
+          const freshToken = await resolveAccessToken();
+          if (freshToken) {
+            const { data: refreshed } = await fetchAdminPpas(freshToken);
+            if (refreshed) setPpas(refreshed);
+          }
+          toast.success(`Imported: ${data.created} PPA(s) created` +
+            (data.failed > 0 ? `, ${data.failed} failed` : ''));
+        } else if (data.failed > 0) {
+          toast.error(`Import failed: ${data.failed} row(s) had errors.`);
+        }
+      }
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
   const addStudyFieldFromPicker = (fieldId: string) => {
     if (!fieldId) return;
     setPpaForm((s) => {
@@ -704,150 +837,254 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
   );
 
   const renderStudents = () => {
-    if (isAddingStudent) {
-      return (
-        <AddStudentForm 
-          onSave={async (newStudent) => {
-            const token = await resolveAccessToken();
-            if (!token) {
-              toast.error('Not signed in.');
-              return;
-            }
-            const deptId = parseInt(String(newStudent.departmentId), 10);
-            const fieldId = parseInt(String(newStudent.studyFieldId), 10);
-            if (Number.isNaN(deptId) || Number.isNaN(fieldId)) {
-              toast.error('Invalid department or study field.');
-              return;
-            }
-            const { data: created, errorMessage } = await createAdminStudent(token, {
-              fullName: newStudent.fullName,
-              email: newStudent.email,
-              departmentId: deptId,
-              studyFieldId: fieldId,
-              studyYear: newStudent.studyYear,
-              cgpa: newStudent.cgpa,
-            });
-            if (!created || errorMessage) {
-              toast.error(errorMessage || 'Could not create student.');
-              return;
-            }
-            setStudents((prev) => [created, ...prev]);
-            setStats((prev) => ({ ...prev, totalStudents: prev.totalStudents + 1 }));
-            setIsAddingStudent(false);
-          }} 
-          onCancel={() => setIsAddingStudent(false)} 
-          departments={departments}
-          studyFields={studyFields}
-        />
-      );
-    }
-
-    if (isImportingCSV) {
-      return (
-        <ImportCSVForm 
-          entityName="Students" 
-          onImport={(data) => {
-            // Mock import
-            setIsImportingCSV(false);
-          }} 
-          onCancel={() => setIsImportingCSV(false)} 
-        />
-      );
-    }
-
     return (
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h2 className="text-lg font-bold text-slate-900">Student Management</h2>
-          <div className="flex gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input 
-                type="text" 
-                placeholder="Search students..." 
+      <div className="space-y-5">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-[#002B5B] sm:text-3xl">Students</h2>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-slate-400"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <input
+                type="text"
+                placeholder="Search student name or study field..."
                 suppressHydrationWarning
-                className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none w-64"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full rounded-full border border-slate-200 bg-white py-3.5 pl-11 pr-5 text-sm shadow-sm outline-none transition-shadow placeholder:text-slate-400 focus:border-[#002B5B]/25 focus:ring-2 focus:ring-[#002B5B]/20"
+                value={adminStudentsSearch}
+                onChange={(e) => setAdminStudentsSearch(e.target.value)}
               />
             </div>
-            <button 
-              onClick={() => setIsAddingStudent(true)}
+            <button
               suppressHydrationWarning
-              className="flex items-center gap-2 px-4 py-2 bg-[#002B5B] text-white rounded-xl text-sm font-bold hover:bg-[#001F42] transition-all shadow-lg shadow-indigo-500/20"
+              type="button"
+              onClick={() => setShowAdminStudentFilters((v) => !v)}
+              className={cn(
+                'inline-flex shrink-0 items-center justify-center gap-2 rounded-full border px-5 py-3.5 text-sm font-bold shadow-sm transition-all sm:min-w-[8.5rem]',
+                showAdminStudentFilters
+                  ? 'border-[#002B5B] bg-[#002B5B] text-white hover:bg-[#003a7a]'
+                  : 'border-slate-200 bg-white text-[#002B5B] hover:bg-slate-50'
+              )}
             >
-              <Plus size={16} />
-              Add Student
-            </button>
-            <button 
-              onClick={() => setIsImportingCSV(true)}
-              suppressHydrationWarning
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
-            >
-              <Upload size={16} />
-              Import CSV
+              <Filter size={18} strokeWidth={2} aria-hidden />
+              Filters
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+
+        {showAdminStudentFilters && (
+          <div className="grid grid-cols-2 gap-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-4">
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-700">Study Year</div>
+              <div className="space-y-1.5">
+                {[1, 2, 3, 4, 5].map((y) => {
+                  const label = studyYearLabel(y);
+                  return (
+                    <label key={y} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-[#002B5B]"
+                        checked={adminStudentYearFilter.includes(label)}
+                        onChange={(e) =>
+                          setAdminStudentYearFilter((prev) =>
+                            e.target.checked ? [...prev, label] : prev.filter((v) => v !== label)
+                          )
+                        }
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-700">Department</div>
+              <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+                {adminStudentFilterDepartments.map((d) => (
+                  <label key={d.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={adminStudentDepartmentFilter.includes(d.id)}
+                      onChange={(e) =>
+                        setAdminStudentDepartmentFilter((prev) =>
+                          e.target.checked ? [...prev, d.id] : prev.filter((v) => v !== d.id)
+                        )
+                      }
+                    />
+                    {d.name}
+                  </label>
+                ))}
+                {adminStudentFilterDepartments.length === 0 && <p className="text-xs text-slate-400">—</p>}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-700">Study Field</div>
+              <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+                {adminStudentFilterStudyFields.map((f) => (
+                  <label key={f.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={adminStudentFieldFilter.includes(f.id)}
+                      onChange={(e) =>
+                        setAdminStudentFieldFilter((prev) =>
+                          e.target.checked ? [...prev, f.id] : prev.filter((v) => v !== f.id)
+                        )
+                      }
+                    />
+                    {f.name}
+                  </label>
+                ))}
+                {adminStudentFilterStudyFields.length === 0 && <p className="text-xs text-slate-400">—</p>}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-700">Status</div>
+              <div className="space-y-1.5">
+                {['Waiting Review', 'Accepted', 'Rejected'].map((s) => (
+                  <label key={s} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-[#002B5B]"
+                      checked={adminStudentStatusFilter.includes(s)}
+                      onChange={(e) =>
+                        setAdminStudentStatusFilter((prev) =>
+                          e.target.checked ? [...prev, s] : prev.filter((v) => v !== s)
+                        )
+                      }
+                    />
+                    {s}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="col-span-2 flex justify-end gap-3 md:col-span-4">
+              <button
+                suppressHydrationWarning
+                type="button"
+                onClick={() => {
+                  setAdminStudentYearFilter([]);
+                  setAdminStudentFieldFilter([]);
+                  setAdminStudentDepartmentFilter([]);
+                  setAdminStudentStatusFilter([]);
+                }}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition-all hover:bg-slate-50"
+              >
+                Clear All
+              </button>
+              <button
+                suppressHydrationWarning
+                type="button"
+                onClick={() => setShowAdminStudentFilters(false)}
+                className="rounded-xl bg-[#002B5B] px-4 py-2 text-sm font-bold text-white transition-all hover:bg-[#003a7a]"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[960px] border-collapse text-left">
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                <th className="px-6 py-4">Student ID</th>
-                <th className="px-6 py-4">Full Name</th>
-                <th className="px-6 py-4">Department</th>
-                <th className="px-6 py-4">Study Field</th>
-                <th className="px-6 py-4">Study Year</th>
-                <th className="px-6 py-4">CGPA</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+              <tr className="bg-[#002B5B] text-white">
+                <th className="rounded-tl-2xl px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                  Student name
+                </th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Email</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Study field</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider">Department</th>
+                <th className="whitespace-nowrap px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                  Academic year
+                </th>
+                <th className="rounded-tr-2xl px-6 py-4 text-xs font-bold uppercase tracking-wider">
+                  Student status
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredStudents.map((student) => (
-                <tr key={student.id} className="hover:bg-slate-50 transition-all group">
-                  <td className="px-6 py-4 font-mono text-xs text-slate-500">{student.id}</td>
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-900">{student.fullName}</div>
-                    <div className="text-xs text-slate-500">{student.email}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 font-medium">
-                    {student.departmentName?.trim() ||
-                      (student.departmentId
-                        ? departments.find((d) => d.id === student.departmentId)?.name?.trim()
-                        : undefined) ||
-                      '—'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 font-medium">
-                    {student.studyFieldName?.trim() ||
-                      (student.studyFieldId
-                        ? studyFields.find((f) => f.id === student.studyFieldId)?.name?.trim()
-                        : undefined) ||
-                      '—'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{student.studyYear}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2.5 py-1 bg-[#002B5B]/10 text-[#002B5B] rounded-lg text-xs font-bold">
-                      {student.cgpa}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-all">
-                    <div className="flex justify-end gap-2">
-                      <button 
-                        suppressHydrationWarning
-                        className="p-2 text-slate-400 hover:text-[#002B5B] hover:bg-indigo-50 rounded-lg transition-all"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button 
-                        suppressHydrationWarning
-                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
+                    Loading students…
                   </td>
                 </tr>
-              ))}
+              ) : students.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-600">
+                    No students are registered for your university yet.
+                  </td>
+                </tr>
+              ) : filteredStudents.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-600">
+                    No students match your search or filters.
+                  </td>
+                </tr>
+              ) : (
+                filteredStudents.map((student) => {
+                  const sid = Number(student.id);
+                  const status = student.applicationStatus;
+                  const decision: 'WAITING' | 'APPROVED' | 'REJECTED' =
+                    status === 'APPROVED'
+                      ? 'APPROVED'
+                      : status === 'REJECTED'
+                        ? 'REJECTED'
+                        : 'WAITING';
+                  return (
+                    <tr key={student.id} className="transition-colors hover:bg-slate-50/90">
+                      <td className="px-6 py-4 align-middle">
+                        <button
+                          type="button"
+                          className="text-left text-base font-bold text-[#002B5B] hover:underline"
+                          onClick={() => {
+                            if (!Number.isNaN(sid)) setViewStudentProfileId(sid);
+                          }}
+                        >
+                          {student.fullName}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {student.email || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {student.studyFieldName?.trim() ||
+                          (student.studyFieldId
+                            ? studyFields.find((f) => f.id === student.studyFieldId)?.name?.trim()
+                            : undefined) ||
+                          '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {student.departmentName?.trim() ||
+                          (student.departmentId
+                            ? departments.find((d) => d.id === student.departmentId)?.name?.trim()
+                            : undefined) ||
+                          '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-slate-600 align-middle">
+                        {studyYearLabel(student.studyYear)}
+                      </td>
+                      <td className="px-6 py-4 align-middle">
+                        <span
+                          className={cn(
+                            'inline-flex rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white',
+                            decision === 'APPROVED'
+                              ? 'bg-[#20948B]'
+                              : decision === 'REJECTED'
+                                ? 'bg-amber-600'
+                                : 'bg-slate-500'
+                          )}
+                        >
+                          {decision}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -1725,81 +1962,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
     );
   };
 
-  const renderApplications = () => (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-        <h2 className="text-lg font-bold text-slate-900">All Applications Monitor</h2>
-        <div className="flex gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search applications..." 
-              suppressHydrationWarning
-              className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#002B5B] outline-none w-64"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-              <th className="px-6 py-4">Student</th>
-              <th className="px-6 py-4">Opportunity</th>
-              <th className="px-6 py-4">Type</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4">Created At</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filteredAdminApplications.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-500">
-                  No applications yet.
-                </td>
-              </tr>
-            ) : (
-              filteredAdminApplications.map((app) => (
-                <tr key={app.id} className="hover:bg-slate-50 transition-all">
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-900">{app.studentName}</div>
-                    <div className="text-xs text-slate-500">ID: {app.studentId}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-bold text-slate-900">{app.opportunityTitle}</div>
-                    <div className="text-xs text-slate-500">{app.companyName}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      "px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider",
-                      app.type === 'PROFESSIONAL_PRACTICE' ? "bg-[#002B5B]/10 text-[#002B5B]" : "bg-slate-100 text-slate-700"
-                    )}>
-                      {app.type.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                      app.status === 'APPROVED' ? "bg-emerald-50 text-emerald-700" :
-                      app.status === 'REJECTED' ? "bg-red-50 text-red-700" :
-                      "bg-amber-50 text-amber-700"
-                    )}>
-                      {app.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-xs text-slate-500">{app.createdAt}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-
   const renderPpas = () => (
     <div className="space-y-4">
       <div className="rounded-2xl border border-blue-200/60 bg-blue-50/40 shadow-sm p-4 backdrop-blur-[2px]">
@@ -1931,6 +2093,100 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      <div className="rounded-2xl border border-blue-200/60 bg-blue-50/40 shadow-sm p-4 backdrop-blur-[2px]">
+        <h2 className="text-lg font-bold text-[#002B5B] mb-3">Import PPAs from File</h2>
+        <p className="text-sm text-blue-900/55 mb-3">
+          Upload a <strong>.csv</strong>, <strong>.xlsx</strong>, or <strong>.xls</strong> file.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            ref={csvFileInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <button
+            onClick={() => csvFileInputRef.current?.click()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#002B5B] text-white text-sm font-bold hover:bg-[#001F42] disabled:opacity-60"
+          >
+            <Upload size={16} />
+            Upload CSV / Excel
+          </button>
+        </div>
+        {csvImportResult && (
+          <div className="mt-3 rounded-xl border border-blue-200/70 p-3 bg-blue-100/35">
+            <div className="flex gap-4 text-sm font-semibold mb-1">
+              {csvImportResult.created > 0 && (
+                <span className="text-emerald-700">{csvImportResult.created} created</span>
+              )}
+              {csvImportResult.failed > 0 && (
+                <span className="text-red-600">{csvImportResult.failed} failed</span>
+              )}
+              {csvImportResult.created === 0 && csvImportResult.failed === 0 && (
+                <span className="text-blue-900/55">No rows found in file.</span>
+              )}
+            </div>
+            {csvImportResult.errors.length > 0 && (
+              <ul className="mt-2 space-y-1 text-xs text-red-700 max-h-40 overflow-y-auto">
+                {csvImportResult.errors.map((err, i) => (
+                  <li key={i} className="flex gap-1">
+                    <span className="shrink-0">•</span>
+                    <span>{err}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-blue-200/60 w-full max-w-md mx-4 p-6">
+            <h2 className="text-lg font-bold text-[#002B5B] mb-1">Map File Columns</h2>
+            <p className="text-sm text-blue-900/55 mb-5">
+              Select which column in your file corresponds to each field.
+            </p>
+            {([
+              { label: 'Name', key: 'nameColumn' as const },
+              { label: 'Email', key: 'emailColumn' as const },
+              { label: 'Department', key: 'departmentColumn' as const },
+              { label: 'Study Field', key: 'studyFieldColumn' as const },
+            ]).map(({ label, key }) => (
+              <div key={key} className="flex items-center gap-4 mb-4">
+                <span className="w-28 text-sm font-semibold text-[#002B5B] shrink-0">{label}</span>
+                <select
+                  value={importMapping[key]}
+                  onChange={(e) => setImportMapping(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="flex-1 px-3 py-2 rounded-xl border border-blue-200/80 bg-white text-sm focus:ring-2 focus:ring-[#002B5B]/25 focus:border-[#002B5B]/35 outline-none"
+                >
+                  <option value="">Select column</option>
+                  {importHeaders.map((h) => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => { setShowImportModal(false); setImportFile(null); }}
+                className="px-4 py-2 rounded-xl border border-blue-200/80 bg-white/70 text-sm font-semibold text-[#002B5B] hover:bg-blue-100/50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowImportModal(false); void handleImportSubmit(); }}
+                disabled={csvImporting || !importMapping.nameColumn || !importMapping.emailColumn || !importMapping.departmentColumn || !importMapping.studyFieldColumn}
+                className="px-4 py-2 rounded-xl bg-[#002B5B] text-white text-sm font-bold hover:bg-[#001F42] disabled:opacity-60"
+              >
+                {csvImporting ? 'Importing…' : 'Insert'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-blue-200/60 bg-blue-50/35 shadow-sm overflow-hidden backdrop-blur-[2px]">
         <div className="p-4 border-b border-blue-200/60 flex justify-between items-center bg-blue-100/50">
@@ -2067,15 +2323,12 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
                     onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, website: e.target.value } : d))}
                   />
                 </label>
-                <label className="block text-sm">
+                <div className="block text-sm">
                   <span className="font-semibold text-slate-700">Contact email</span>
-                  <input
-                    type="email"
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                    value={uniProfileDraft.email ?? ''}
-                    onChange={(e) => setUniProfileDraft((d) => (d ? { ...d, email: e.target.value } : d))}
-                  />
-                </label>
+                  <p className="mt-1 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                    {(uniProfileDraft.email ?? '').trim() || '—'}
+                  </p>
+                </div>
                 <label className="block text-sm">
                   <span className="font-semibold text-slate-700">Number of employees</span>
                   <input
@@ -2297,7 +2550,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
                   <h3 className="font-bold mb-2">Quick Actions</h3>
                   <p className="text-indigo-100 text-xs mb-4">Manage your academic structure and users efficiently.</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <button suppressHydrationWarning className="p-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all">New Student</button>
                     <button suppressHydrationWarning className="p-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all">New PPA</button>
                     <button suppressHydrationWarning className="p-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all">Export Data</button>
                     <button suppressHydrationWarning className="p-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all">Settings</button>
@@ -2317,8 +2569,6 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
         return renderAcademic();
       case 'opportunities':
         return renderOpportunities();
-      case 'applications':
-        return renderApplications();
       default:
         return <UnderDevelopment moduleName={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} />;
     }
@@ -2347,6 +2597,13 @@ const UniversityAdminDashboard: React.FC<UniversityAdminDashboardProps> = ({
       )}
     >
       {renderContent()}
+      {viewStudentProfileId != null ? (
+        <ViewerStudentProfileOverlay
+          studentId={viewStudentProfileId}
+          onClose={() => setViewStudentProfileId(null)}
+          apiSegment="admin"
+        />
+      ) : null}
     </Dashboard>
   );
 };

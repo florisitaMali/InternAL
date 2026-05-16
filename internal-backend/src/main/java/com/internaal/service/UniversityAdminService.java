@@ -11,6 +11,7 @@ import com.internaal.dto.OpportunityResponseItem;
 import com.internaal.dto.AdminPpaCreateRequest;
 import com.internaal.dto.AdminPpaResponse;
 import com.internaal.dto.AdminPpaUpdateRequest;
+import com.internaal.dto.PpaCsvImportResult;
 import com.internaal.dto.AdminStudentCreateRequest;
 import com.internaal.dto.AdminStudentResponse;
 import com.internaal.dto.AdminStudyFieldCreateRequest;
@@ -26,6 +27,7 @@ import com.internaal.entity.Opportunity;
 import com.internaal.repository.ApplicationRepository;
 import com.internaal.repository.NotificationRepository;
 import com.internaal.repository.OpportunityMapper;
+import com.internaal.repository.PpaRepository;
 import com.internaal.repository.StudentProfileRepository;
 import com.internaal.repository.UniversityAdminRepository;
 import com.internaal.repository.UniversityProfileRepository;
@@ -37,8 +39,25 @@ import org.springframework.web.server.ResponseStatusException;
 
 import org.springframework.web.client.HttpClientErrorException;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class UniversityAdminService {
@@ -49,6 +68,7 @@ public class UniversityAdminService {
     private final StudentProfileRepository studentProfileRepository;
     private final UniversityProfileRepository universityProfileRepository;
     private final NotificationRepository notificationRepository;
+    private final PpaRepository ppaRepository;
 
     public UniversityAdminService(
             UniversityAdminRepository universityAdminRepository,
@@ -56,13 +76,15 @@ public class UniversityAdminService {
             SupabaseAuthAdminService supabaseAuthAdminService,
             StudentProfileRepository studentProfileRepository,
             UniversityProfileRepository universityProfileRepository,
-            NotificationRepository notificationRepository) {
+            NotificationRepository notificationRepository,
+            PpaRepository ppaRepository) {
         this.universityAdminRepository = universityAdminRepository;
         this.applicationRepository = applicationRepository;
         this.supabaseAuthAdminService = supabaseAuthAdminService;
         this.studentProfileRepository = studentProfileRepository;
         this.universityProfileRepository = universityProfileRepository;
         this.notificationRepository = notificationRepository;
+        this.ppaRepository = ppaRepository;
     }
 
     public UniversityProfileResponse getUniversityProfile(UserAccount user) {
@@ -95,7 +117,7 @@ public class UniversityAdminService {
                 req.location(),
                 req.description(),
                 req.website(),
-                req.email(),
+                null,
                 req.employeeCount(),
                 req.foundedYear(),
                 req.specialties(),
@@ -245,7 +267,36 @@ public class UniversityAdminService {
     public List<AdminStudentResponse> listStudents(UserAccount user) {
         requireAdmin(user);
         int universityId = parseUniversityId(user);
-        return universityAdminRepository.listStudentsByUniversityId(universityId);
+        List<AdminStudentResponse> rows = universityAdminRepository.listStudentsByUniversityId(universityId);
+        return enrichStudentApplicationStats(rows);
+    }
+
+    /** Same application aggregates as PPA “My students” (waiting / pending / approved / rejected). */
+    private List<AdminStudentResponse> enrichStudentApplicationStats(List<AdminStudentResponse> students) {
+        if (students.isEmpty()) {
+            return students;
+        }
+        List<Integer> studentIds = students.stream().map(AdminStudentResponse::studentId).toList();
+        Map<Integer, int[]> stats = ppaRepository.getApplicationStatsByStudentIds(studentIds);
+        return students.stream().map(s -> {
+            int[] stat = stats.get(s.studentId());
+            int count = stat != null ? stat[0] : 0;
+            String status = stat != null ? PpaRepository.statusLabel(stat[1]) : "WAITING";
+            return new AdminStudentResponse(
+                    s.studentId(),
+                    s.fullName(),
+                    s.email(),
+                    s.universityName(),
+                    s.departmentId(),
+                    s.studyFieldId(),
+                    s.studyYear(),
+                    s.cgpa(),
+                    s.studyFieldName(),
+                    s.departmentName(),
+                    count,
+                    status
+            );
+        }).toList();
     }
 
     public List<AdminPpaResponse> listPpas(UserAccount user) {
@@ -326,6 +377,208 @@ public class UniversityAdminService {
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
+    }
+
+    public PpaCsvImportResult importPpaFile(UserAccount user, MultipartFile file,
+                                              String nameCol, String emailCol,
+                                              String deptCol, String fieldCol) {
+        requireAdmin(user);
+        int universityId = parseUniversityId(user);
+
+        String filename = file.getOriginalFilename();
+        boolean isExcel = filename != null &&
+                (filename.toLowerCase().endsWith(".xlsx") || filename.toLowerCase().endsWith(".xls"));
+
+        List<Map<String, String>> rows;
+        if (isExcel) {
+            rows = parseExcelRows(file);
+        } else {
+            rows = parseCsvRows(file);
+        }
+
+        List<AdminDepartmentResponse> allDepts = universityAdminRepository.listDepartmentsForUniversity(universityId);
+        List<AdminStudyFieldResponse> allFields = universityAdminRepository.listStudyFieldsForUniversity(universityId, null);
+
+        Map<String, Integer> deptNameToId = new LinkedHashMap<>();
+        for (AdminDepartmentResponse d : allDepts) {
+            deptNameToId.put(d.name().trim().toLowerCase(), d.departmentId());
+        }
+        Map<String, AdminStudyFieldResponse> fieldNameToObj = new LinkedHashMap<>();
+        for (AdminStudyFieldResponse f : allFields) {
+            fieldNameToObj.put(f.name().trim().toLowerCase(), f);
+        }
+
+        String nameKey = nameCol.trim().toLowerCase();
+        String emailKey = emailCol.trim().toLowerCase();
+        String deptKey = deptCol.trim().toLowerCase();
+        String fieldKey = fieldCol.trim().toLowerCase();
+
+        int created = 0;
+        int failed = 0;
+        List<String> errors = new ArrayList<>();
+
+        for (int i = 0; i < rows.size(); i++) {
+            int rowNum = i + 2;
+            Map<String, String> row = rows.get(i);
+            try {
+                String fullName = row.getOrDefault(nameKey, "").trim();
+                String email = row.getOrDefault(emailKey, "").trim();
+                String deptName = row.getOrDefault(deptKey, "").trim();
+                String fieldName = row.getOrDefault(fieldKey, "").trim();
+
+                if (fullName.isBlank()) {
+                    errors.add("Row " + rowNum + ": Name is empty.");
+                    failed++;
+                    continue;
+                }
+                if (email.isBlank()) {
+                    errors.add("Row " + rowNum + ": Email is empty.");
+                    failed++;
+                    continue;
+                }
+                if (deptName.isBlank()) {
+                    errors.add("Row " + rowNum + ": Department is empty.");
+                    failed++;
+                    continue;
+                }
+                Integer departmentId = deptNameToId.get(deptName.toLowerCase());
+                if (departmentId == null) {
+                    errors.add("Row " + rowNum + ": Department \"" + deptName + "\" not found.");
+                    failed++;
+                    continue;
+                }
+                if (fieldName.isBlank()) {
+                    errors.add("Row " + rowNum + ": Study Field is empty.");
+                    failed++;
+                    continue;
+                }
+
+                List<Integer> studyFieldIds = new ArrayList<>();
+                for (String part : fieldName.split("[;,]")) {
+                    String sfName = part.trim();
+                    if (sfName.isEmpty()) continue;
+                    AdminStudyFieldResponse sf = fieldNameToObj.get(sfName.toLowerCase());
+                    if (sf == null) {
+                        errors.add("Row " + rowNum + ": Study field \"" + sfName + "\" not found.");
+                        failed++;
+                        continue;
+                    }
+                    if (sf.departmentId() != departmentId.intValue()) {
+                        errors.add("Row " + rowNum + ": Study field \"" + sfName + "\" does not belong to department \"" + deptName + "\".");
+                        failed++;
+                        continue;
+                    }
+                    studyFieldIds.add(sf.fieldId());
+                }
+                if (studyFieldIds.isEmpty()) continue;
+
+                AdminPpaCreateRequest createReq = new AdminPpaCreateRequest(
+                        fullName, email.toLowerCase(), departmentId, studyFieldIds);
+                try {
+                    createPpa(user, createReq);
+                    created++;
+                } catch (ResponseStatusException e) {
+                    errors.add("Row " + rowNum + ": " + e.getReason());
+                    failed++;
+                }
+            } catch (Exception e) {
+                errors.add("Row " + rowNum + ": " + e.getMessage());
+                failed++;
+            }
+        }
+
+        return new PpaCsvImportResult(created, 0, failed, errors);
+    }
+
+    private static List<Map<String, String>> parseCsvRows(MultipartFile file) {
+        try (Reader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8);
+             CSVParser parser = CSVFormat.DEFAULT
+                     .builder()
+                     .setHeader()
+                     .setSkipHeaderRecord(true)
+                     .setIgnoreHeaderCase(true)
+                     .setTrim(true)
+                     .build()
+                     .parse(reader)) {
+            List<Map<String, String>> result = new ArrayList<>();
+            for (CSVRecord record : parser.getRecords()) {
+                Map<String, String> row = new LinkedHashMap<>();
+                record.toMap().forEach((k, v) -> row.put(k.trim().toLowerCase(), v != null ? v.trim() : ""));
+                result.add(row);
+            }
+            return result;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Could not parse CSV file: " + e.getMessage());
+        }
+    }
+
+    private static List<Map<String, String>> parseExcelRows(MultipartFile file) {
+        try (InputStream is = file.getInputStream();
+             Workbook workbook = WorkbookFactory.create(is)) {
+            Sheet sheet = workbook.getSheetAt(0);
+            if (sheet == null || sheet.getPhysicalNumberOfRows() < 2) {
+                return List.of();
+            }
+            Row headerRow = sheet.getRow(0);
+            if (headerRow == null) {
+                return List.of();
+            }
+            List<String> headers = new ArrayList<>();
+            for (int c = 0; c < headerRow.getLastCellNum(); c++) {
+                Cell cell = headerRow.getCell(c);
+                headers.add(cell != null ? cellToString(cell).trim().toLowerCase() : "");
+            }
+
+            List<Map<String, String>> result = new ArrayList<>();
+            for (int r = 1; r <= sheet.getLastRowNum(); r++) {
+                Row row = sheet.getRow(r);
+                if (row == null) continue;
+                boolean allBlank = true;
+                Map<String, String> rowMap = new LinkedHashMap<>();
+                for (int c = 0; c < headers.size(); c++) {
+                    Cell cell = row.getCell(c);
+                    String value = cell != null ? cellToString(cell).trim() : "";
+                    if (!value.isEmpty()) allBlank = false;
+                    rowMap.put(headers.get(c), value);
+                }
+                if (!allBlank) result.add(rowMap);
+            }
+            return result;
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Could not parse Excel file: " + e.getMessage());
+        }
+    }
+
+    private static String cellToString(Cell cell) {
+        if (cell == null) return "";
+        if (cell.getCellType() == CellType.NUMERIC) {
+            double d = cell.getNumericCellValue();
+            if (d == Math.floor(d) && !Double.isInfinite(d)) {
+                return String.valueOf((long) d);
+            }
+            return String.valueOf(d);
+        }
+        if (cell.getCellType() == CellType.BOOLEAN) {
+            return String.valueOf(cell.getBooleanCellValue());
+        }
+        if (cell.getCellType() == CellType.FORMULA) {
+            try {
+                return cell.getStringCellValue();
+            } catch (Exception e) {
+                try {
+                    double d = cell.getNumericCellValue();
+                    if (d == Math.floor(d) && !Double.isInfinite(d)) return String.valueOf((long) d);
+                    return String.valueOf(d);
+                } catch (Exception e2) {
+                    return "";
+                }
+            }
+        }
+        return cell.getStringCellValue() != null ? cell.getStringCellValue() : "";
     }
 
     public AdminStudentResponse createStudent(UserAccount user, AdminStudentCreateRequest body) {

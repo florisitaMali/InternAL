@@ -65,12 +65,21 @@ export interface Student extends User {
   university: string;
   departmentName?: string;
   studyFieldName?: string;
+  /** Set when row comes from admin/PPA student list (application aggregates). */
+  applicationStatus?: string | null;
+  applicationCount?: number | null;
   phone?: string;
   studyYear: number;
   cgpa: number;
   hasCompletedPP: boolean;
   /** When false, application type is fixed to individual growth (no PP choice in the form). */
   canApplyForPP?: boolean;
+  /** Unlocks full Premium features (e.g. Best Matches) when true. */
+  hasPremium?: boolean;
+  /** Last known Stripe subscription status (e.g. active, canceled). */
+  premiumSubscriptionStatus?: string | null;
+  /** ISO timestamp for current billing period end from Stripe. */
+  premiumCurrentPeriodEnd?: string | null;
   accessStartDate?: string;
   accessEndDate?: string;
   /** Public or signed URL from `studentprofile.photo`. */

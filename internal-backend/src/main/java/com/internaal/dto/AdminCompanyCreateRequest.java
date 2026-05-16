@@ -1,13 +1,15 @@
 package com.internaal.dto;
 
-public record AdminUniversityUpdateRequest(
+public record AdminCompanyCreateRequest(
         String name,
+        String email,
+        String industry,
         String location,
         String description,
         String website,
-        Integer founded,
+        Integer foundedYear,
+        Integer employeeCount,
         String specialties,
-        Integer numberOfEmployees,
         String logoUrl,
         String coverUrl
 ) {

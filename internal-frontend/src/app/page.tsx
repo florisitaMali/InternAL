@@ -13,6 +13,7 @@ import LoginPage from '@/src/components/LoginPage';
 import ForgotPasswordPage from '@/src/components/ForgotPasswordPage';
 import { toast } from 'sonner';
 import { clearSupabaseAuthStorage, getSupabaseBrowserClient } from '@/src/lib/supabase/client';
+import { PREMIUM_STUDENT_PROFILE_KEY } from '@/src/lib/auth/getSessionAccessToken';
 import { loadCurrentAppUser } from '@/src/lib/auth/userAccount';
 import { messageFromUnknown, toError } from '@/src/lib/messageFromUnknown';
 import UrlStudentTabSync from '@/src/components/UrlStudentTabSync';
@@ -223,13 +224,26 @@ export default function Home() {
     };
   }, []);
 
+  /** Merge refreshed student profile after returning from `/premium` checkout (static export friendly). */
+  useEffect(() => {
+    if (!isLoggedIn || role !== 'STUDENT') return;
+    if (typeof window === 'undefined') return;
+    const raw = sessionStorage.getItem(PREMIUM_STUDENT_PROFILE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Student;
+      sessionStorage.removeItem(PREMIUM_STUDENT_PROFILE_KEY);
+      setCurrentStudent(parsed);
+      toast.success('Premium is active.');
+    } catch {
+      sessionStorage.removeItem(PREMIUM_STUDENT_PROFILE_KEY);
+    }
+  }, [isLoggedIn, role]);
+
   useEffect(() => {
     if (!isLoggedIn) return;
     if ((role === 'STUDENT' || role === 'COMPANY') && activeTab === 'dashboard') {
       setActiveTab('opportunities');
-    }
-    if (role === 'SYSTEM_ADMIN' && activeTab === 'dashboard') {
-      setActiveTab('universities');
     }
   }, [isLoggedIn, role, activeTab]);
 
@@ -238,6 +252,12 @@ export default function Home() {
     if (activeTab !== 'notifications') return;
     if (role === 'STUDENT') setActiveTab('opportunities');
     else if (role === 'PPA') setActiveTab('dashboard');
+  }, [activeTab, role]);
+
+  /** Applications tab removed for university admins. */
+  useEffect(() => {
+    if (role !== 'UNIVERSITY_ADMIN' || activeTab !== 'applications') return;
+    setActiveTab('dashboard');
   }, [activeTab, role]);
 
   const handleLogin = (
@@ -332,6 +352,7 @@ export default function Home() {
             currentUserName={currentUserName}
             currentUserRoleLabel={roleLabel}
             currentStudent={currentStudent}
+            accessToken={accessToken}
             onToggleSidebar={handleToggleSidebar}
             onNavigateTab={setActiveTab}
             onCloseSidebar={closeSidebar}

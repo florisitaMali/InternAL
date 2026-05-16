@@ -519,11 +519,13 @@ export function mapAdminStudentToStudent(row: AdminStudentRow): Student {
     university: row.universityName || '',
     departmentId,
     studyFieldId,
-    departmentName: departmentName ?? departmentId,
-    studyFieldName: studyFieldName ?? studyFieldId,
+    departmentName,
+    studyFieldName,
     studyYear: row.studyYear ?? 1,
     cgpa: row.cgpa ?? 0,
     hasCompletedPP: false,
+    applicationCount: row.applicationCount ?? undefined,
+    applicationStatus: row.applicationStatus ?? undefined,
   };
 }
 
@@ -871,6 +873,59 @@ export async function deleteAdminPpa(
   ppaId: string
 ): Promise<{ errorMessage: string | null }> {
   return deleteJson(`/api/admin/ppas/${encodeURIComponent(ppaId)}`, accessToken);
+}
+
+export type PpaCsvImportResult = {
+  created: number;
+  updated: number;
+  failed: number;
+  errors: string[];
+};
+
+export type PpaImportMapping = {
+  nameColumn: string;
+  emailColumn: string;
+  departmentColumn: string;
+  studyFieldColumn: string;
+};
+
+export async function importAdminPpaCsv(
+  accessToken: string,
+  file: File,
+  mapping: PpaImportMapping
+): Promise<{ data: PpaCsvImportResult | null; errorMessage: string | null }> {
+  const t = await bearerForMutation(accessToken);
+  if (!t) {
+    return { data: null, errorMessage: 'Not signed in.' };
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('nameColumn', mapping.nameColumn);
+  formData.append('emailColumn', mapping.emailColumn);
+  formData.append('departmentColumn', mapping.departmentColumn);
+  formData.append('studyFieldColumn', mapping.studyFieldColumn);
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/ppas/import-csv`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, Accept: 'application/json' },
+      body: formData,
+      cache: 'no-store',
+    });
+    const raw = await response.text();
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!response.ok) {
+      let msg = `Request failed with status ${response.status}`;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const p = parsed as Record<string, unknown>;
+        const e = p.error ?? p.message;
+        if (typeof e === 'string' && e.trim()) msg = e.trim();
+      }
+      return { data: null, errorMessage: msg };
+    }
+    return { data: parsed as PpaCsvImportResult, errorMessage: null };
+  } catch (e) {
+    return { data: null, errorMessage: e instanceof Error ? e.message : 'Request failed' };
+  }
 }
 
 export function mapApplicationResponseToApplication(row: ApplicationResponse): Application {

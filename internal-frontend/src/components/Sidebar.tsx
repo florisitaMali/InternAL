@@ -3,6 +3,7 @@
 import React from 'react';
 import {
   LayoutDashboard,
+  BarChart3,
   Users,
   User,
   Building2,
@@ -36,7 +37,6 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'ppa', label: 'PP Approvers', icon: GraduationCap },
       { id: 'academic', label: 'Academic Structure', icon: BookOpen },
       { id: 'opportunities', label: 'Opportunities', icon: Briefcase },
-      { id: 'applications', label: 'Applications', icon: FileText },
     ],
     PPA: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -55,8 +55,10 @@ const Sidebar: React.FC<SidebarProps> = ({ role, activeTab, setActiveTab, onLogo
       { id: 'profile', label: 'Company Profile', icon: Building2 },
     ],
     SYSTEM_ADMIN: [
+      { id: 'dashboard', label: 'Analytics', icon: BarChart3 },
       { id: 'admins', label: 'System Admins', icon: User },
       { id: 'universities', label: 'Universities', icon: Briefcase },
+      { id: 'companies', label: 'Companies', icon: Building2 },
       { id: 'audit', label: 'Audit Log', icon: FileText },
     ],
   };

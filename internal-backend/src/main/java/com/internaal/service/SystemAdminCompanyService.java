@@ -1,12 +1,12 @@
 package com.internaal.service;
 
-import com.internaal.dto.AdminUniversityCreateRequest;
-import com.internaal.dto.AdminUniversityListResponse;
-import com.internaal.dto.AdminUniversityResponse;
-import com.internaal.dto.AdminUniversityUpdateRequest;
+import com.internaal.dto.AdminCompanyCreateRequest;
+import com.internaal.dto.AdminCompanyListResponse;
+import com.internaal.dto.AdminCompanyResponse;
+import com.internaal.dto.AdminCompanyUpdateRequest;
 import com.internaal.entity.Role;
 import com.internaal.entity.UserAccount;
-import com.internaal.repository.SystemAdminUniversityRepository;
+import com.internaal.repository.SystemAdminCompanyRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -16,110 +16,112 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 @Service
-public class SystemAdminUniversityService {
+public class SystemAdminCompanyService {
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile(".+@.+\\..+");
     private static final int NAME_MAX = 200;
+    private static final int INDUSTRY_MAX = 200;
     private static final int LOCATION_MAX = 200;
     private static final int WEBSITE_MAX = 500;
     private static final int FOUNDED_MIN = 1800;
 
-    private final SystemAdminUniversityRepository repository;
+    private final SystemAdminCompanyRepository repository;
 
-    public SystemAdminUniversityService(SystemAdminUniversityRepository repository) {
+    public SystemAdminCompanyService(SystemAdminCompanyRepository repository) {
         this.repository = repository;
     }
 
-    public AdminUniversityListResponse listUniversities(UserAccount user) {
+    public AdminCompanyListResponse listCompanies(UserAccount user) {
         requireSystemAdmin(user);
-        List<AdminUniversityResponse> items = repository.listUniversitiesWithAdminActiveFlag();
-        int active = (int) items.stream().filter(AdminUniversityResponse::isActive).count();
+        List<AdminCompanyResponse> items = repository.listCompaniesWithAccountAndDeps();
+        int active = (int) items.stream().filter(AdminCompanyResponse::isActive).count();
         int inactive = items.size() - active;
-        return new AdminUniversityListResponse(items, items.size(), active, inactive);
+        return new AdminCompanyListResponse(items, items.size(), active, inactive);
     }
 
-    public AdminUniversityResponse createUniversity(UserAccount user, AdminUniversityCreateRequest body) {
+    public AdminCompanyResponse createCompany(UserAccount user, AdminCompanyCreateRequest body) {
         requireSystemAdmin(user);
         if (body == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required");
         }
         validateName(body.name());
         validateEmail(body.email(), true);
-        validateProfileFields(body.location(), body.website(), body.founded(), body.numberOfEmployees());
+        validateProfileFields(body.industry(), body.location(), body.website(), body.foundedYear(), body.employeeCount());
         if (repository.emailExistsInUserAccount(body.email())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A user with this email already exists.");
         }
         try {
-            return repository.createUniversity(body);
+            return repository.createCompany(body);
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
             String userMessage = e.getMessage() == null || e.getMessage().isBlank()
-                    ? "Could not create university. Please try again."
+                    ? "Could not create company. Please try again."
                     : e.getMessage();
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, userMessage);
         }
     }
 
-    public AdminUniversityResponse updateUniversity(UserAccount user, int universityId, AdminUniversityUpdateRequest body) {
+    public AdminCompanyResponse updateCompany(UserAccount user, int companyId, AdminCompanyUpdateRequest body) {
         requireSystemAdmin(user);
         if (body == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required");
         }
         validateName(body.name());
-        validateProfileFields(body.location(), body.website(), body.founded(), body.numberOfEmployees());
+        validateProfileFields(body.industry(), body.location(), body.website(), body.foundedYear(), body.employeeCount());
         try {
-            return repository.updateUniversity(universityId, body)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "University not found."));
+            return repository.updateCompany(companyId, body)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found."));
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
             String userMessage = e.getMessage() == null || e.getMessage().isBlank()
-                    ? "Could not update university. Please try again."
+                    ? "Could not update company. Please try again."
                     : e.getMessage();
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, userMessage);
         }
     }
 
-    public AdminUniversityResponse setStatus(UserAccount user, int universityId, Boolean isActive) {
+    public AdminCompanyResponse setStatus(UserAccount user, int companyId, Boolean isActive) {
         requireSystemAdmin(user);
         if (isActive == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "isActive is required");
         }
-        boolean ok = repository.setUniversityActive(universityId, isActive);
+        boolean ok = repository.setCompanyActive(companyId, isActive);
         if (!ok) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "This university has no admin account, so its status cannot be changed.");
+                    "This company has no account, so its status cannot be changed.");
         }
-        return repository.findById(universityId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "University not found."));
+        return repository.findById(companyId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found."));
     }
 
     /**
-     * Hard-delete the university and its admin account. Refuses with 409 if any department
-     * or student references the university; the AC requires deactivation in that case.
+     * Hard-delete the company and its account. Refuses with 409 if any dependent
+     * opportunity or application row references the company; the AC requires
+     * deactivation in that case instead.
      */
-    public void deleteUniversity(UserAccount user, int universityId) {
+    public void deleteCompany(UserAccount user, int companyId) {
         requireSystemAdmin(user);
-        if (repository.findById(universityId).isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "University not found.");
+        if (repository.findById(companyId).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found.");
         }
-        int[] counts = repository.countDependents(universityId);
-        int deptCount = counts[0];
-        int studentCount = counts[1];
-        // OR: any single dependency type blocks hard-delete.
-        if (deptCount > 0 || studentCount > 0) {
+        int[] counts = repository.countDependents(companyId);
+        int oppCount = counts[0];
+        int appCount = counts[1];
+        int fbCount = counts[2];
+        if (oppCount + appCount + fbCount > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "University has dependent records (" + deptCount + " departments, "
-                            + studentCount + " students). Deactivate instead.");
+                    "Company has dependent records (" + oppCount + " opportunities, " + appCount
+                            + " applications, " + fbCount + " feedback). Deactivate instead.");
         }
         try {
-            repository.deleteUniversity(universityId);
+            repository.deleteCompany(companyId);
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
             String userMessage = e.getMessage() == null || e.getMessage().isBlank()
-                    ? "Could not delete the university. Please try again."
+                    ? "Could not delete the company. Please try again."
                     : e.getMessage();
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, userMessage);
         }
@@ -148,22 +150,26 @@ public class SystemAdminUniversityService {
         }
     }
 
-    private static void validateProfileFields(String location, String website, Integer founded, Integer numberOfEmployees) {
+    private static void validateProfileFields(String industry, String location, String website,
+                                              Integer foundedYear, Integer employeeCount) {
+        if (industry != null && industry.length() > INDUSTRY_MAX) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "industry must be at most " + INDUSTRY_MAX + " characters");
+        }
         if (location != null && location.length() > LOCATION_MAX) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "location must be at most " + LOCATION_MAX + " characters");
         }
         if (website != null && website.length() > WEBSITE_MAX) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "website must be at most " + WEBSITE_MAX + " characters");
         }
-        if (founded != null) {
+        if (foundedYear != null) {
             int currentYear = Year.now().getValue();
-            if (founded < FOUNDED_MIN || founded > currentYear + 1) {
+            if (foundedYear < FOUNDED_MIN || foundedYear > currentYear + 1) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "founded must be between " + FOUNDED_MIN + " and " + (currentYear + 1));
+                        "foundedYear must be between " + FOUNDED_MIN + " and " + (currentYear + 1));
             }
         }
-        if (numberOfEmployees != null && numberOfEmployees < 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "numberOfEmployees must be >= 0");
+        if (employeeCount != null && employeeCount < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "employeeCount must be >= 0");
         }
     }
 
